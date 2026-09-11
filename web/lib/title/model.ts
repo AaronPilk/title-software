@@ -5,11 +5,15 @@ import {
   type ReplyDraft,
   type SourceRole,
 } from "./production";
+import { enrichBusiness, type BusinessState } from "./business";
 export type Page =
   | "Overview"
   | "Inbox"
   | "Orders"
   | "Policy workbench"
+  | "Commitments"
+  | "Policy products"
+  | "Handoffs"
   | "Revisions"
   | "Companies"
   | "Onboarding"
@@ -62,6 +66,13 @@ export type Field = {
   confidence: string;
 };
 export type Order = {
+  receivedAt?: string;
+  outcomes?: {
+    kind: "Rejected" | "Recovered" | "Closing recorded";
+    date: string;
+    note: string;
+    actor: string;
+  }[];
   production?: TitleFile;
   id: string;
   companyId: string;
@@ -83,6 +94,12 @@ export type Order = {
   exception: string;
 };
 export type VaultDoc = {
+  policyId?: string;
+  policyVersion?: number;
+  commitmentVersion?: number;
+  cplId?: string;
+  cplVersion?: number;
+  preparationFingerprint?: string;
   parentDocumentId?: string;
   productionVersion?: number;
   sourceRole?: SourceRole;
@@ -109,7 +126,10 @@ export type Task = {
   priority: "High" | "Normal";
 };
 export type Mail = {
-  kind?: "Revision" | "Finals" | "Company";
+  sourceReference?: string;
+  kind?: "Revision" | "Finals" | "Company" | "Commitment";
+  companyId?: string;
+  documentIds?: string[];
   id: string;
   from: string;
   email: string;
@@ -138,6 +158,7 @@ export type Rule = {
   lastRun: string;
 };
 export type Workspace = {
+  business?: BusinessState;
   revisions: RevisionRequest[];
   replyDrafts: ReplyDraft[];
   version: 1;
@@ -563,159 +584,161 @@ export function createSeed(): Workspace {
     version: 1,
     text: "FICTIONAL REVIEW EXCERPT — NOT A RECORDED INSTRUMENT\n\nProperty: 284 Maple Avenue\nGrantee: Alex Taylor Morgan, a single person\nRecorded: September 9, 2026 at 2:43 PM\nBook: 1842   Page: 316\nTrustee (separate deed of trust): Jordan Ellis, Trustee\n\nAll text is synthetic and supplied only to demonstrate document comparison.",
   });
-  return enrichWorkspace({
-    revisions: [],
-    replyDrafts: [],
-    version: 1,
-    companies,
-    orders,
-    documents,
-    user: "Stephenie",
-    approvedReports: [],
-    expenses: {},
-    expansionStates: [],
-    tasks: [
-      {
-        id: "task1",
-        title: "Review final-policy changes",
-        companyId: "c1",
-        owner: "Tyler",
-        due: "2026-09-11",
-        done: false,
-        priority: "High",
-      },
-      {
-        id: "task2",
-        title: "Request a clearer recording stamp",
-        companyId: "c2",
-        owner: "Tyler",
-        due: "2026-09-11",
-        done: false,
-        priority: "High",
-      },
-      {
-        id: "task3",
-        title: "Complete licensing review",
-        companyId: "c3",
-        owner: "John",
-        due: "2026-09-12",
-        done: false,
-        priority: "Normal",
-      },
-      {
-        id: "task4",
-        title: "Collect formation documents",
-        companyId: "c4",
-        owner: "Stephenie",
-        due: "2026-09-14",
-        done: false,
-        priority: "Normal",
-      },
-      {
-        id: "task5",
-        title: "Prepare September reconciliation",
-        companyId: "c1",
-        owner: "John",
-        due: "2026-09-30",
-        done: false,
-        priority: "Normal",
-      },
-    ],
-    inbox: [
-      {
-        id: "m1",
-        from: "Morgan & Reed Law",
-        email: "closings@example.com",
-        subject: "Final documents · T-2026-1048",
-        body: "Hi Tyler,\n\nPlease find the final recorded deed and deed of trust for 284 Maple Avenue. Please confirm the recording information and prepare the final policy for review.\n\nThank you,\nMorgan & Reed closing team",
-        time: "9:42 AM",
-        orderId: "T-2026-1048",
-        status: "New",
-        attachments: [
-          "Recorded deed — sample.txt",
-          "Deed of trust — sample excerpt",
-        ],
-      },
-      {
-        id: "m2",
-        from: "Westfield Legal",
-        email: "team@example.com",
-        subject: "Recording copy · T-2026-1047",
-        body: "Hello,\n\nThe recorded document for 912 Harbor Lane is attached. The lower-right corner of the stamp may be difficult to read. Please let us know if another copy is needed.\n\nWestfield Legal",
-        time: "9:18 AM",
-        orderId: "T-2026-1047",
-        status: "New",
-        attachments: ["Recording stamp — sample excerpt"],
-      },
-      {
-        id: "m3",
-        from: "Olivia Chen",
-        email: "olivia@example.com",
-        subject: "Summit Closing Co. — EIN documents",
-        body: "Hi Stephenie,\n\nThe sample company formation and EIN materials are ready. Please add these to our onboarding file and confirm the next steps.\n\nOlivia",
-        time: "Yesterday",
-        orderId: "",
-        status: "New",
-        attachments: ["EIN checklist — sample.txt"],
-      },
-    ],
-    activity: [
-      {
-        id: "a1",
-        title: "Final documents received",
-        detail: "284 Maple Avenue · ready for Tyler",
-        at: "2026-09-11T09:42:00",
-        actor: "Tyler",
-      },
-      {
-        id: "a2",
-        title: "Summit formation completed",
-        detail: "Stephenie completed company formation",
-        at: "2026-09-11T09:15:00",
-        actor: "Stephenie",
-      },
-      {
-        id: "a3",
-        title: "Policy ready for jacket",
-        detail: "56 Willow Court · John completed review",
-        at: "2026-09-10T16:40:00",
-        actor: "John",
-      },
-    ],
-    rules: [
-      {
-        id: "intake",
-        name: "Prepare incoming policy requests",
-        description:
-          "Match known order numbers and place requests in the review queue.",
-        trigger: "New policy email",
-        action: "Queue for review",
-        enabled: true,
-        runs: 0,
-        lastRun: "Never",
-      },
-      {
-        id: "onboarding",
-        name: "Keep onboarding moving",
-        description:
-          "Create a task for the next incomplete step for every onboarding company.",
-        trigger: "Onboarding check",
-        action: "Assign next step",
-        enabled: true,
-        runs: 0,
-        lastRun: "Never",
-      },
-      {
-        id: "exceptions",
-        name: "Follow up on rejected orders",
-        description:
-          "Create a review task so the company can understand lost business.",
-        trigger: "Rejected order",
-        action: "Create follow-up",
-        enabled: false,
-        runs: 0,
-        lastRun: "Never",
-      },
-    ],
-  });
+  return enrichBusiness(
+    enrichWorkspace({
+      revisions: [],
+      replyDrafts: [],
+      version: 1,
+      companies,
+      orders,
+      documents,
+      user: "Stephenie",
+      approvedReports: [],
+      expenses: {},
+      expansionStates: [],
+      tasks: [
+        {
+          id: "task1",
+          title: "Review final-policy changes",
+          companyId: "c1",
+          owner: "Tyler",
+          due: "2026-09-11",
+          done: false,
+          priority: "High",
+        },
+        {
+          id: "task2",
+          title: "Request a clearer recording stamp",
+          companyId: "c2",
+          owner: "Tyler",
+          due: "2026-09-11",
+          done: false,
+          priority: "High",
+        },
+        {
+          id: "task3",
+          title: "Complete licensing review",
+          companyId: "c3",
+          owner: "John",
+          due: "2026-09-12",
+          done: false,
+          priority: "Normal",
+        },
+        {
+          id: "task4",
+          title: "Collect formation documents",
+          companyId: "c4",
+          owner: "Stephenie",
+          due: "2026-09-14",
+          done: false,
+          priority: "Normal",
+        },
+        {
+          id: "task5",
+          title: "Prepare September reconciliation",
+          companyId: "c1",
+          owner: "John",
+          due: "2026-09-30",
+          done: false,
+          priority: "Normal",
+        },
+      ],
+      inbox: [
+        {
+          id: "m1",
+          from: "Morgan & Reed Law",
+          email: "closings@example.com",
+          subject: "Final documents · T-2026-1048",
+          body: "Hi Tyler,\n\nPlease find the final recorded deed and deed of trust for 284 Maple Avenue. Please confirm the recording information and prepare the final policy for review.\n\nThank you,\nMorgan & Reed closing team",
+          time: "9:42 AM",
+          orderId: "T-2026-1048",
+          status: "New",
+          attachments: [
+            "Recorded deed — sample.txt",
+            "Deed of trust — sample excerpt",
+          ],
+        },
+        {
+          id: "m2",
+          from: "Westfield Legal",
+          email: "team@example.com",
+          subject: "Recording copy · T-2026-1047",
+          body: "Hello,\n\nThe recorded document for 912 Harbor Lane is attached. The lower-right corner of the stamp may be difficult to read. Please let us know if another copy is needed.\n\nWestfield Legal",
+          time: "9:18 AM",
+          orderId: "T-2026-1047",
+          status: "New",
+          attachments: ["Recording stamp — sample excerpt"],
+        },
+        {
+          id: "m3",
+          from: "Olivia Chen",
+          email: "olivia@example.com",
+          subject: "Summit Closing Co. — EIN documents",
+          body: "Hi Stephenie,\n\nThe sample company formation and EIN materials are ready. Please add these to our onboarding file and confirm the next steps.\n\nOlivia",
+          time: "Yesterday",
+          orderId: "",
+          status: "New",
+          attachments: ["EIN checklist — sample.txt"],
+        },
+      ],
+      activity: [
+        {
+          id: "a1",
+          title: "Final documents received",
+          detail: "284 Maple Avenue · ready for Tyler",
+          at: "2026-09-11T09:42:00",
+          actor: "Tyler",
+        },
+        {
+          id: "a2",
+          title: "Summit formation completed",
+          detail: "Stephenie completed company formation",
+          at: "2026-09-11T09:15:00",
+          actor: "Stephenie",
+        },
+        {
+          id: "a3",
+          title: "Policy ready for jacket",
+          detail: "56 Willow Court · John completed review",
+          at: "2026-09-10T16:40:00",
+          actor: "John",
+        },
+      ],
+      rules: [
+        {
+          id: "intake",
+          name: "Prepare incoming policy requests",
+          description:
+            "Match known order numbers and place requests in the review queue.",
+          trigger: "New policy email",
+          action: "Queue for review",
+          enabled: true,
+          runs: 0,
+          lastRun: "Never",
+        },
+        {
+          id: "onboarding",
+          name: "Keep onboarding moving",
+          description:
+            "Create a task for the next incomplete step for every onboarding company.",
+          trigger: "Onboarding check",
+          action: "Assign next step",
+          enabled: true,
+          runs: 0,
+          lastRun: "Never",
+        },
+        {
+          id: "exceptions",
+          name: "Follow up on rejected orders",
+          description:
+            "Create a review task so the company can understand lost business.",
+          trigger: "Rejected order",
+          action: "Create follow-up",
+          enabled: false,
+          runs: 0,
+          lastRun: "Never",
+        },
+      ],
+    }),
+  );
 }

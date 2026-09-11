@@ -1,4 +1,6 @@
 "use client";
+import { IntakeCapture } from "./intake-capture";
+import { UploadDocument, DocumentPreview } from "./documents";
 import { useState } from "react";
 import {
   Archive,
@@ -51,25 +53,43 @@ import { executeRules } from "@/lib/title/engine";
 export function InboxView({
   onReview,
   onRevision,
+  onCommitment,
 }: {
   onReview: (id: string) => void;
   onRevision: (id: string) => void;
+  onCommitment: (id: string) => void;
 }) {
   const { s, update } = useWorkspace();
+  const [capture, setCapture] = useState(false);
+  const [routing, setRouting] = useState(false);
+  const [uploadFile, setUploadFile] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState("");
   const [selected, setSelected] = useState(s.inbox[0]?.id || "");
   const [filter, setFilter] = useState("All messages");
   const [draft, setDraft] = useState<string | null>(null);
   const [company, setCompany] = useState("c3");
   const [msgOrder, setMsgOrder] = useState("");
   const m = s.inbox.find((x) => x.id === selected);
+  const filingCompany = m?.companyId || company;
   const rows = s.inbox.filter(
     (x) => filter === "All messages" || x.status === filter,
   );
-  const linked = m
-    ? s.orders.find((o) => o.id === (msgOrder || m.orderId))
-    : null;
+  const linked = m ? s.orders.find((o) => o.id === m.orderId) : null;
   function queue() {
     if (!m || !linked) return;
+    if (m.kind === "Commitment") {
+      update(
+        (d) => {
+          const mail = d.inbox.find((x) => x.id === m.id)!;
+          mail.orderId = linked.id;
+          mail.status = "Queued";
+        },
+        "Commitment intake queued",
+        linked.id,
+      );
+      onCommitment(linked.id);
+      return;
+    }
     if (m.kind === "Revision") {
       update((d) => {
         d.inbox.find((x) => x.id === m.id)!.orderId = linked.id;
@@ -97,6 +117,10 @@ export function InboxView({
         title="Inbox"
         description="Turn incoming requests into the next right action."
       >
+        <Button onClick={() => setCapture(true)}>
+          <Plus />
+          Capture request
+        </Button>
         <span className="subtle-pill">
           <Mail size={14} />
           Demo mailbox
@@ -164,7 +188,38 @@ export function InboxView({
                   <Archive />
                 </Button>
               </div>
+              <div className="source-actions">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRouting(true)}
+                >
+                  Route / link attachments
+                </Button>
+                {linked && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setUploadFile(true)}
+                  >
+                    Upload to file
+                  </Button>
+                )}
+              </div>
               <pre className="message-text">{m.body}</pre>
+              {m.documentIds?.map((id) => {
+                const doc = s.documents.find((d) => d.id === id);
+                return doc ? (
+                  <Button
+                    key={id}
+                    variant="outline"
+                    onClick={() => setPreviewDoc(id)}
+                  >
+                    <FileText />
+                    {doc.name}
+                  </Button>
+                ) : null;
+              })}
               <div className="attachments">
                 {m.attachments.map((name) => (
                   <div key={name}>
@@ -197,19 +252,10 @@ export function InboxView({
               </div>
               {m.orderId ? (
                 <>
-                  <Picker
-                    value={msgOrder || m.orderId}
-                    onChange={setMsgOrder}
-                    label="Match request to order"
-                    options={s.orders
-                      .filter(
-                        (o) => !linked || o.companyId === linked.companyId,
-                      )
-                      .map((o) => ({
-                        value: o.id,
-                        label: `${o.id} · ${o.address}`,
-                      }))}
-                  />
+                  <p className="inline-note">
+                    Destination: {linked?.id} · {linked?.address}. Use “Route /
+                    link attachments” to change it.
+                  </p>
                   <div className="message-actions">
                     <Button
                       disabled={m.status === "Queued" && m.kind !== "Revision"}
@@ -244,8 +290,24 @@ export function InboxView({
               ) : (
                 <>
                   <Picker
-                    value={company}
-                    onChange={setCompany}
+                    value={filingCompany}
+                    onChange={(value) => {
+                      setCompany(value);
+                      update((d) => {
+                        const mail = d.inbox.find((x) => x.id === m.id)!;
+                        if (
+                          (mail.documentIds || []).some(
+                            (id) =>
+                              d.documents.find((doc) => doc.id === id)
+                                ?.companyId !== value,
+                          )
+                        )
+                          throw new Error(
+                            "Route attachments with their company before filing.",
+                          );
+                        mail.companyId = value;
+                      });
+                    }}
                     label="File message to company"
                     options={s.companies.map((c) => ({
                       value: c.id,
@@ -260,7 +322,7 @@ export function InboxView({
                           (d) => {
                             d.documents.unshift({
                               id: uid("doc"),
-                              companyId: company,
+                              companyId: filingCompany,
                               name: `Correspondence — ${m.from}.txt`,
                               category: "Company records",
                               visibility: "Internal",
@@ -312,6 +374,35 @@ export function InboxView({
           </Button>
         </DialogContent>
       </Dialog>
+      {(capture || routing) && (
+        <IntakeCapture
+          message={routing ? m : undefined}
+          onClose={() => {
+            setCapture(false);
+            setRouting(false);
+          }}
+          onSaved={(id) => {
+            setSelected(id);
+            setMsgOrder("");
+          }}
+        />
+      )}
+      {uploadFile && linked && (
+        <UploadDocument
+          companyId={linked.companyId}
+          orderId={linked.id}
+          initialRole={
+            m?.kind === "Commitment" ? "Preliminary opinion" : "Final opinion"
+          }
+          onClose={() => setUploadFile(false)}
+        />
+      )}
+      {previewDoc && (
+        <DocumentPreview
+          doc={s.documents.find((d) => d.id === previewDoc)!}
+          onClose={() => setPreviewDoc("")}
+        />
+      )}
     </>
   );
 }

@@ -8,8 +8,13 @@ Tyler’s additional 75-minute call makes the immediate sequence concrete: final
 
 ## Research collection
 
+The full-business expansion references **both complete transcripts**. The [54-row traceability matrix](../discovery/all-transcript-traceability.md) maps business requirements to the calls; the two comprehensive reports below add current primary-source research and acceptance scenarios. Historical code-gap sections describe the baseline before this expansion. See the [current blueprint](../system-blueprint.md) for what is implemented now.
+
 | Report | Coverage |
 | --- | --- |
+| [All-transcript traceability](../discovery/all-transcript-traceability.md) | 54 timestamped workflow mappings across Stephenie and Tyler; operator evidence, proposals and remaining inputs |
+| [Complete title-production research](full-policy-production.md) | Initial commitments, multiple policies/loans, CPLs, security instruments, forms, rates, source/version rules and acceptance cases |
+| [Complete company-operations research](full-company-operations.md) | Application evidence, authority/renewals, formation, disclosures, per-company close and approved member publication |
 | [Tyler’s complete call](../discovery/tyler-call-analysis.md) | Timestamped evidence across all 75 minutes, priorities, attachments, revisions, SoftPro profiles, locks and unresolved inputs |
 | [Missive and county records](tyler-missive-and-records.md) | Official draft API behavior, permissions, payload/rate limits, webhook reliability, and corrections to registry-availability assumptions |
 | [Commitments and CPLs](tyler-commitments-and-cpls.md) | Requirements versus exceptions, owner/loan policies, CPL decisions, form versions, and approved final-policy handoffs |

@@ -1,4 +1,7 @@
 "use client";
+import { sameDocumentFamily } from "@/lib/title/production";
+import { PartnerStatements } from "./close-suite";
+import { partnerPeriod } from "@/lib/title/followups";
 import { useState } from "react";
 import {
   Activity,
@@ -136,19 +139,16 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
   const { s } = useWorkspace();
   const [company, setCompany] = useState(s.companies[0].id);
   const [tab, setTab] = useState("Overview");
+  const [month, setMonth] = useState("2026-09");
   const c = s.companies.find((x) => x.id === company) || s.companies[0];
-  const orders = s.orders.filter(
-    (o) => o.companyId === c.id && o.month === "2026-09",
-  );
+  const period = partnerPeriod(s, c.id, month);
+  const orders = period.orders;
   const docs = s.documents.filter(
     (d) =>
       d.companyId === c.id &&
       d.visibility === "Partner" &&
       !s.documents.some(
-        (x) =>
-          x.companyId === d.companyId &&
-          x.name === d.name &&
-          x.version > d.version,
+        (x) => sameDocumentFamily(x, d) && x.version > d.version,
       ),
   );
   return (
@@ -161,6 +161,12 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
           <EyeIcon />
           Preview only
         </span>
+        <Input
+          type="month"
+          aria-label="Partner reporting month"
+          value={month}
+          onChange={(e) => setMonth(e.target.value)}
+        />
         <Picker
           value={c.id}
           onChange={setCompany}
@@ -179,32 +185,46 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
       </div>
       <div className="metrics partner-metrics">
         <Metric
-          label="September orders"
-          value={orders.length}
-          detail="All received orders"
+          label="Received orders"
+          value={period.received.length}
+          detail="Recorded receipt dates"
         />
         <Metric
-          label="Closed / issued"
-          value={orders.filter((o) => o.status === "Issued").length}
-          detail="Demo issued policies"
+          label="Issued orders"
+          value={period.issued.length}
+          detail="Orders with issuance this month"
         />
         <Metric
           label="Rejected orders"
-          value={orders.filter((o) => o.status === "Rejected").length}
-          detail="Follow-up opportunities"
+          value={period.rejected.length}
+          detail="Dated rejection events"
         />
         <Metric
-          label="Shared documents"
-          value={docs.length}
-          detail="Published to this company"
+          label="Recovered orders"
+          value={period.recovered.length}
+          detail="Dated recovery events"
+        />
+        <Metric
+          label="Recorded closings"
+          value={period.closed.length}
+          detail="Independent of policy issuance"
         />
       </div>
+      {period.unknownReceived > 0 && (
+        <p className="inline-note">
+          {period.unknownReceived} legacy records have no receipt date and are
+          excluded from received counts. Business rows include a recorded
+          receipt, issuance or outcome in the selected month.
+        </p>
+      )}
       <Segments
         value={tab}
         onChange={setTab}
-        items={["Overview", "Shared documents", "Orders"]}
+        items={["Overview", "Statements", "Shared documents", "Orders"]}
       />
-      {tab === "Shared documents" ? (
+      {tab === "Statements" ? (
+        <PartnerStatements key={c.id} companyId={c.id} />
+      ) : tab === "Shared documents" ? (
         <section className="panel partner-panel">
           {docs.map((d) => (
             <button
@@ -232,9 +252,7 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
       ) : (
         <section className="panel partner-panel">
           <div className="section-heading">
-            <h2>
-              {tab === "Overview" ? "September business" : "Company orders"}
-            </h2>
+            <h2>{tab === "Overview" ? "Period business" : "Company orders"}</h2>
             <span className="subtle">{c.name} only</span>
           </div>
           <DataTable headers={["Order", "Property", "Status", "Next update"]}>
@@ -255,7 +273,7 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
               </TableRow>
             ))}
           </DataTable>
-          {!orders.length && <Empty title="No September orders" />}
+          {!orders.length && <Empty title="No orders in this period" />}
         </section>
       )}
       <p className="inline-note">

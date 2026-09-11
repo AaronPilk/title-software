@@ -79,12 +79,17 @@ import {
 import { InboxView, Tasks, Automations } from "@/components/title/operations";
 import { Revisions } from "@/components/title/revisions";
 import { Financials } from "@/components/title/financials";
+import { Handoffs } from "@/components/title/handoffs";
+import { OnboardingHub } from "@/components/title/onboarding-suite";
+import { ProductionSuite } from "@/components/title/production-suite";
 import { PartnerPortal, Settings } from "@/components/title/workspace";
 const navigation: { label: Page; icon: typeof LayoutGrid }[] = [
   { label: "Overview", icon: LayoutGrid },
   { label: "Inbox", icon: Inbox },
   { label: "Orders", icon: Files },
+  { label: "Commitments", icon: FilePenLine },
   { label: "Policy workbench", icon: ScanLine },
+  { label: "Policy products", icon: Files },
   { label: "Revisions", icon: FilePenLine },
   { label: "Companies", icon: Building2 },
   { label: "Onboarding", icon: ListChecks },
@@ -92,6 +97,7 @@ const navigation: { label: Page; icon: typeof LayoutGrid }[] = [
   { label: "Tasks", icon: CheckSquare2 },
   { label: "Financials", icon: ChartNoAxesCombined },
   { label: "Partner portal", icon: UsersRound },
+  { label: "Handoffs", icon: ArrowRight },
   { label: "Automations", icon: Workflow },
 ];
 const pageNames: Page[] = [...navigation.map((n) => n.label), "Settings"];
@@ -278,6 +284,17 @@ function Workspace() {
         <PolicyWorkbench selectedId={policyId} onSelect={setPolicyId} />
       );
       break;
+    case "Commitments":
+    case "Policy products":
+      content = (
+        <ProductionSuite
+          mode={page}
+          key={page}
+          onReview={openReview}
+          initialOrderId={policyId}
+        />
+      );
+      break;
     case "Revisions":
       content = (
         <Revisions
@@ -294,7 +311,10 @@ function Workspace() {
       break;
     case "Onboarding":
       content = (
-        <Onboarding onOpen={setCompanyId} onNew={() => setNewCompany(true)} />
+        <OnboardingHub
+          onOpen={setCompanyId}
+          onNew={() => setNewCompany(true)}
+        />
       );
       break;
     case "Documents":
@@ -304,6 +324,10 @@ function Workspace() {
       content = (
         <InboxView
           onReview={openReview}
+          onCommitment={(id) => {
+            setPolicyId(id);
+            navigate("Commitments");
+          }}
           onRevision={(id) => {
             setRevisionMessage(id);
             navigate("Revisions");
@@ -319,6 +343,9 @@ function Workspace() {
       break;
     case "Partner portal":
       content = <PartnerPortal onDoc={openDoc} />;
+      break;
+    case "Handoffs":
+      content = <Handoffs />;
       break;
     case "Automations":
       content = <Automations />;
@@ -364,7 +391,11 @@ function Workspace() {
             {navigation.map(({ label, icon: Icon }, i) => (
               <SidebarMenuItem
                 key={label}
-                className={i === 5 || i === 9 ? "nav-section-break" : ""}
+                className={
+                  label === "Companies" || label === "Financials"
+                    ? "nav-section-break"
+                    : ""
+                }
               >
                 <SidebarMenuButton
                   onClick={() => navigate(label)}

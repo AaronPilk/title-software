@@ -1,3 +1,4 @@
+import { ledgerLines } from "./business";
 import { onboardingSteps, onboardingOwner, type Workspace } from "./model";
 export function executeRules(d: Workspace, ids: string[]) {
   let count = 0;
@@ -52,6 +53,29 @@ export function executeRules(d: Workspace, ids: string[]) {
           count++;
         }
       }
+    if (id === "renewals") {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() + 30);
+      const cutoff = cutoffDate.toISOString().slice(0, 10);
+      for (const record of d.business?.credentials || []) {
+        const due = [record.expiresOn, record.reviewOn]
+          .filter(Boolean)
+          .sort()[0];
+        if (!due || due > cutoff) continue;
+        const key = `auto-renew-${record.id}-${due}`;
+        if (d.tasks.some((t) => t.id === key)) continue;
+        d.tasks.unshift({
+          id: key,
+          title: `Review ${record.state} ${record.underwriter || record.kind} authority`,
+          companyId: record.companyId,
+          owner: record.reviewer || "John",
+          due,
+          priority: "High",
+          done: false,
+        });
+        count++;
+      }
+    }
     r.runs++;
     r.lastRun = new Date().toISOString();
   }
@@ -62,13 +86,9 @@ export const round = (n: number) =>
   Math.round((n + Number.EPSILON) * 100) / 100;
 export function financeRows(s: Workspace, month: string) {
   return s.companies.map((c) => {
-    const orders = s.orders.filter(
-      (o) => o.companyId === c.id && o.month === month && o.status === "Issued",
-    );
+    const orders = ledgerLines(s, c.id, month);
     const premium = round(orders.reduce((n, o) => n + o.premium, 0));
-    const remittance = round(
-      orders.reduce((n, o) => n + round(o.premium * o.rate), 0),
-    );
+    const remittance = round(orders.reduce((n, o) => n + o.remittance, 0));
     return {
       company: c,
       orders: orders.length,

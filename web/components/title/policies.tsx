@@ -1,4 +1,5 @@
 "use client";
+import { recordOrderOutcome } from "@/lib/title/business";
 import { useState, useEffect } from "react";
 import {
   AlertCircle,
@@ -55,6 +56,7 @@ import {
 import { toast } from "sonner";
 import {
   finalReadiness,
+  productionLocked,
   neededFields,
   titleFile,
 } from "@/lib/title/production";
@@ -244,6 +246,7 @@ export function NewOrder({
     update(
       (d) =>
         d.orders.unshift({
+          receivedAt: new Date().toISOString().slice(0, 10),
           id,
           companyId: company,
           address,
@@ -400,7 +403,7 @@ export function PolicyWorkbench({
         neededFields(order).some((def) => def.id === f.id),
       )
     : [];
-  const locked = order?.status === "Issued";
+  const locked = !!order && productionLocked(s, order);
   useEffect(() => {
     setAttorney(false);
     setAttorneyRef("");
@@ -801,7 +804,7 @@ export function PolicyWorkbench({
   );
 }
 export function PolicyLifecycle({ order }: { order: Order }) {
-  const { update } = useWorkspace();
+  const { s, update } = useWorkspace();
   const [reference, setReference] = useState("");
   const stages = [
     [
@@ -843,54 +846,69 @@ export function PolicyLifecycle({ order }: { order: Order }) {
           <Status value={done ? "Complete" : "Pending"} />
         </div>
       ))}
-      {order.status === "Ready for jacket" && (
-        <div className="lifecycle-action">
-          <Input
-            aria-label="Demo jacket reference"
-            placeholder="Demo jacket reference (e.g. DEMO-001)"
-            value={reference}
-            onChange={(e) => setReference(e.target.value)}
-          />
+      {order.status === "Ready for jacket" &&
+        !s.business?.policies.some(
+          (p) => p.orderId === order.id && p.status !== "Void",
+        ) && (
+          <div className="lifecycle-action">
+            <Input
+              aria-label="Demo jacket reference"
+              placeholder="Demo jacket reference (e.g. DEMO-001)"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+            />
+            <Button
+              disabled={!reference.trim()}
+              onClick={() =>
+                update(
+                  (d) => {
+                    const o = d.orders.find((x) => x.id === order.id)!;
+                    if (
+                      d.business?.policies.some(
+                        (p) => p.orderId === o.id && p.status !== "Void",
+                      )
+                    )
+                      throw new Error(
+                        "Record each product in Policy products so every policy has its own document and reference.",
+                      );
+                    if (
+                      o.status !== "Ready for jacket" ||
+                      !finalReadiness(d, o).ready
+                    )
+                      throw new Error(
+                        "The preparation evidence changed. Complete the current review before recording issuance.",
+                      );
+                    o.status = "Issued";
+                    o.notes += `\nDemo jacket reference: ${reference.trim()}`;
+                  },
+                  "Demo issuance recorded",
+                  `${order.id} · no external submission`,
+                )
+              }
+            >
+              Record demo issuance
+            </Button>
+          </div>
+        )}
+      {order.status === "Issued" &&
+        !order.delivered &&
+        !s.business?.policies.some(
+          (p) => p.orderId === order.id && p.status !== "Void",
+        ) && (
           <Button
-            disabled={!reference.trim()}
             onClick={() =>
               update(
                 (d) => {
-                  const o = d.orders.find((x) => x.id === order.id)!;
-                  if (
-                    o.status !== "Ready for jacket" ||
-                    !finalReadiness(d, o).ready
-                  )
-                    throw new Error(
-                      "The preparation evidence changed. Complete the current review before recording issuance.",
-                    );
-                  o.status = "Issued";
-                  o.notes += `\nDemo jacket reference: ${reference.trim()}`;
+                  d.orders.find((x) => x.id === order.id)!.delivered = true;
                 },
-                "Demo issuance recorded",
-                `${order.id} · no external submission`,
+                "Demo delivery recorded",
+                `${order.id} · no message sent`,
               )
             }
           >
-            Record demo issuance
+            Record demo delivery
           </Button>
-        </div>
-      )}
-      {order.status === "Issued" && !order.delivered && (
-        <Button
-          onClick={() =>
-            update(
-              (d) => {
-                d.orders.find((x) => x.id === order.id)!.delivered = true;
-              },
-              "Demo delivery recorded",
-              `${order.id} · no message sent`,
-            )
-          }
-        >
-          Record demo delivery
-        </Button>
-      )}
+        )}
     </div>
   );
 }
@@ -1014,9 +1032,64 @@ export function OrderDetail({
           {o.status === "Issued" ? (
             <PolicyLifecycle key={o.id} order={o} />
           ) : null}
+          <OrderOutcome key={id} order={o} />
           <OrderNotes key={id} order={o} />
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function OrderOutcome({ order }: { order: Order }) {
+  const { update } = useWorkspace();
+  const [kind, setKind] = useState("Closing recorded"),
+    [date, setDate] = useState(new Date().toISOString().slice(0, 10)),
+    [note, setNote] = useState("");
+  return (
+    <section className="form-stack">
+      <h3>Order outcomes</h3>
+      {order.outcomes?.map((e, i) => (
+        <p className="inline-note" key={i}>
+          {e.date} · {e.kind} · {e.note}
+        </p>
+      ))}
+      <Picker
+        value={kind}
+        label="Order outcome"
+        options={["Closing recorded", "Rejected", "Recovered"]}
+        onChange={setKind}
+      />
+      <Input
+        type="date"
+        aria-label="Order outcome date"
+        value={date}
+        onChange={(e) => setDate(e.target.value)}
+      />
+      <Textarea
+        aria-label="Order outcome evidence"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Reason, referral follow-up or closing confirmation"
+      />
+      <Button
+        variant="outline"
+        onClick={() =>
+          update(
+            (d) =>
+              recordOrderOutcome(
+                d,
+                order.id,
+                kind as "Rejected" | "Recovered" | "Closing recorded",
+                date,
+                note,
+              ),
+            "Order outcome recorded",
+            order.id,
+          )
+        }
+      >
+        Record outcome
+      </Button>
+    </section>
   );
 }

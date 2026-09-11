@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner";
 import { createSeed, uid, type Workspace } from "./model";
 import { enrichWorkspace } from "./production";
+import { enrichBusiness, validateBusinessMutation } from "./business";
 const KEY = "titleos.workspace.v1";
 type Store = {
   s: Workspace;
@@ -54,7 +55,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 field.label = "Vesting / grantee name";
             }
           }
-          const migrated = enrichWorkspace(data);
+          const migrated = enrichBusiness(enrichWorkspace(data));
           latest.current = migrated;
           setState(migrated);
         } else
@@ -83,10 +84,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [s, ready]);
+  useEffect(() => {
+    if (!ready) return;
+    let day = new Date().toDateString();
+    const timer = setInterval(() => {
+      const nextDay = new Date().toDateString();
+      if (day === nextDay) return;
+      day = nextDay;
+      const next = enrichBusiness(structuredClone(latest.current));
+      latest.current = next;
+      setState(next);
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [ready]);
   function update(fn: (draft: Workspace) => void, title?: string, detail = "") {
     const next = structuredClone(latest.current);
     try {
       fn(next);
+      validateBusinessMutation(latest.current, next);
     } catch (error) {
       toast.error(
         error instanceof Error

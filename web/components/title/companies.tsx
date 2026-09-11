@@ -1,4 +1,5 @@
 "use client";
+import { OnboardingCasePanel, CredentialCenter } from "./onboarding-suite";
 import { useState } from "react";
 import {
   Building2,
@@ -295,7 +296,13 @@ export function CompanyDetail({
           <Segments
             value={tab}
             onChange={setTab}
-            items={["Overview", "Documents", "Members", "Jurisdictions"]}
+            items={[
+              "Overview",
+              "Onboarding",
+              "Documents",
+              "Members",
+              "Jurisdictions",
+            ]}
           />
           {tab === "Overview" && (
             <>
@@ -336,29 +343,13 @@ export function CompanyDetail({
                 Track confirmations from the responsible person. These steps do
                 not perform external filings or approvals.
               </p>
+              <Button variant="outline" onClick={() => setTab("Onboarding")}>
+                Open evidence review
+              </Button>
               <div className="checklist">
                 {onboardingSteps.map((step, i) => (
                   <label key={step}>
-                    <Checkbox
-                      checked={c.steps[i]}
-                      onCheckedChange={(v) =>
-                        update(
-                          (d) => {
-                            const company = d.companies.find(
-                              (x) => x.id === id,
-                            )!;
-                            company.steps[i] = v === true;
-                            company.stage = company.steps.every(Boolean)
-                              ? "Active"
-                              : "Onboarding";
-                          },
-                          v === true
-                            ? "Onboarding step completed"
-                            : "Onboarding step reopened",
-                          `${c.name} · ${step}`,
-                        )
-                      }
-                    />
+                    <Checkbox checked={c.steps[i]} disabled />
                     <span>{step}</span>
                     <small>{onboardingOwner(i)}</small>
                   </label>
@@ -408,6 +399,7 @@ export function CompanyDetail({
               )}
             </>
           )}
+          {tab === "Onboarding" && <OnboardingCasePanel company={c} />}
           {tab === "Jurisdictions" && <CompanyJurisdictions id={id} />}{" "}
           {tab === "Members" && <CompanyMembers company={c} />}
         </div>
@@ -521,29 +513,19 @@ export function Onboarding({
 }
 function CompanyJurisdictions({ id }: { id: string }) {
   const { s, update } = useWorkspace();
-  const c = s.companies.find((x) => x.id === id)!;
+  const c = s.companies.find((c) => c.id === id)!;
   const operating = c.operatingStates || [c.jurisdiction];
-  const kinds = [
-    "Agency license",
-    "Producer credential",
-    "Underwriter authority",
-  ];
   return (
     <>
-      <p className="inline-note">
-        Formation, operating authority, and each order’s property state are
-        separate. Entries below are local administrative tracking, not proof of
-        licensure.
-      </p>
       <FieldLabel label="Formation state">
         <Picker
-          value={c.formationState || c.jurisdiction}
           label="Company formation state"
+          value={c.formationState || c.jurisdiction}
           options={["NC", "SC"]}
-          onChange={(value) =>
+          onChange={(v) =>
             update(
               (d) => {
-                d.companies.find((x) => x.id === id)!.formationState = value;
+                d.companies.find((c) => c.id === id)!.formationState = v;
               },
               "Formation state updated",
               c.name,
@@ -551,112 +533,43 @@ function CompanyJurisdictions({ id }: { id: string }) {
           }
         />
       </FieldLabel>
-      <div className="field-label">
-        <span>Operating states</span>
+      <FieldLabel label="Operating states">
         <div className="operating-states">
           {["NC", "SC"].map((state) => (
             <label key={state}>
               <Checkbox
                 checked={operating.includes(state)}
-                onCheckedChange={(v) => {
-                  if (
-                    v !== true &&
-                    (operating.length === 1 ||
-                      s.orders.some(
-                        (o) => o.companyId === id && o.jurisdiction === state,
-                      ))
-                  ) {
-                    toast.error(
-                      "Keep at least one operating state and any state with existing orders.",
-                    );
-                    return;
-                  }
+                onCheckedChange={(v) =>
                   update(
                     (d) => {
-                      const company = d.companies.find((x) => x.id === id)!;
-                      company.operatingStates =
+                      const c = d.companies.find((c) => c.id === id)!;
+                      if (
+                        v !== true &&
+                        (operating.length === 1 ||
+                          d.orders.some(
+                            (o) =>
+                              o.companyId === id && o.jurisdiction === state,
+                          ))
+                      )
+                        throw new Error(
+                          "Keep states with existing orders and at least one operating state.",
+                        );
+                      c.operatingStates =
                         v === true
                           ? [...new Set([...operating, state])]
                           : operating.filter((x) => x !== state);
                     },
                     "Operating states updated",
                     c.name,
-                  );
-                }}
+                  )
+                }
               />
-              {state === "NC" ? "North Carolina" : "South Carolina"}
+              {state}
             </label>
           ))}
         </div>
-      </div>
-      {operating.map((state) => (
-        <section className="authority-section" key={state}>
-          <h3>{state} · Authority records</h3>
-          {kinds.map((kind) => {
-            const record = c.authorizations?.find(
-              (a) => a.state === state && a.kind === kind,
-            );
-            function save(
-              field: "status" | "reference" | "reviewer",
-              value: string,
-            ) {
-              update(
-                (d) => {
-                  const company = d.companies.find((x) => x.id === id)!;
-                  company.authorizations ??= [];
-                  let r = company.authorizations.find(
-                    (a) => a.state === state && a.kind === kind,
-                  );
-                  if (!r) {
-                    r = {
-                      state,
-                      kind,
-                      status: "Not started",
-                      reference: "",
-                      reviewer: "John",
-                    };
-                    company.authorizations.push(r);
-                  }
-                  r[field] = value;
-                },
-                "Authority tracking updated",
-                `${c.name} · ${state} · ${kind}`,
-              );
-            }
-            return (
-              <div className="authority-record" key={kind}>
-                <div>
-                  <strong>{kind}</strong>
-                  <Picker
-                    value={record?.status || "Not started"}
-                    onChange={(v) => save("status", v)}
-                    label={`${state} ${kind} status`}
-                    options={["Not started", "In review", "Evidence recorded"]}
-                  />
-                </div>
-                <Input
-                  aria-label={`${state} ${kind} evidence reference`}
-                  defaultValue={record?.reference || ""}
-                  placeholder="Evidence reference or document identifier"
-                  onBlur={(e) => {
-                    if (e.target.value !== (record?.reference || ""))
-                      save("reference", e.target.value);
-                  }}
-                />
-                <div className="authority-reviewer">
-                  <span>Assigned reviewer</span>
-                  <Picker
-                    value={record?.reviewer || "John"}
-                    onChange={(v) => save("reviewer", v)}
-                    label={`${state} ${kind} reviewer`}
-                    options={["John", "Stephenie", "Tyler"]}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </section>
-      ))}
+      </FieldLabel>
+      <CredentialCenter key={operating.join("-")} company={c} />
     </>
   );
 }

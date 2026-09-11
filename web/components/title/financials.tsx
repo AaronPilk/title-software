@@ -1,4 +1,6 @@
 "use client";
+import { ledgerLines } from "@/lib/title/business";
+import { CloseWorkspace } from "./close-suite";
 import { useState } from "react";
 import {
   Download,
@@ -35,14 +37,25 @@ export function Financials() {
       .map(([key, value]) => [key.slice(8), value]),
   );
   const rows = financeRows(s, month);
-  const issued = s.orders.filter(
-    (o) => o.month === month && o.status === "Issued",
+  const issued = s.companies.flatMap((c) =>
+    ledgerLines(s, c.id, month).map((row) => ({
+      ...row,
+      companyId: c.id,
+      rate: row.premium ? row.remittance / row.premium : 0,
+      remitted:
+        s.business?.policies.find((p) => p.id === row.id)
+          ?.remittanceReference ||
+        s.orders.find((o) => o.id === row.id)?.remitted ||
+        false,
+    })),
   );
   const premium = round(rows.reduce((n, r) => n + r.premium, 0)),
     remittance = round(rows.reduce((n, r) => n + r.remittance, 0));
   const reportKey =
     month +
-    JSON.stringify(issued.map((o) => [o.id, o.premium, o.rate])) +
+    JSON.stringify(
+      issued.map((o) => [o.id, o.companyId, o.underwriter, o.premium, o.rate]),
+    ) +
     JSON.stringify(expenses) +
     JSON.stringify(
       rows
@@ -122,10 +135,16 @@ export function Financials() {
         <Segments
           value={tab}
           onChange={setTab}
-          items={["Overview", "Underwriter remittance", "Ownership estimates"]}
+          items={[
+            "Overview",
+            "Company closes",
+            "Underwriter remittance",
+            "Ownership estimates",
+          ]}
         />
         <span className="subtle-pill">Illustrative demo figures</span>
       </div>
+      {tab === "Company closes" && <CloseWorkspace />}
       {tab === "Overview" && (
         <>
           <section className="panel">
@@ -274,6 +293,20 @@ export function Financials() {
                                     o.underwriter === name,
                                 )
                                 .forEach((o) => (o.remitted = true));
+                              d.business?.policies
+                                .filter(
+                                  (p) =>
+                                    p.issuedMonth === month &&
+                                    ["Issued", "Delivered"].includes(
+                                      p.status,
+                                    ) &&
+                                    d.orders.find((o) => o.id === p.orderId)
+                                      ?.underwriter === name,
+                                )
+                                .forEach(
+                                  (p) =>
+                                    (p.remittanceReference = `Local review ${month} · ${name}`),
+                                );
                             },
                             "Demo remittance reconciled",
                             `${name} · ${month} · no payment made`,

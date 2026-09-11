@@ -34,9 +34,13 @@ try {
       ),
     );
   }
-  execFileSync(process.execPath, ["--test", "tests/domain.test.mjs"], {
-    stdio: "inherit",
-  });
+  execFileSync(
+    process.execPath,
+    ["--test", "tests/domain.test.mjs", "tests/business.test.mjs"],
+    {
+      stdio: "inherit",
+    },
+  );
 } finally {
   rmSync(".local-test", { recursive: true, force: true });
 }

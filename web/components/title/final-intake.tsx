@@ -30,6 +30,7 @@ import {
   titleFile,
   orderSources,
   finalReadiness,
+  productionLocked,
   neededFields,
   replaceSourceFields,
   missingDocumentDraft,
@@ -38,6 +39,8 @@ import {
 } from "@/lib/title/production";
 import { FieldLabel, Picker, Status, Empty } from "./shared";
 import { UploadDocument, DocumentPreview } from "./documents";
+import { AttorneyFollowups } from "./followups";
+import { createFollowup } from "@/lib/title/followups";
 
 export function FinalSources({ order }: { order: Order }) {
   const { s, update } = useWorkspace();
@@ -67,7 +70,7 @@ export function FinalSources({ order }: { order: Order }) {
           "Final opinion",
           ...(order.type !== "Refinance" ? ["Deed"] : []),
           ...(titleFile(order).financing === "Financed"
-            ? ["Deed of trust"]
+            ? [titleFile(order).securityInstrument || "Deed of trust"]
             : []),
         ].map((role) => (
           <span
@@ -110,7 +113,7 @@ export function FinalSources({ order }: { order: Order }) {
             value={d.sourceRole || "Other"}
             label={`Source type for ${d.name}`}
             options={sourceRoles}
-            disabled={order.status === "Issued"}
+            disabled={productionLocked(s, order)}
             onChange={(value) =>
               update(
                 (state) => {
@@ -141,7 +144,7 @@ export function FinalSources({ order }: { order: Order }) {
             size="sm"
             variant="outline"
             disabled={
-              order.status === "Issued" ||
+              productionLocked(s, order) ||
               !neededFields(order).some((f) => f.role === d.sourceRole)
             }
             onClick={() => setCapture(d.id)}
@@ -176,6 +179,7 @@ export function FinalSources({ order }: { order: Order }) {
           Review the evidence in File details, then approve the captured fields.
         </p>
       </div>
+      <AttorneyFollowups orderId={order.id} />
       {upload && (
         <UploadDocument
           orderId={order.id}
@@ -212,6 +216,42 @@ export function FinalSources({ order }: { order: Order }) {
               onChange={(e) => setDraft(e.target.value)}
               rows={12}
             />
+            <Button
+              onClick={() => {
+                if (
+                  update(
+                    (d) => {
+                      createFollowup(d, order.id, {
+                        body: draft,
+                        owner: order.owner || "Tyler",
+                        messageId:
+                          d.inbox.find(
+                            (m) =>
+                              m.orderId === order.id && m.kind === "Finals",
+                          )?.id || "",
+                        items: check.missingSources.length
+                          ? check.missingSources.map((role) => ({
+                              label: role,
+                              role,
+                            }))
+                          : [
+                              {
+                                label:
+                                  "Clarified final / recording information",
+                                role: "Other",
+                              },
+                            ],
+                      });
+                    },
+                    "Attorney follow-up saved",
+                    order.id,
+                  )
+                )
+                  setDraft(null);
+              }}
+            >
+              Save follow-up with this file
+            </Button>
             <Button
               onClick={() =>
                 download(
@@ -466,11 +506,11 @@ export function TitleFileDetails({ order }: { order: Order }) {
             For {order.id}. Provider identities and legal text require review.
           </p>
         </div>
-        <Button onClick={save} disabled={!dirty || order.status === "Issued"}>
+        <Button onClick={save} disabled={!dirty || productionLocked(s, order)}>
           Save details
         </Button>
       </div>
-      <fieldset disabled={order.status === "Issued"}>
+      <fieldset disabled={productionLocked(s, order)}>
         <div className="form-grid">
           <FieldLabel label="Financing">
             <Picker
@@ -486,6 +526,21 @@ export function TitleFileDetails({ order }: { order: Order }) {
               onChange={(e) => change("county", e.target.value)}
             />
           </FieldLabel>
+          {file.financing === "Financed" && (
+            <FieldLabel label="Security instrument">
+              <Picker
+                value={file.securityInstrument || "Deed of trust"}
+                label="Security instrument"
+                options={["Deed of trust", "Mortgage"]}
+                onChange={(v) =>
+                  change(
+                    "securityInstrument",
+                    v as TitleFile["securityInstrument"],
+                  )
+                }
+              />
+            </FieldLabel>
+          )}
           <FieldLabel label="Loan amount ($)">
             <Input
               type="number"

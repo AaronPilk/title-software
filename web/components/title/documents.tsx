@@ -1,10 +1,14 @@
 "use client";
 import {
   sourceRoles,
+  outputRoles,
+  sameDocumentFamily,
+  neededFields,
   fieldDefinitions,
   titleFile,
   type SourceRole,
 } from "@/lib/title/production";
+import { getCommitment } from "@/lib/title/business";
 import { useEffect, useState } from "react";
 import {
   Download,
@@ -171,11 +175,19 @@ export function UploadDocument({
   companyId,
   orderId,
   initialRole,
+  policyId,
+  commitmentVersion,
+  cplId,
+  cplVersion,
   onClose,
 }: {
   companyId: string | null;
   orderId?: string;
   initialRole?: SourceRole;
+  policyId?: string;
+  commitmentVersion?: number;
+  cplId?: string;
+  cplVersion?: number;
   onClose: () => void;
 }) {
   const { s, update } = useWorkspace();
@@ -228,12 +240,15 @@ export function UploadDocument({
           Math.max(
             0,
             ...[...s.documents, ...uploaded]
-              .filter(
-                (d) =>
-                  d.companyId === company &&
-                  d.orderId ===
-                    (linkedOrder === "none" ? undefined : linkedOrder) &&
-                  d.name === file.name,
+              .filter((d) =>
+                sameDocumentFamily(d, {
+                  companyId: company,
+                  orderId: linkedOrder === "none" ? undefined : linkedOrder,
+                  name: file.name,
+                  sourceRole: linkedOrder === "none" ? undefined : role,
+                  policyId,
+                  cplId,
+                } as VaultDoc),
               )
               .map((d) => d.version),
           ) + 1;
@@ -242,8 +257,27 @@ export function UploadDocument({
           companyId: company,
           orderId: linkedOrder === "none" ? undefined : linkedOrder,
           sourceRole: linkedOrder === "none" ? undefined : role,
+          policyId,
+          preparationFingerprint:
+            linkedOrder !== "none" && role === "Commitment output"
+              ? getCommitment(
+                  s,
+                  s.orders.find((o) => o.id === linkedOrder)!,
+                ).snapshot
+              : role === "Final policy"
+                ? s.business?.policies.find((p) => p.id === policyId)
+                    ?.preparedSnapshot
+                : role === "CPL"
+                  ? s.business?.cpls.find((c) => c.id === cplId)?.snapshot
+                  : undefined,
+          commitmentVersion,
+          cplId,
+          cplVersion,
+          policyVersion: policyId
+            ? s.business?.policies.find((p) => p.id === policyId)?.version
+            : undefined,
           productionVersion:
-            linkedOrder !== "none" && role === "Revised commitment"
+            linkedOrder !== "none" && outputRoles.includes(role)
               ? titleFile(s.orders.find((o) => o.id === linkedOrder)!).version
               : undefined,
           name: file.name,
@@ -259,14 +293,14 @@ export function UploadDocument({
       const saved = update(
         (d) => {
           if (
-            role === "Revised commitment" &&
+            outputRoles.includes(role) &&
             uploaded.some((file) =>
               d.documents.some(
                 (existing) =>
                   existing.companyId === file.companyId &&
                   existing.orderId === file.orderId &&
                   existing.name === file.name &&
-                  existing.sourceRole !== "Revised commitment",
+                  !outputRoles.includes(existing.sourceRole!),
               ),
             )
           )
@@ -275,14 +309,14 @@ export function UploadDocument({
             );
           d.documents.unshift(...uploaded);
           const o = d.orders.find((o) => o.id === linkedOrder);
-          if (o && o.status !== "Issued" && role !== "Revised commitment") {
+          if (o && o.status !== "Issued" && !outputRoles.includes(role)) {
             o.production = {
               ...titleFile(o),
               commitmentReview: undefined,
               version: titleFile(o).version + 1,
             };
             o.fields.forEach((f) => {
-              if (fieldDefinitions.find((x) => x.id === f.id)?.role === role)
+              if (neededFields(o).find((x) => x.id === f.id)?.role === role)
                 f.reviewed = false;
             });
             if (o.status === "Ready for jacket") o.status = "Needs review";

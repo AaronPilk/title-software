@@ -4,19 +4,27 @@ export type SourceRole =
   | "Final opinion"
   | "Deed"
   | "Deed of trust"
+  | "Mortgage"
   | "Preliminary opinion"
   | "Prior policy"
   | "Search package"
   | "Revised commitment"
+  | "Commitment output"
+  | "Final policy"
+  | "CPL"
   | "Other";
 export const sourceRoles: SourceRole[] = [
   "Final opinion",
   "Deed",
   "Deed of trust",
+  "Mortgage",
   "Preliminary opinion",
   "Prior policy",
   "Search package",
   "Revised commitment",
+  "Commitment output",
+  "Final policy",
+  "CPL",
   "Other",
 ];
 export type TitleRequirement = {
@@ -28,6 +36,7 @@ export type TitleRequirement = {
   note: string;
 };
 export type TitleFile = {
+  securityInstrument?: "Deed of trust" | "Mortgage";
   commitmentReview?: {
     note: string;
     snapshot: string;
@@ -123,10 +132,44 @@ export function titleFile(order: Order): TitleFile {
   );
 }
 export function neededFields(order: Order) {
-  return fieldDefinitions.filter(
-    (f) =>
-      (f.role !== "Deed" || order.type !== "Refinance") &&
-      (f.role !== "Deed of trust" || titleFile(order).financing === "Financed"),
+  return fieldDefinitions
+    .filter(
+      (f) =>
+        (f.role !== "Deed" || order.type !== "Refinance") &&
+        (f.role !== "Deed of trust" ||
+          titleFile(order).financing === "Financed") &&
+        (f.id !== "trustee" ||
+          titleFile(order).securityInstrument !== "Mortgage"),
+    )
+    .map((f) =>
+      f.role === "Deed of trust" &&
+      titleFile(order).securityInstrument === "Mortgage"
+        ? {
+            ...f,
+            role: "Mortgage" as SourceRole,
+            label: f.label
+              .replace("Deed of trust", "Mortgage")
+              .replace("deed of trust", "mortgage"),
+          }
+        : f,
+    );
+}
+export const outputRoles: SourceRole[] = [
+  "Revised commitment",
+  "Commitment output",
+  "Final policy",
+  "CPL",
+];
+export function sameDocumentFamily(a: VaultDoc, b: VaultDoc) {
+  return (
+    a.companyId === b.companyId &&
+    a.orderId === b.orderId &&
+    a.name === b.name &&
+    ((!outputRoles.includes(a.sourceRole!) &&
+      !outputRoles.includes(b.sourceRole!)) ||
+      (a.sourceRole === b.sourceRole &&
+        a.policyId === b.policyId &&
+        a.cplId === b.cplId))
   );
 }
 export function orderSources(s: Workspace, id: string) {
@@ -138,10 +181,7 @@ export function orderSources(s: Workspace, id: string) {
   docs = docs.filter(
     (d) =>
       !docs.some(
-        (next) =>
-          next.name === d.name &&
-          next.companyId === d.companyId &&
-          next.version > d.version,
+        (next) => sameDocumentFamily(next, d) && next.version > d.version,
       ),
   );
   const passes = docs.length;
@@ -156,11 +196,20 @@ export function orderSources(s: Workspace, id: string) {
   }
   return docs;
 }
+export function productionLocked(s: Workspace, order: Order) {
+  return (
+    order.status === "Issued" ||
+    !!s.business?.policies.some(
+      (p) =>
+        p.orderId === order.id && ["Issued", "Delivered"].includes(p.status),
+    )
+  );
+}
 export function commitmentSnapshot(s: Workspace, o: Order) {
   const p = titleFile(o);
   return JSON.stringify({
     sources: orderSources(s, o.id)
-      .filter((d) => d.sourceRole !== "Revised commitment")
+      .filter((d) => !outputRoles.includes(d.sourceRole!))
       .map((d) => [d.id, d.version, d.sourceRole])
       .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
     requirements: p.requirements,
@@ -192,7 +241,7 @@ export function requiredSources(order: Order): SourceRole[] {
     "Final opinion",
     ...(order.type !== "Refinance" ? ["Deed" as const] : []),
     ...(titleFile(order).financing === "Financed"
-      ? ["Deed of trust" as const]
+      ? [titleFile(order).securityInstrument || "Deed of trust"]
       : []),
   ];
 }
@@ -213,6 +262,12 @@ export function finalReadiness(s: Workspace, order: Order) {
   });
   const p = titleFile(order);
   const missingContext = [
+    ...((s.business?.followups || []).some(
+      (r) =>
+        r.orderId === order.id && !["Resolved", "Cancelled"].includes(r.status),
+    )
+      ? ["outstanding attorney follow-up"]
+      : []),
     ...(!p.county.trim() ? ["county"] : []),
     ...(!p.attorney.trim() ? ["attorney"] : []),
     ...(!p.commitmentReference.trim() ? ["commitment reference"] : []),
@@ -304,6 +359,7 @@ export function createRevision(
     (o) => o.id === input.orderId && o.companyId === input.companyId,
   );
   if (!o) throw new Error("Confirm the company and matching file.");
+  assertRevisionContext(s, o, input.messageId);
   if (
     ["Issued", "Rejected"].includes(o.status) ||
     titleFile(o).financing === "Cash"
@@ -349,6 +405,7 @@ export function applyRevision(s: Workspace, id: string, confirmed: boolean) {
       "This file is no longer available for a commitment revision.",
     );
   const p = titleFile(o);
+  assertRevisionContext(s, o, r.messageId);
   if (p.financing !== "Financed")
     throw new Error("Choose an active financed order.");
   if (p.version !== r.baseVersion || p.loanAmount !== r.before)
@@ -356,6 +413,16 @@ export function applyRevision(s: Workspace, id: string, confirmed: boolean) {
       "This file changed after the request was captured. Recheck the current values and create a new request.",
     );
   o.production = { ...p, loanAmount: r.proposed, version: p.version + 1 };
+  const loan = s.business?.policies.find(
+    (p) => p.orderId === o.id && p.kind === "Loan" && p.status !== "Void",
+  );
+  if (loan) {
+    loan.loanAmount = r.proposed;
+    loan.version++;
+    loan.status = "Draft";
+    loan.preparedSnapshot = "";
+    loan.loanReviewNote = "";
+  }
   for (const f of o.fields) {
     f.reviewed = false;
     if (f.id === "loanAmount")
@@ -388,6 +455,7 @@ export function recheckRevision(s: Workspace, id: string) {
     s.orders.find((o) => o.id === r.orderId && o.companyId === r.companyId);
   if (!r || !o || r.status === "Applied")
     throw new Error("This request cannot be reopened.");
+  assertRevisionContext(s, o, r.messageId);
   if (
     ["Issued", "Rejected"].includes(o.status) ||
     titleFile(o).financing !== "Financed"
@@ -396,6 +464,27 @@ export function recheckRevision(s: Workspace, id: string) {
   r.before = titleFile(o).loanAmount;
   r.baseVersion = titleFile(o).version;
   r.status = "Needs review";
+}
+function assertRevisionContext(s: Workspace, o: Order, messageId: string) {
+  if (productionLocked(s, o))
+    throw new Error("Issued files require a separate correction workflow.");
+  const loans =
+    s.business?.policies.filter(
+      (p) => p.orderId === o.id && p.kind === "Loan" && p.status !== "Void",
+    ) || [];
+  if (loans.length > 1)
+    throw new Error(
+      "Multiple-loan files require a loan-specific review. This simple revision action supports one loan only.",
+    );
+  const message = s.inbox.find((m) => m.id === messageId);
+  if (
+    message &&
+    (message.orderId !== o.id ||
+      (message.companyId && message.companyId !== o.companyId))
+  )
+    throw new Error(
+      "The source message is routed to another file. Review its routing before applying this request.",
+    );
 }
 export function missingDocumentDraft(s: Workspace, o: Order) {
   const missing = finalReadiness(s, o).missingSources;
