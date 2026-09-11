@@ -12,6 +12,7 @@ export type SourceRole =
   | "Commitment output"
   | "Final policy"
   | "CPL"
+  | "Correction output"
   | "Other";
 export const sourceRoles: SourceRole[] = [
   "Final opinion",
@@ -25,6 +26,7 @@ export const sourceRoles: SourceRole[] = [
   "Commitment output",
   "Final policy",
   "CPL",
+  "Correction output",
   "Other",
 ];
 export type TitleRequirement = {
@@ -159,6 +161,7 @@ export const outputRoles: SourceRole[] = [
   "Commitment output",
   "Final policy",
   "CPL",
+  "Correction output",
 ];
 export function sameDocumentFamily(a: VaultDoc, b: VaultDoc) {
   return (
@@ -169,7 +172,8 @@ export function sameDocumentFamily(a: VaultDoc, b: VaultDoc) {
       !outputRoles.includes(b.sourceRole!)) ||
       (a.sourceRole === b.sourceRole &&
         a.policyId === b.policyId &&
-        a.cplId === b.cplId))
+        a.cplId === b.cplId &&
+        a.correctionId === b.correctionId))
   );
 }
 export function orderSources(s: Workspace, id: string) {

@@ -52,6 +52,11 @@ import {
   ledgerLines,
   handoffCurrent,
   recordHandoff,
+  openCorrection,
+  requestCorrection,
+  reviewCorrectionRequest,
+  recordCorrection,
+  cancelCorrection,
 } from "../.local-test/business.js";
 const source = (s, o, role, extra = {}) => {
   const d = {
@@ -117,6 +122,13 @@ function policyDoc(s, o, p, name = "Final policy.pdf") {
     policyVersion: p.version,
     productionVersion: o.production.version,
     preparationFingerprint: p.preparedSnapshot,
+  });
+}
+function correctionDoc(s, o, c, name = "Correction.pdf") {
+  return source(s, o, "Correction output", {
+    name,
+    correctionId: c.id,
+    preparationFingerprint: c.reviewSnapshot,
   });
 }
 function cpl(s, o, decision = "Not requested") {
@@ -821,4 +833,127 @@ test("obsolete follow-up can be cancelled with history instead of invented evide
     ),
   );
   assert.ok(o.fields.every((f) => !f.reviewed));
+});
+test("a correction request only opens on an issued policy and needs complete before/after evidence", () => {
+  const { s, o } = finalCase();
+  const owner = policy(s, o);
+  assert.throws(
+    () =>
+      requestCorrection(s, owner.id, {
+        reason: "Name misspelled",
+        requestedBy: "Attorney",
+        requestReference: "",
+        correctionKind: "Endorsement",
+        fieldChanges: [{ label: "Insured name", before: "Jon Smith", after: "John Smith" }],
+      }),
+    /issued or delivered/,
+  );
+  preparePolicy(s, owner.id, "Owner reviewed");
+  const doc = policyDoc(s, o, owner);
+  issuePolicy(s, owner.id, { reference: "Owner-1", documentId: doc.id, month: "2026-09" });
+  assert.throws(
+    () =>
+      requestCorrection(s, owner.id, {
+        reason: "",
+        requestedBy: "",
+        requestReference: "",
+        correctionKind: "Endorsement",
+        fieldChanges: [],
+      }),
+    /before and after value/,
+  );
+  requestCorrection(s, owner.id, {
+    reason: "Name misspelled on the issued policy",
+    requestedBy: "Attorney — Morgan & Reed",
+    requestReference: "Email 2026-09-11",
+    correctionKind: "Endorsement",
+    fieldChanges: [{ label: "Insured name", before: "Jon Smith", after: "John Smith" }],
+  });
+  assert.throws(
+    () =>
+      requestCorrection(s, owner.id, {
+        reason: "Second issue",
+        requestedBy: "Attorney",
+        requestReference: "",
+        correctionKind: "Endorsement",
+        fieldChanges: [{ label: "X", before: "A", after: "B" }],
+      }),
+    /already has an open correction/,
+  );
+});
+test("a reviewed correction can be recorded without touching the issued policy, and its evidence is frozen", () => {
+  const { s, o } = finalCase();
+  const owner = policy(s, o);
+  preparePolicy(s, owner.id, "Owner reviewed");
+  const doc = policyDoc(s, o, owner);
+  issuePolicy(s, owner.id, { reference: "Owner-1", documentId: doc.id, month: "2026-09" });
+  const originalInsured = owner.insured,
+    originalPolicyNumber = owner.policyNumber;
+  const correction = requestCorrection(s, owner.id, {
+    reason: "Name misspelled on the issued policy",
+    requestedBy: "Attorney — Morgan & Reed",
+    requestReference: "Email 2026-09-11",
+    correctionKind: "Endorsement",
+    fieldChanges: [{ label: "Insured name", before: "Jon Smith", after: "John Smith" }],
+  });
+  assert.throws(
+    () => reviewCorrectionRequest(s, correction.id, ""),
+    /review note/,
+  );
+  reviewCorrectionRequest(s, correction.id, "Confirmed against the recorded deed.");
+  assert.equal(correction.status, "Reviewed");
+  const job = business(s).handoffs.find(
+    (j) => j.kind === "SoftPro correction" && j.sourceId === correction.id,
+  );
+  assert.equal(handoffCurrent(s, job), true);
+  const before = structuredClone(s),
+    after = structuredClone(s);
+  after.business.corrections.find((c) => c.id === correction.id).reason = "Changed after review";
+  assert.throws(
+    () => validateBusinessMutation(before, after),
+    /request evidence cannot change/,
+  );
+  const cdoc = correctionDoc(s, o, correction);
+  assert.throws(
+    () => recordCorrection(s, correction.id, "END-1", "missing"),
+    /correction document for this request/,
+  );
+  recordCorrection(s, correction.id, "END-1", cdoc.id);
+  assert.equal(correction.status, "Recorded");
+  assert.equal(job.status, "Recorded locally");
+  assert.equal(owner.insured, originalInsured);
+  assert.equal(owner.policyNumber, originalPolicyNumber);
+  assert.equal(owner.status, "Issued");
+});
+test("an open correction can be cancelled, holds its handoff, and frees the policy for a new request", () => {
+  const { s, o } = finalCase();
+  const owner = policy(s, o);
+  preparePolicy(s, owner.id, "Owner reviewed");
+  const doc = policyDoc(s, o, owner);
+  issuePolicy(s, owner.id, { reference: "Owner-1", documentId: doc.id, month: "2026-09" });
+  const first = requestCorrection(s, owner.id, {
+    reason: "Wrong recording reference",
+    requestedBy: "Internal review",
+    requestReference: "",
+    correctionKind: "Administrative correction",
+    fieldChanges: [{ label: "Book/page", before: "1842/316", after: "1842/318" }],
+  });
+  reviewCorrectionRequest(s, first.id, "Confirmed against the recorded deed.");
+  const job = business(s).handoffs.find(
+    (j) => j.kind === "SoftPro correction" && j.sourceId === first.id,
+  );
+  assert.throws(() => cancelCorrection(s, first.id, ""), /why this correction/);
+  cancelCorrection(s, first.id, "Underwriter said no correction was needed after all.");
+  assert.equal(first.status, "Cancelled");
+  assert.equal(job.status, "Hold");
+  assert.equal(openCorrection(s, owner.id), undefined);
+  const second = requestCorrection(s, owner.id, {
+    reason: "A different issue found later",
+    requestedBy: "Attorney",
+    requestReference: "",
+    correctionKind: "Endorsement",
+    fieldChanges: [{ label: "Legal description", before: "Lot 12", after: "Lot 12-A" }],
+  });
+  assert.notEqual(second.id, first.id);
+  assert.equal(business(s).corrections.filter((c) => c.policyId === owner.id).length, 2);
 });

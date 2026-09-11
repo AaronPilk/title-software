@@ -118,6 +118,27 @@ export type CredentialRecord = {
   status: "Needs review" | "Verified locally";
   reviewer: string;
 };
+export type PolicyCorrection = {
+  id: string;
+  policyId: string;
+  orderId: string;
+  policyVersionAtRequest: number;
+  issuedSnapshot: string;
+  reason: string;
+  requestedBy: string;
+  requestReference: string;
+  correctionKind: "Endorsement" | "Reissued policy" | "Administrative correction";
+  fieldChanges: { label: string; before: string; after: string }[];
+  status: "Requested" | "Reviewed" | "Recorded" | "Cancelled";
+  reviewNote: string;
+  reviewSnapshot: string;
+  correctionReference: string;
+  documentId: string;
+  cancelReason: string;
+  createdAt: string;
+  reviewedAt: string;
+  recordedAt: string;
+};
 export type LedgerLine = {
   id: string;
   orderId: string;
@@ -162,6 +183,7 @@ export type Handoff = {
     | "SoftPro commitment"
     | "SoftPro final policy"
     | "SoftPro CPL"
+    | "SoftPro correction"
     | "Missive reply"
     | "Application packet";
   subject: string;
@@ -183,6 +205,7 @@ export type BusinessState = {
   credentials: CredentialRecord[];
   closes: ClosePeriod[];
   handoffs: Handoff[];
+  corrections: PolicyCorrection[];
 };
 const blank = (): BusinessState => ({
   followups: [],
@@ -193,6 +216,7 @@ const blank = (): BusinessState => ({
   credentials: [],
   closes: [],
   handoffs: [],
+  corrections: [],
 });
 export function business(s: Workspace): BusinessState {
   return s.business || blank();
@@ -200,6 +224,7 @@ export function business(s: Workspace): BusinessState {
 export function enrichBusiness(s: Workspace) {
   s.business ??= blank();
   s.business.followups ??= [];
+  s.business.corrections ??= [];
   if (!s.rules.some((r) => r.id === "renewals"))
     s.rules.push({
       id: "renewals",
@@ -569,6 +594,7 @@ export function finalProductFingerprint(
             "Commitment output",
             "Final policy",
             "CPL",
+            "Correction output",
           ].includes(d.sourceRole!),
       )
       .map((d) => [d.id, d.version, d.sourceRole]),
@@ -717,6 +743,171 @@ export function deliverPolicy(
   p.deliveredAt = now();
   p.status = "Delivered";
   o.delivered = products(s, o.id).every((p) => p.status === "Delivered");
+}
+/**
+ * Issued and delivered policy content is otherwise frozen by
+ * validateBusinessMutation. This is the sanctioned way to record that
+ * something on an issued product needs to change: it keeps the original
+ * issued record intact for audit and tracks the request, review and an
+ * operator-reported outcome reference, the same local-evidence pattern used
+ * for handoffs and attorney follow-ups elsewhere in this file. It does not
+ * regenerate a jacket, pick an approved endorsement form or perform any
+ * provider action.
+ */
+export function correctionFingerprint(s: Workspace, c: PolicyCorrection) {
+  return JSON.stringify({
+    policyId: c.policyId,
+    orderId: c.orderId,
+    policyVersionAtRequest: c.policyVersionAtRequest,
+    issuedSnapshot: c.issuedSnapshot,
+    reason: c.reason,
+    requestedBy: c.requestedBy,
+    requestReference: c.requestReference,
+    correctionKind: c.correctionKind,
+    fieldChanges: c.fieldChanges,
+  });
+}
+export function openCorrection(s: Workspace, policyId: string) {
+  return business(s).corrections.find(
+    (c) => c.policyId === policyId && ["Requested", "Reviewed"].includes(c.status),
+  );
+}
+export function requestCorrection(
+  s: Workspace,
+  policyId: string,
+  input: {
+    reason: string;
+    requestedBy: string;
+    requestReference: string;
+    correctionKind: PolicyCorrection["correctionKind"];
+    fieldChanges: { label: string; before: string; after: string }[];
+  },
+) {
+  const p = ensure(s).policies.find((p) => p.id === policyId);
+  if (!p || !["Issued", "Delivered"].includes(p.status))
+    throw new Error("Only an issued or delivered policy can have a correction request.");
+  const o = getOrder(s, p.orderId);
+  if (openCorrection(s, policyId))
+    throw new Error(
+      "This policy already has an open correction request. Resolve or cancel it first.",
+    );
+  const changes = input.fieldChanges
+    .map((f) => ({
+      label: f.label.trim(),
+      before: f.before.trim(),
+      after: f.after.trim(),
+    }))
+    .filter((f) => f.label || f.before || f.after);
+  if (
+    !input.reason.trim() ||
+    !input.requestedBy.trim() ||
+    !changes.length ||
+    changes.some((f) => !f.label || !f.before || !f.after)
+  )
+    throw new Error(
+      "Record the reason, who requested it, and every corrected field with its before and after value.",
+    );
+  const correction: PolicyCorrection = {
+    id: id("correction"),
+    policyId,
+    orderId: o.id,
+    policyVersionAtRequest: p.version,
+    issuedSnapshot: finalProductFingerprint(s, o, p),
+    reason: input.reason.trim(),
+    requestedBy: input.requestedBy.trim(),
+    requestReference: input.requestReference.trim(),
+    correctionKind: input.correctionKind,
+    fieldChanges: changes,
+    status: "Requested",
+    reviewNote: "",
+    reviewSnapshot: "",
+    correctionReference: "",
+    documentId: "",
+    cancelReason: "",
+    createdAt: now(),
+    reviewedAt: "",
+    recordedAt: "",
+  };
+  ensure(s).corrections.unshift(correction);
+  return correction;
+}
+export function reviewCorrectionRequest(
+  s: Workspace,
+  correctionId: string,
+  reviewNote: string,
+) {
+  const c = ensure(s).corrections.find((c) => c.id === correctionId);
+  if (!c || c.status !== "Requested")
+    throw new Error("Only a requested correction can be reviewed.");
+  if (!reviewNote.trim())
+    throw new Error("Record the review note confirming this correction is warranted.");
+  const o = getOrder(s, c.orderId);
+  c.reviewNote = reviewNote.trim();
+  c.reviewSnapshot = correctionFingerprint(s, c);
+  c.status = "Reviewed";
+  c.reviewedAt = now();
+  addHandoff(s, {
+    kind: "SoftPro correction",
+    subject: `${c.correctionKind} · ${o.id}`,
+    companyId: o.companyId,
+    orderId: o.id,
+    sourceId: c.id,
+    fingerprint: c.reviewSnapshot,
+  });
+}
+export function recordCorrection(
+  s: Workspace,
+  correctionId: string,
+  correctionReference: string,
+  documentId: string,
+) {
+  const b = ensure(s),
+    c = b.corrections.find((c) => c.id === correctionId);
+  if (!c || c.status !== "Reviewed" || c.reviewSnapshot !== correctionFingerprint(s, c))
+    throw new Error("Review a current correction request first.");
+  const doc = orderSources(s, c.orderId).find((d) => d.id === documentId);
+  if (
+    !correctionReference.trim() ||
+    !doc ||
+    doc.sourceRole !== "Correction output" ||
+    doc.correctionId !== c.id ||
+    doc.preparationFingerprint !== c.reviewSnapshot
+  )
+    throw new Error(
+      "Record the correction reference and the current correction document for this request.",
+    );
+  c.correctionReference = correctionReference.trim();
+  c.documentId = documentId;
+  c.status = "Recorded";
+  c.recordedAt = now();
+  const job = b.handoffs.find(
+    (j) => j.kind === "SoftPro correction" && j.sourceId === c.id,
+  );
+  if (job) {
+    job.status = "Recorded locally";
+    job.reference = c.correctionReference;
+    job.note = "Recorded through the policy correction workflow.";
+  }
+}
+export function cancelCorrection(
+  s: Workspace,
+  correctionId: string,
+  reason: string,
+) {
+  const b = ensure(s),
+    c = b.corrections.find((c) => c.id === correctionId);
+  if (!c || !["Requested", "Reviewed"].includes(c.status))
+    throw new Error("Only an open correction request can be cancelled.");
+  if (!reason.trim()) throw new Error("Record why this correction is being cancelled.");
+  c.status = "Cancelled";
+  c.cancelReason = reason.trim();
+  const job = b.handoffs.find(
+    (j) => j.kind === "SoftPro correction" && j.sourceId === c.id,
+  );
+  if (job && job.status === "Awaiting connection") {
+    job.status = "Hold";
+    job.note = "Correction request cancelled.";
+  }
 }
 export function getOnboarding(s: Workspace, c: Company): OnboardingCase {
   return (
@@ -1277,6 +1468,15 @@ export function handoffCurrent(s: Workspace, j: Handoff) {
       j.fingerprint === cplFingerprint(s, cpl)
     );
   }
+  if (j.kind === "SoftPro correction") {
+    const c = business(s).corrections.find((x) => x.id === j.sourceId);
+    return (
+      !!o &&
+      !!c &&
+      c.status === "Reviewed" &&
+      j.fingerprint === correctionFingerprint(s, c)
+    );
+  }
   if (j.kind === "Missive reply") {
     const r = s.replyDrafts.find((r) => r.id === j.sourceId);
     return (
@@ -1349,6 +1549,18 @@ export function validateBusinessMutation(before: Workspace, after: Workspace) {
     )
       throw new Error(
         "A policy on this file has already issued. Shared source and coverage changes require a separate correction workflow.",
+      );
+  }
+  for (const c of business(before).corrections.filter(
+    (c) => c.status !== "Requested",
+  )) {
+    const next = business(after).corrections.find((x) => x.id === c.id);
+    if (
+      !next ||
+      correctionFingerprint(before, c) !== correctionFingerprint(after, next)
+    )
+      throw new Error(
+        "A reviewed correction's request evidence cannot change. Cancel it and capture a new request instead.",
       );
   }
   for (const o of after.orders) {

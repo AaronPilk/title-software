@@ -179,6 +179,7 @@ export function UploadDocument({
   commitmentVersion,
   cplId,
   cplVersion,
+  correctionId,
   onClose,
 }: {
   companyId: string | null;
@@ -188,6 +189,7 @@ export function UploadDocument({
   commitmentVersion?: number;
   cplId?: string;
   cplVersion?: number;
+  correctionId?: string;
   onClose: () => void;
 }) {
   const { s, update } = useWorkspace();
@@ -258,6 +260,7 @@ export function UploadDocument({
           orderId: linkedOrder === "none" ? undefined : linkedOrder,
           sourceRole: linkedOrder === "none" ? undefined : role,
           policyId,
+          correctionId,
           preparationFingerprint:
             linkedOrder !== "none" && role === "Commitment output"
               ? getCommitment(
@@ -269,7 +272,10 @@ export function UploadDocument({
                     ?.preparedSnapshot
                 : role === "CPL"
                   ? s.business?.cpls.find((c) => c.id === cplId)?.snapshot
-                  : undefined,
+                  : role === "Correction output"
+                    ? s.business?.corrections.find((c) => c.id === correctionId)
+                        ?.reviewSnapshot
+                    : undefined,
           commitmentVersion,
           cplId,
           cplVersion,

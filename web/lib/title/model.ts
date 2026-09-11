@@ -99,6 +99,7 @@ export type VaultDoc = {
   commitmentVersion?: number;
   cplId?: string;
   cplVersion?: number;
+  correctionId?: string;
   preparationFingerprint?: string;
   parentDocumentId?: string;
   productionVersion?: number;

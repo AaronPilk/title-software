@@ -52,9 +52,15 @@ import {
   deliverCPL,
   cplFingerprint,
   recordCommitmentReturn,
+  openCorrection,
+  requestCorrection,
+  reviewCorrectionRequest,
+  recordCorrection,
+  cancelCorrection,
   type PolicyProduct,
   type CommitmentCase,
   type CPLRecord,
+  type PolicyCorrection,
 } from "@/lib/title/business";
 import { TitleFileDetails } from "./final-intake";
 import { UploadDocument, DocumentPreview } from "./documents";
@@ -956,7 +962,326 @@ function PolicyEditor({
         Local records only. Issuance and delivery actions do not contact an
         underwriter or send a document.
       </p>
+      {locked && <PolicyCorrections policy={policy} order={order} />}
     </section>
+  );
+}
+function PolicyCorrections({
+  policy,
+  order,
+}: {
+  policy: PolicyProduct;
+  order: Order;
+}) {
+  const { s } = useWorkspace();
+  const corrections = business(s)
+    .corrections.filter((c) => c.policyId === policy.id)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const open = openCorrection(s, policy.id);
+  const [requesting, setRequesting] = useState(false);
+  return (
+    <div className="handoff-box">
+      <div className="section-heading">
+        <h4>Post-issuance corrections</h4>
+        {!open && !requesting && (
+          <Button variant="outline" size="sm" onClick={() => setRequesting(true)}>
+            <Plus />
+            Request correction
+          </Button>
+        )}
+      </div>
+      {!corrections.length && !requesting && (
+        <p className="subtle">
+          Issued content stays fixed. If something needs to change after
+          issuance, request a correction instead of editing the policy above.
+        </p>
+      )}
+      {corrections.map((c) => (
+        <CorrectionCard key={c.id} correction={c} order={order} />
+      ))}
+      {requesting && (
+        <RequestCorrectionForm
+          policy={policy}
+          onClose={() => setRequesting(false)}
+        />
+      )}
+    </div>
+  );
+}
+function CorrectionCard({
+  correction: c,
+  order,
+}: {
+  correction: PolicyCorrection;
+  order: Order;
+}) {
+  const { s, update } = useWorkspace();
+  const [reviewNote, setReviewNote] = useState(c.reviewNote);
+  const [reference, setReference] = useState(c.correctionReference);
+  const [documentId, setDocumentId] = useState("none");
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const docs = orderSources(s, order.id).filter(
+    (d) => d.sourceRole === "Correction output" && d.correctionId === c.id,
+  );
+  return (
+    <div className="requirement-card">
+      <div className="section-heading">
+        <strong>{c.correctionKind}</strong>
+        <Status value={c.status} />
+      </div>
+      <p className="subtle">
+        Requested by {c.requestedBy} ·{" "}
+        {new Date(c.createdAt).toLocaleDateString()}
+        {c.requestReference ? ` · ${c.requestReference}` : ""}
+      </p>
+      <p>{c.reason}</p>
+      {c.fieldChanges.map((f, i) => (
+        <p key={i} className="subtle">
+          <strong>{f.label}:</strong> {f.before} → {f.after}
+        </p>
+      ))}
+      {c.status === "Requested" && (
+        <>
+          <FieldLabel label="Review note">
+            <Textarea
+              value={reviewNote}
+              onChange={(e) => setReviewNote(e.target.value)}
+              placeholder="Confirm this correction is warranted and how it was verified."
+            />
+          </FieldLabel>
+          <div className="source-actions">
+            <Button
+              disabled={!reviewNote.trim()}
+              onClick={() =>
+                update(
+                  (d) => reviewCorrectionRequest(d, c.id, reviewNote),
+                  "Correction reviewed",
+                  order.id,
+                )
+              }
+            >
+              <ShieldCheck />
+              Mark reviewed
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setCancelling(true)}>
+              Cancel request
+            </Button>
+          </div>
+        </>
+      )}
+      {c.status === "Reviewed" && (
+        <>
+          <p className="subtle">{c.reviewNote}</p>
+          <div className="form-grid">
+            <Input
+              aria-label="Correction reference"
+              placeholder="Endorsement / reissue reference"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+            />
+            <Picker
+              label="Correction document"
+              value={documentId}
+              onChange={setDocumentId}
+              options={[
+                { value: "none", label: "Choose correction document" },
+                ...docs.map((d) => ({ value: d.id, label: d.name })),
+              ]}
+            />
+          </div>
+          <div className="source-actions">
+            <Button variant="outline" onClick={() => setUploadOpen(true)}>
+              <Upload />
+              Upload correction document
+            </Button>
+            <Button
+              onClick={() =>
+                update(
+                  (d) => recordCorrection(d, c.id, reference, documentId),
+                  "Correction recorded locally",
+                  order.id,
+                )
+              }
+            >
+              Record correction
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setCancelling(true)}>
+              Cancel request
+            </Button>
+          </div>
+        </>
+      )}
+      {c.status === "Recorded" && (
+        <p className="subtle">
+          Recorded {new Date(c.recordedAt).toLocaleString()} ·{" "}
+          {c.correctionReference}
+        </p>
+      )}
+      {c.status === "Cancelled" && (
+        <p className="subtle">Cancelled: {c.cancelReason}</p>
+      )}
+      {cancelling && (
+        <div className="form-grid">
+          <Input
+            aria-label="Cancellation reason"
+            placeholder="Why is this correction being cancelled?"
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+          />
+          <Button
+            variant="destructive"
+            disabled={!cancelReason.trim()}
+            onClick={() => {
+              if (
+                update(
+                  (d) => cancelCorrection(d, c.id, cancelReason),
+                  "Correction request cancelled",
+                  order.id,
+                )
+              ) {
+                setCancelling(false);
+                setCancelReason("");
+              }
+            }}
+          >
+            Confirm cancellation
+          </Button>
+        </div>
+      )}
+      {uploadOpen && (
+        <UploadDocument
+          companyId={order.companyId}
+          orderId={order.id}
+          correctionId={c.id}
+          initialRole="Correction output"
+          onClose={() => setUploadOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+function RequestCorrectionForm({
+  policy,
+  onClose,
+}: {
+  policy: PolicyProduct;
+  onClose: () => void;
+}) {
+  const { update } = useWorkspace();
+  const [reason, setReason] = useState("");
+  const [requestedBy, setRequestedBy] = useState("");
+  const [requestReference, setRequestReference] = useState("");
+  const [correctionKind, setCorrectionKind] =
+    useState<PolicyCorrection["correctionKind"]>("Endorsement");
+  const [rows, setRows] = useState([{ label: "", before: "", after: "" }]);
+  function setRow(i: number, key: "label" | "before" | "after", value: string) {
+    setRows((r) => r.map((row, idx) => (idx === i ? { ...row, [key]: value } : row)));
+  }
+  return (
+    <div className="requirement-card">
+      <h4>Request a correction</h4>
+      <FieldLabel label="Reason">
+        <Textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="What was found wrong and how it was discovered"
+        />
+      </FieldLabel>
+      <div className="form-grid">
+        <FieldLabel label="Requested by">
+          <Input
+            value={requestedBy}
+            onChange={(e) => setRequestedBy(e.target.value)}
+            placeholder="Attorney, underwriter or internal review"
+          />
+        </FieldLabel>
+        <FieldLabel label="Request reference">
+          <Input
+            value={requestReference}
+            onChange={(e) => setRequestReference(e.target.value)}
+            placeholder="Email or ticket reference (optional)"
+          />
+        </FieldLabel>
+      </div>
+      <FieldLabel label="Correction kind">
+        <Picker
+          value={correctionKind}
+          onChange={(v) =>
+            setCorrectionKind(v as PolicyCorrection["correctionKind"])
+          }
+          label="Correction kind"
+          options={["Endorsement", "Reissued policy", "Administrative correction"]}
+        />
+      </FieldLabel>
+      <h4>Corrected fields</h4>
+      {rows.map((row, i) => (
+        <div className="form-grid" key={i}>
+          <Input
+            aria-label="Field label"
+            placeholder="Field (e.g. Insured name)"
+            value={row.label}
+            onChange={(e) => setRow(i, "label", e.target.value)}
+          />
+          <Input
+            aria-label="Before value"
+            placeholder="Before"
+            value={row.before}
+            onChange={(e) => setRow(i, "before", e.target.value)}
+          />
+          <Input
+            aria-label="After value"
+            placeholder="After"
+            value={row.after}
+            onChange={(e) => setRow(i, "after", e.target.value)}
+          />
+          {rows.length > 1 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setRows((r) => r.filter((_, idx) => idx !== i))}
+            >
+              Remove
+            </Button>
+          )}
+        </div>
+      ))}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setRows((r) => [...r, { label: "", before: "", after: "" }])}
+      >
+        <Plus />
+        Add corrected field
+      </Button>
+      <div className="source-actions">
+        <Button variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          onClick={() => {
+            if (
+              update(
+                (d) =>
+                  requestCorrection(d, policy.id, {
+                    reason,
+                    requestedBy,
+                    requestReference,
+                    correctionKind,
+                    fieldChanges: rows,
+                  }),
+                "Correction requested",
+                policy.orderId,
+              )
+            )
+              onClose();
+          }}
+        >
+          Submit correction request
+        </Button>
+      </div>
+    </div>
   );
 }
 function CPLPlanner({ order }: { order: Order }) {
