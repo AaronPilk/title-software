@@ -1,4 +1,10 @@
 "use client";
+import {
+  sourceRoles,
+  fieldDefinitions,
+  titleFile,
+  type SourceRole,
+} from "@/lib/title/production";
 import { useEffect, useState } from "react";
 import {
   Download,
@@ -163,65 +169,129 @@ export function Documents({
 }
 export function UploadDocument({
   companyId,
+  orderId,
+  initialRole,
   onClose,
 }: {
   companyId: string | null;
+  orderId?: string;
+  initialRole?: SourceRole;
   onClose: () => void;
 }) {
   const { s, update } = useWorkspace();
-  const [company, setCompany] = useState(companyId || s.companies[0].id);
-  const [category, setCategory] = useState("Company records");
+  const [company, setCompany] = useState(
+    s.orders.find((o) => o.id === orderId)?.companyId ||
+      companyId ||
+      s.companies[0].id,
+  );
+  const [linkedOrder, setLinkedOrder] = useState(orderId || "none");
+  const [role, setRole] = useState<SourceRole>(initialRole || "Other");
+  const [category, setCategory] = useState(
+    orderId ? "Policy documents" : "Company records",
+  );
   const [visibility, setVisibility] = useState("Internal");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("Choose a file smaller than 10 MB.");
+    if (!files.length) return;
+    if (
+      files.length > 10 ||
+      files.some((f) => f.size > 25 * 1024 * 1024) ||
+      files.reduce((n, f) => n + f.size, 0) > 100 * 1024 * 1024
+    ) {
+      toast.error("Use up to 10 files, 25 MB each and 100 MB per batch.");
       return;
     }
     if (
-      ![
-        "application/pdf",
-        "text/plain",
-        "image/png",
-        "image/jpeg",
-        "text/csv",
-      ].includes(file.type)
+      files.some(
+        (f) =>
+          ![
+            "application/pdf",
+            "text/plain",
+            "image/png",
+            "image/jpeg",
+            "text/csv",
+          ].includes(f.type),
+      )
     ) {
-      toast.error("Use a PDF, TXT, CSV, PNG, or JPG file.");
+      toast.error("Use PDF, TXT, CSV, PNG, or JPG files.");
       return;
     }
     setBusy(true);
     try {
-      const id = uid("doc");
-      await saveAsset(id, file);
-      const version =
-        Math.max(
-          0,
-          ...s.documents
-            .filter((d) => d.companyId === company && d.name === file.name)
-            .map((d) => d.version),
-        ) + 1;
-      update(
-        (d) =>
-          d.documents.unshift({
-            id,
-            companyId: company,
-            name: file.name,
-            category,
-            visibility: visibility as VaultDoc["visibility"],
-            date: new Date().toISOString().slice(0, 10),
-            size: `${Math.max(1, Math.round(file.size / 1024))} KB`,
-            version,
-            assetId: id,
-            mime: file.type,
-          }),
-        "Document saved locally",
-        `${file.name} · ${companyById(s, company).name}`,
+      const uploaded: VaultDoc[] = [];
+      for (const file of files) {
+        const id = uid("doc");
+        await saveAsset(id, file);
+        const version =
+          Math.max(
+            0,
+            ...[...s.documents, ...uploaded]
+              .filter(
+                (d) =>
+                  d.companyId === company &&
+                  d.orderId ===
+                    (linkedOrder === "none" ? undefined : linkedOrder) &&
+                  d.name === file.name,
+              )
+              .map((d) => d.version),
+          ) + 1;
+        uploaded.push({
+          id,
+          companyId: company,
+          orderId: linkedOrder === "none" ? undefined : linkedOrder,
+          sourceRole: linkedOrder === "none" ? undefined : role,
+          productionVersion:
+            linkedOrder !== "none" && role === "Revised commitment"
+              ? titleFile(s.orders.find((o) => o.id === linkedOrder)!).version
+              : undefined,
+          name: file.name,
+          category,
+          visibility: visibility as VaultDoc["visibility"],
+          date: new Date().toISOString().slice(0, 10),
+          size: `${Math.max(1, Math.round(file.size / 1024))} KB`,
+          version,
+          assetId: id,
+          mime: file.type,
+        });
+      }
+      const saved = update(
+        (d) => {
+          if (
+            role === "Revised commitment" &&
+            uploaded.some((file) =>
+              d.documents.some(
+                (existing) =>
+                  existing.companyId === file.companyId &&
+                  existing.orderId === file.orderId &&
+                  existing.name === file.name &&
+                  existing.sourceRole !== "Revised commitment",
+              ),
+            )
+          )
+            throw new Error(
+              "Use a distinct filename for the revised commitment so it cannot replace a final-source document.",
+            );
+          d.documents.unshift(...uploaded);
+          const o = d.orders.find((o) => o.id === linkedOrder);
+          if (o && o.status !== "Issued" && role !== "Revised commitment") {
+            o.production = {
+              ...titleFile(o),
+              commitmentReview: undefined,
+              version: titleFile(o).version + 1,
+            };
+            o.fields.forEach((f) => {
+              if (fieldDefinitions.find((x) => x.id === f.id)?.role === role)
+                f.reviewed = false;
+            });
+            if (o.status === "Ready for jacket") o.status = "Needs review";
+          }
+        },
+        "Documents saved locally",
+        `${uploaded.length} files · ${companyById(s, company).name}`,
       );
-      onClose();
+      if (saved) onClose();
     } catch {
       toast.error(
         "The file could not be stored in this browser. Try a smaller file.",
@@ -234,7 +304,7 @@ export function UploadDocument({
     <Dialog open onOpenChange={(v) => !v && !busy && onClose()}>
       <DialogContent className="modal">
         <DialogHeader>
-          <DialogTitle>Upload a document</DialogTitle>
+          <DialogTitle>Upload documents</DialogTitle>
           <DialogDescription>
             Use sample or redacted files. This demo has no production access
             controls.
@@ -243,24 +313,68 @@ export function UploadDocument({
         <form onSubmit={submit} className="form-stack">
           <label className="upload-drop">
             <Upload size={26} />
-            <strong>{file ? file.name : "Choose a document"}</strong>
-            <span>PDF, TXT, CSV, PNG or JPG · up to 10 MB</span>
+            <strong>
+              {files.length
+                ? `${files.length} files selected`
+                : "Choose documents"}
+            </strong>
+            <span>Up to 10 files · 25 MB each · 100 MB per batch</span>
             <Input
               aria-label="Select sample document"
               type="file"
+              multiple
               accept=".pdf,.txt,.csv,.png,.jpg,.jpeg"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              onChange={(e) => setFiles(Array.from(e.target.files || []))}
               required
             />
           </label>
           <FieldLabel label="Company">
             <Picker
               value={company}
-              onChange={setCompany}
+              onChange={(v) => {
+                setCompany(v);
+                setLinkedOrder("none");
+              }}
               label="Upload company"
-              options={s.companies.map((c) => ({ value: c.id, label: c.name }))}
+              options={s.companies
+                .filter((c) => !orderId || c.id === company)
+                .map((c) => ({ value: c.id, label: c.name }))}
             />
           </FieldLabel>
+          <FieldLabel label="Linked order">
+            <Picker
+              label="Link upload to order"
+              value={linkedOrder}
+              onChange={(v) => {
+                setLinkedOrder(v);
+                if (v !== "none") setCategory("Policy documents");
+              }}
+              options={[
+                ...(!orderId
+                  ? [{ value: "none", label: "Company documents only" }]
+                  : []),
+                ...s.orders
+                  .filter(
+                    (o) =>
+                      o.companyId === company && (!orderId || o.id === orderId),
+                  )
+                  .map((o) => ({
+                    value: o.id,
+                    label: `${o.id} · ${o.address}`,
+                  })),
+              ]}
+            />
+          </FieldLabel>
+          {linkedOrder !== "none" && (
+            <FieldLabel label="Source type">
+              <Picker
+                label="Uploaded source type"
+                value={role}
+                onChange={(v) => setRole(v as SourceRole)}
+                options={sourceRoles}
+              />
+            </FieldLabel>
+          )}
           <div className="form-grid">
             <FieldLabel label="Category">
               <Picker
@@ -300,8 +414,8 @@ export function UploadDocument({
             >
               Cancel
             </Button>
-            <Button disabled={!file || busy} type="submit">
-              {busy ? "Saving…" : "Save document"}
+            <Button disabled={!files.length || busy} type="submit">
+              {busy ? "Saving…" : "Save documents"}
             </Button>
           </div>
         </form>

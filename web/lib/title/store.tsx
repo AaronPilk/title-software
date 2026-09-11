@@ -9,6 +9,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { createSeed, uid, type Workspace } from "./model";
+import { enrichWorkspace } from "./production";
 const KEY = "titleos.workspace.v1";
 type Store = {
   s: Workspace;
@@ -17,7 +18,7 @@ type Store = {
     fn: (draft: Workspace) => void,
     title?: string,
     detail?: string,
-  ) => void;
+  ) => boolean;
   reset: () => void;
 };
 const Context = createContext<Store | null>(null);
@@ -25,6 +26,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [s, setState] = useState(createSeed);
   const [ready, setReady] = useState(false);
   const storageWarning = useRef(false);
+  const latest = useRef(s);
   useEffect(() => {
     try {
       const raw = localStorage.getItem(KEY);
@@ -52,7 +54,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
                 field.label = "Vesting / grantee name";
             }
           }
-          setState(data);
+          const migrated = enrichWorkspace(data);
+          latest.current = migrated;
+          setState(migrated);
         } else
           toast.error(
             "Saved demo was not compatible. The sample workspace has been loaded.",
@@ -80,27 +84,44 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
   }, [s, ready]);
   function update(fn: (draft: Workspace) => void, title?: string, detail = "") {
-    setState((prev) => {
-      const next = structuredClone(prev);
+    const next = structuredClone(latest.current);
+    try {
       fn(next);
-      if (title)
-        next.activity.unshift({
-          id: uid("activity"),
-          title,
-          detail,
-          at: new Date().toISOString(),
-          actor: next.user,
-        });
-      next.activity = next.activity.slice(0, 100);
-      return next;
-    });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "This change could not be applied.",
+      );
+      return false;
+    }
+    if (title)
+      next.activity.unshift({
+        id: uid("activity"),
+        title,
+        detail,
+        at: new Date().toISOString(),
+        actor: next.user,
+      });
+    next.activity = next.activity.slice(0, 100);
+    latest.current = next;
+    setState(next);
     if (title) toast.success(title);
+    return true;
   }
   function reset() {
-    const previous = s;
-    setState(createSeed());
+    const previous = latest.current;
+    const next = createSeed();
+    latest.current = next;
+    setState(next);
     toast.success("Demo workspace reset", {
-      action: { label: "Undo", onClick: () => setState(previous) },
+      action: {
+        label: "Undo",
+        onClick: () => {
+          latest.current = previous;
+          setState(previous);
+        },
+      },
     });
   }
   return (

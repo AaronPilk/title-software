@@ -6,6 +6,7 @@ import {
   Inbox,
   Files,
   ScanLine,
+  FilePenLine,
   Building2,
   ListChecks,
   FolderClosed,
@@ -76,6 +77,7 @@ import {
   UploadDocument,
 } from "@/components/title/documents";
 import { InboxView, Tasks, Automations } from "@/components/title/operations";
+import { Revisions } from "@/components/title/revisions";
 import { Financials } from "@/components/title/financials";
 import { PartnerPortal, Settings } from "@/components/title/workspace";
 const navigation: { label: Page; icon: typeof LayoutGrid }[] = [
@@ -83,6 +85,7 @@ const navigation: { label: Page; icon: typeof LayoutGrid }[] = [
   { label: "Inbox", icon: Inbox },
   { label: "Orders", icon: Files },
   { label: "Policy workbench", icon: ScanLine },
+  { label: "Revisions", icon: FilePenLine },
   { label: "Companies", icon: Building2 },
   { label: "Onboarding", icon: ListChecks },
   { label: "Documents", icon: FolderClosed },
@@ -107,6 +110,7 @@ function Workspace() {
   const [search, setSearch] = useState(false);
   const [notifications, setNotifications] = useState(false);
   const [orderId, setOrderId] = useState("");
+  const [revisionMessage, setRevisionMessage] = useState("");
   const [policyId, setPolicyId] = useState("T-2026-1048");
   const [companyId, setCompanyId] = useState("");
   const [docId, setDocId] = useState("");
@@ -274,6 +278,15 @@ function Workspace() {
         <PolicyWorkbench selectedId={policyId} onSelect={setPolicyId} />
       );
       break;
+    case "Revisions":
+      content = (
+        <Revisions
+          key={revisionMessage}
+          messageId={revisionMessage}
+          onOpen={openReview}
+        />
+      );
+      break;
     case "Companies":
       content = (
         <Companies onOpen={setCompanyId} onNew={() => setNewCompany(true)} />
@@ -288,7 +301,15 @@ function Workspace() {
       content = <Documents onDoc={openDoc} onUpload={() => upload()} />;
       break;
     case "Inbox":
-      content = <InboxView onReview={openReview} />;
+      content = (
+        <InboxView
+          onReview={openReview}
+          onRevision={(id) => {
+            setRevisionMessage(id);
+            navigate("Revisions");
+          }}
+        />
+      );
       break;
     case "Tasks":
       content = <Tasks />;
@@ -343,7 +364,7 @@ function Workspace() {
             {navigation.map(({ label, icon: Icon }, i) => (
               <SidebarMenuItem
                 key={label}
-                className={i === 4 || i === 8 ? "nav-section-break" : ""}
+                className={i === 5 || i === 9 ? "nav-section-break" : ""}
               >
                 <SidebarMenuButton
                   onClick={() => navigate(label)}

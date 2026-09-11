@@ -1,8 +1,16 @@
+import {
+  enrichWorkspace,
+  type TitleFile,
+  type RevisionRequest,
+  type ReplyDraft,
+  type SourceRole,
+} from "./production";
 export type Page =
   | "Overview"
   | "Inbox"
   | "Orders"
   | "Policy workbench"
+  | "Revisions"
   | "Companies"
   | "Onboarding"
   | "Documents"
@@ -42,6 +50,8 @@ export type Company = {
   members: { name: string; share: number }[];
 };
 export type Field = {
+  documentId?: string;
+  sourcePage?: string;
   id: string;
   label: string;
   current: string;
@@ -52,6 +62,7 @@ export type Field = {
   confidence: string;
 };
 export type Order = {
+  production?: TitleFile;
   id: string;
   companyId: string;
   address: string;
@@ -72,6 +83,9 @@ export type Order = {
   exception: string;
 };
 export type VaultDoc = {
+  parentDocumentId?: string;
+  productionVersion?: number;
+  sourceRole?: SourceRole;
   id: string;
   companyId: string;
   orderId?: string;
@@ -95,6 +109,7 @@ export type Task = {
   priority: "High" | "Normal";
 };
 export type Mail = {
+  kind?: "Revision" | "Finals" | "Company";
   id: string;
   from: string;
   email: string;
@@ -123,6 +138,8 @@ export type Rule = {
   lastRun: string;
 };
 export type Workspace = {
+  revisions: RevisionRequest[];
+  replyDrafts: ReplyDraft[];
   version: 1;
   companies: Company[];
   orders: Order[];
@@ -546,7 +563,9 @@ export function createSeed(): Workspace {
     version: 1,
     text: "FICTIONAL REVIEW EXCERPT — NOT A RECORDED INSTRUMENT\n\nProperty: 284 Maple Avenue\nGrantee: Alex Taylor Morgan, a single person\nRecorded: September 9, 2026 at 2:43 PM\nBook: 1842   Page: 316\nTrustee (separate deed of trust): Jordan Ellis, Trustee\n\nAll text is synthetic and supplied only to demonstrate document comparison.",
   });
-  return {
+  return enrichWorkspace({
+    revisions: [],
+    replyDrafts: [],
     version: 1,
     companies,
     orders,
@@ -698,5 +717,5 @@ export function createSeed(): Workspace {
         lastRun: "Never",
       },
     ],
-  };
+  });
 }

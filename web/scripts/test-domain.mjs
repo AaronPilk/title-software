@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, rmSync, readdirSync } from "node:fs";
 try {
   execFileSync(
     process.execPath,
@@ -21,11 +21,19 @@ try {
     ],
     { stdio: "inherit" },
   );
-  const p = ".local-test/engine.js";
-  writeFileSync(
-    p,
-    readFileSync(p, "utf8").replace(/(['"])\.\/model\1/g, '"./model.js"'),
-  );
+  for (const name of readdirSync(".local-test").filter((n) =>
+    n.endsWith(".js"),
+  )) {
+    const p = ".local-test/" + name;
+    writeFileSync(
+      p,
+      readFileSync(p, "utf8").replace(
+        /from (["'])\.\/([^"']+)\1/g,
+        (_, quote, relative) =>
+          `from ${quote}./${relative.endsWith(".js") ? relative : relative + ".js"}${quote}`,
+      ),
+    );
+  }
   execFileSync(process.execPath, ["--test", "tests/domain.test.mjs"], {
     stdio: "inherit",
   });

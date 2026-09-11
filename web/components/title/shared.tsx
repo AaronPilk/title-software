@@ -31,15 +31,17 @@ export function Picker({
   options,
   label,
   className = "",
+  disabled = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   options: (string | { value: string; label: string })[];
   label: string;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
-    <Select value={value} onValueChange={onChange}>
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger aria-label={label} className={className}>
         <SelectValue />
       </SelectTrigger>

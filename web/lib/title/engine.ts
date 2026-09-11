@@ -7,7 +7,7 @@ export function executeRules(d: Workspace, ids: string[]) {
     if (id === "intake")
       for (const m of d.inbox) {
         const o = d.orders.find((x) => x.id === m.orderId);
-        if (m.status === "New" && o) {
+        if (m.status === "New" && m.kind !== "Revision" && o) {
           m.status = "Queued";
           if (
             o.fields.length &&

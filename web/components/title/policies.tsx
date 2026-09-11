@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   AlertCircle,
   ArrowRight,
@@ -53,6 +53,12 @@ import {
   FieldLabel,
 } from "./shared";
 import { toast } from "sonner";
+import {
+  finalReadiness,
+  neededFields,
+  titleFile,
+} from "@/lib/title/production";
+import { FinalSources, TitleFileDetails } from "./final-intake";
 export const statuses: OrderStatus[] = [
   "New",
   "In progress",
@@ -387,9 +393,18 @@ export function PolicyWorkbench({
       `${o.address} ${o.id}`.toLowerCase().includes(q.toLowerCase()),
   );
   const order = s.orders.find((o) => o.id === selectedId) || rows[0];
-  const complete =
-    order && order.fields.length > 0 && order.fields.every((f) => f.reviewed);
+  const readiness = order ? finalReadiness(s, order) : null;
+  const complete = !!readiness?.ready;
+  const reviewFields = order
+    ? order.fields.filter((f) =>
+        neededFields(order).some((def) => def.id === f.id),
+      )
+    : [];
   const locked = order?.status === "Issued";
+  useEffect(() => {
+    setAttorney(false);
+    setAttorneyRef("");
+  }, [order?.id, order?.production?.version]);
   const currentCompany = order ? companyById(s, order.companyId) : undefined;
   function select(id: string) {
     onSelect(id);
@@ -404,6 +419,7 @@ export function PolicyWorkbench({
       const f = o.fields.find((x) => x.id === id)!;
       f.proposed = value;
       f.reviewed = false;
+      o.production = { ...titleFile(o), version: titleFile(o).version + 1 };
       if (o.status === "Ready for jacket") o.status = "Needs review";
     });
   }
@@ -416,15 +432,20 @@ export function PolicyWorkbench({
       !attorneyRef.trim()
     )
       return;
-    update(
+    const saved = update(
       (d) => {
         const o = d.orders.find((x) => x.id === order.id)!;
+        if (!finalReadiness(d, o).ready)
+          throw new Error(
+            "The source package changed. Review the current preparation checks.",
+          );
         o.status = "Ready for jacket";
         o.notes += `\nDemo attorney-review reference: ${attorneyRef.trim()}`;
       },
       "Review package prepared",
       `${order.id} · awaiting underwriter handoff`,
     );
+    if (!saved) return;
     download(
       `${order.id}-review-package.json`,
       JSON.stringify(
@@ -432,13 +453,20 @@ export function PolicyWorkbench({
           demo: true,
           notAPolicy: true,
           orderId: order.id,
+          companyId: order.companyId,
           jurisdiction: order.jurisdiction,
+          preparedAt: new Date().toISOString(),
+          reviewer: s.user,
           attorneyReference: attorneyRef,
-          changes: order.fields.map((f) => ({
+          titleFile: titleFile(order),
+          changes: reviewFields.map((f) => ({
             field: f.label,
             before: f.current,
             after: f.proposed,
             source: f.source,
+            sourceValue: f.sourceValue,
+            documentId: f.documentId,
+            sourcePage: f.sourcePage,
             reviewed: f.reviewed,
           })),
           nextStep: "Human handoff to approved SoftPro/underwriter workflow",
@@ -453,11 +481,11 @@ export function PolicyWorkbench({
     <>
       <Heading
         title="Policy workbench"
-        description="From recorded documents to a reviewed policy package."
+        description="Clear the final-policy backlog, one verified file at a time."
       >
         <span className="subtle-pill">
           <ScanLine size={14} />
-          Sample extraction
+          Local preparation
         </span>
       </Heading>
       <div className="workbench">
@@ -525,8 +553,23 @@ export function PolicyWorkbench({
               <Segments
                 value={tab}
                 onChange={setTab}
-                items={["Document review", "Policy lifecycle", "Notes"]}
+                items={[
+                  "Source package",
+                  "Document review",
+                  "File details",
+                  "Policy lifecycle",
+                  "Notes",
+                ]}
               />
+              {tab === "Source package" && (
+                <FinalSources key={order.id} order={order} />
+              )}
+              {tab === "File details" && (
+                <TitleFileDetails
+                  key={order.id + ":" + titleFile(order).version}
+                  order={order}
+                />
+              )}
               {tab === "Document review" && (
                 <>
                   {order.exception && (
@@ -569,55 +612,27 @@ export function PolicyWorkbench({
                           </div>
                           <div className="paper">
                             <p className="paper-label">
-                              FICTIONAL DOCUMENT EXCERPT
+                              CAPTURED SOURCE VALUES
                             </p>
-                            <h3>Recorded Deed</h3>
+                            <h3>Final package</h3>
                             <p className="paper-sub">
-                              {order.jurisdiction === "NC"
-                                ? "North Carolina"
-                                : "South Carolina"}{" "}
-                              · Sample record
+                              {order.id} · {order.jurisdiction}
                             </p>
                             <div className="paper-rule" />
-                            <p>Property</p>
-                            <strong>{order.address}</strong>
-                            <p>Grantee / vesting</p>
-                            <mark>
-                              {
-                                order.fields.find((f) => f.id === "name")
-                                  ?.sourceValue
-                              }
-                            </mark>
-                            <p>Recorded</p>
-                            <mark>
-                              {
-                                order.fields.find((f) => f.id === "date")
-                                  ?.sourceValue
-                              }
-                              <br />
-                              {
-                                order.fields.find((f) => f.id === "time")
-                                  ?.sourceValue
-                              }
-                            </mark>
-                            <p>Instrument reference</p>
-                            <strong>
-                              {
-                                order.fields.find((f) => f.id === "reference")
-                                  ?.sourceValue
-                              }
-                            </strong>
-                            <div className="paper-rule" />
-                            <p>Separate deed of trust · excerpt</p>
-                            <mark>
-                              {
-                                order.fields.find((f) => f.id === "trustee")
-                                  ?.sourceValue
-                              }
-                            </mark>
+                            {reviewFields.map((f) => (
+                              <div key={f.id}>
+                                <p>{f.label}</p>
+                                <mark>{f.sourceValue}</mark>
+                                <small className="source-page-reference">
+                                  {f.source}
+                                </small>
+                              </div>
+                            ))}
                             <div className="paper-disclaimer">
-                              Demonstration text only. This is not an actual
-                              recorded instrument. Extraction is simulated.
+                              Source values stay separate from proposed
+                              corrections. Verify the original attachments in
+                              Source package. No automated extraction is
+                              running.
                             </div>
                           </div>
                         </div>
@@ -625,11 +640,11 @@ export function PolicyWorkbench({
                           <div className="comparison-title">
                             <h3>Proposed changes</h3>
                             <span>
-                              {order.fields.filter((f) => f.reviewed).length} /{" "}
-                              {order.fields.length} reviewed
+                              {reviewFields.filter((f) => f.reviewed).length} /{" "}
+                              {reviewFields.length} reviewed
                             </span>
                           </div>
-                          {order.fields.map((f) => (
+                          {reviewFields.map((f) => (
                             <div
                               className={`field-diff ${f.reviewed ? "reviewed" : ""}`}
                               key={f.id}
@@ -681,6 +696,44 @@ export function PolicyWorkbench({
                           ))}
                         </div>
                       </div>
+                      {readiness && !readiness.ready && (
+                        <div className="notice warning">
+                          <ClipboardCheck size={18} />
+                          <div>
+                            <strong>Preparation checks</strong>
+                            <p>
+                              {readiness.missingSources.length
+                                ? `Missing: ${readiness.missingSources.join(", ")}. `
+                                : ""}
+                              {readiness.pendingFields.length
+                                ? `${readiness.pendingFields.length} fields need source review. `
+                                : ""}
+                              {readiness.unresolved.length
+                                ? `${readiness.unresolved.length} requirements or exceptions need a documented decision. `
+                                : ""}
+                              {readiness.missingContext.length
+                                ? `File details: ${readiness.missingContext.join(", ")}. `
+                                : ""}
+                              {readiness.loanMismatch
+                                ? "Confirm the source loan amount against File details."
+                                : ""}
+                            </p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setTab(
+                                  readiness.missingSources.length
+                                    ? "Source package"
+                                    : "File details",
+                                )
+                              }
+                            >
+                              Review supporting information
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                       <div className="review-approval">
                         <label>
                           <Checkbox
@@ -724,7 +777,12 @@ export function PolicyWorkbench({
                   ) : (
                     <Empty
                       title="Waiting for source documents"
-                      text="This order has no extracted fields. Use a seeded review order to explore the comparison workflow; document extraction will connect in a later phase."
+                      text="Attach the final opinion and recorded instruments, then capture their source fields to begin review."
+                      action={
+                        <Button onClick={() => setTab("Source package")}>
+                          Open source package
+                        </Button>
+                      }
                     />
                   )}
                 </>
@@ -748,7 +806,9 @@ export function PolicyLifecycle({ order }: { order: Order }) {
   const stages = [
     [
       "Documents reviewed",
-      order.fields.length > 0 && order.fields.every((f) => f.reviewed),
+      neededFields(order).every((def) =>
+        order.fields.some((f) => f.id === def.id && f.reviewed),
+      ),
     ],
     ["Ready for jacket", ["Ready for jacket", "Issued"].includes(order.status)],
     ["Jacket / policy recorded as issued", order.status === "Issued"],
@@ -797,6 +857,13 @@ export function PolicyLifecycle({ order }: { order: Order }) {
               update(
                 (d) => {
                   const o = d.orders.find((x) => x.id === order.id)!;
+                  if (
+                    o.status !== "Ready for jacket" ||
+                    !finalReadiness(d, o).ready
+                  )
+                    throw new Error(
+                      "The preparation evidence changed. Complete the current review before recording issuance.",
+                    );
                   o.status = "Issued";
                   o.notes += `\nDemo jacket reference: ${reference.trim()}`;
                 },

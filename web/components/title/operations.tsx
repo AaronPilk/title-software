@@ -48,7 +48,13 @@ import {
 } from "./shared";
 import { toast } from "sonner";
 import { executeRules } from "@/lib/title/engine";
-export function InboxView({ onReview }: { onReview: (id: string) => void }) {
+export function InboxView({
+  onReview,
+  onRevision,
+}: {
+  onReview: (id: string) => void;
+  onRevision: (id: string) => void;
+}) {
   const { s, update } = useWorkspace();
   const [selected, setSelected] = useState(s.inbox[0]?.id || "");
   const [filter, setFilter] = useState("All messages");
@@ -64,13 +70,20 @@ export function InboxView({ onReview }: { onReview: (id: string) => void }) {
     : null;
   function queue() {
     if (!m || !linked) return;
+    if (m.kind === "Revision") {
+      update((d) => {
+        d.inbox.find((x) => x.id === m.id)!.orderId = linked.id;
+      });
+      onRevision(m.id);
+      return;
+    }
     update(
       (d) => {
         d.inbox.find((x) => x.id === m.id)!.status = "Queued";
         d.inbox.find((x) => x.id === m.id)!.orderId = linked.id;
         if (
           linked.fields.length &&
-          !["Issued", "Ready for jacket"].includes(linked.status)
+          !["Issued", "Ready for jacket", "Rejected"].includes(linked.status)
         )
           d.orders.find((x) => x.id === linked.id)!.status = "Needs review";
       },
@@ -170,7 +183,9 @@ export function InboxView({ onReview }: { onReview: (id: string) => void }) {
                 <div className="grow">
                   <h3>
                     {m.orderId
-                      ? "Match this request to an order"
+                      ? m.kind === "Revision"
+                        ? "Review the requested revision"
+                        : "Match this request to an order"
                       : "File this request to a company"}
                   </h3>
                   <p>
@@ -186,17 +201,26 @@ export function InboxView({ onReview }: { onReview: (id: string) => void }) {
                     value={msgOrder || m.orderId}
                     onChange={setMsgOrder}
                     label="Match request to order"
-                    options={s.orders.map((o) => ({
-                      value: o.id,
-                      label: `${o.id} · ${o.address}`,
-                    }))}
+                    options={s.orders
+                      .filter(
+                        (o) => !linked || o.companyId === linked.companyId,
+                      )
+                      .map((o) => ({
+                        value: o.id,
+                        label: `${o.id} · ${o.address}`,
+                      }))}
                   />
                   <div className="message-actions">
-                    <Button disabled={m.status === "Queued"} onClick={queue}>
+                    <Button
+                      disabled={m.status === "Queued" && m.kind !== "Revision"}
+                      onClick={queue}
+                    >
                       <CheckCheck />
-                      {m.status === "Queued"
-                        ? "Queued for review"
-                        : "Queue for review"}
+                      {m.kind === "Revision"
+                        ? "Review revision"
+                        : m.status === "Queued"
+                          ? "Queued for review"
+                          : "Queue for review"}
                     </Button>
                     <Button
                       variant="outline"

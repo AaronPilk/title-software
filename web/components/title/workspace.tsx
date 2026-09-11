@@ -58,7 +58,7 @@ export const integrations = [
     color: "blue",
     description: "Orders, document attachments, and policy preparation.",
     requirements: [
-      "Confirm Select / Hosted version and account administrator.",
+      "SoftPro Select is confirmed; verify build, hosting arrangement, and administrator.",
       "Verify ProInterface API / SDK entitlement and supported operations.",
       "Map company, order, policy, and document identifiers.",
       "Start with read-only sandbox access; writeback requires review.",
@@ -66,17 +66,18 @@ export const integrations = [
     url: "https://www.softprocorp.com/real-estate-software-solutions/softpro-select/",
   },
   {
-    name: "Microsoft 365",
-    initials: "M",
+    name: "Missive",
+    initials: "MI",
     color: "blue",
-    description: "Shared inbox and incoming closing documents.",
+    description:
+      "Attorney requests, final attachments, and reviewed reply drafts.",
     requirements: [
-      "Confirm the mailbox provider and authorized shared mailboxes.",
-      "Configure OAuth consent with minimum required access.",
-      "Use stable message identifiers for deduplication.",
-      "Compare existing SoftPro AutoMail before custom ingestion.",
+      "Map authorized shared mailboxes to their company profiles.",
+      "Keep the personal bearer token on the server and restrict account access.",
+      "Deduplicate conversation/message events and recheck reply threading.",
+      "Create drafts with attachments; omit send and send_at until separately enabled.",
     ],
-    url: "https://learn.microsoft.com/en-us/graph/api/resources/mail-api-overview",
+    url: "https://missiveapp.com/docs/developers/rest-api",
   },
   {
     name: "Docusign",
