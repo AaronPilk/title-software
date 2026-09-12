@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createSeed } from "../.local-test/model.js";
 import { executeRules } from "../.local-test/engine.js";
-import { createRevision, applyRevision } from "../.local-test/production.js";
+import {
+  createRevision,
+  applyRevision,
+  recheckRevision,
+} from "../.local-test/production.js";
 import {
   createFollowup,
   cancelFollowupItem,
@@ -607,7 +611,7 @@ test("CPL delivery becomes stale when property or a loan principal changes", () 
     assert.throws(() => deliverCPL(s, c.id, "Receipt"), /current returned CPL/);
   }
 });
-test("simple revision updates one loan product and blocks ambiguous multiple loans", () => {
+test("simple revision updates one loan product and mirrors the file-level amount", () => {
   const { s, o } = finalCase();
   const loan = policy(s, o, "Loan");
   const r = createRevision(s, {
@@ -617,10 +621,16 @@ test("simple revision updates one loan product and blocks ambiguous multiple loa
     text: "Change principal to 340000",
     proposed: 340000,
   });
+  assert.equal(r.productId, loan.id);
   applyRevision(s, r.id, true);
   assert.equal(loan.loanAmount, 340000);
   assert.equal(loan.status, "Draft");
   assert.equal(loan.loanReviewNote, "");
+  assert.equal(titleFile(o).loanAmount, 340000);
+});
+test("creating a revision on a multi-loan file requires choosing which loan", () => {
+  const { s, o } = finalCase();
+  policy(s, o, "Loan");
   policy(s, o, "Loan");
   assert.throws(
     () =>
@@ -631,7 +641,76 @@ test("simple revision updates one loan product and blocks ambiguous multiple loa
         text: "Change principal",
         proposed: 350000,
       }),
-    /Multiple-loan/,
+    /Choose which loan/,
+  );
+});
+test("a revision naming an unknown or voided loan is rejected", () => {
+  const { s, o } = finalCase();
+  policy(s, o, "Loan");
+  policy(s, o, "Loan");
+  assert.throws(
+    () =>
+      createRevision(s, {
+        companyId: o.companyId,
+        orderId: o.id,
+        messageId: "",
+        text: "Change principal",
+        proposed: 350000,
+        productId: "not-a-real-loan-id",
+      }),
+    /Choose which loan/,
+  );
+});
+test("a multi-loan revision updates only its chosen loan, leaving the file and the other loan untouched", () => {
+  const { s, o } = finalCase();
+  const loanA = policy(s, o, "Loan");
+  const loanB = policy(s, o, "Loan");
+  loanA.loanReference = "Loan A";
+  loanB.loanReference = "Loan B";
+  const loanASnapshot = structuredClone(loanA);
+  const fileAmountBefore = titleFile(o).loanAmount;
+  const fileVersionBefore = titleFile(o).version;
+  const r = createRevision(s, {
+    companyId: o.companyId,
+    orderId: o.id,
+    messageId: "",
+    text: "Change Loan B principal to 200000",
+    proposed: 200000,
+    productId: loanB.id,
+  });
+  assert.equal(r.productId, loanB.id);
+  applyRevision(s, r.id, true);
+  const refreshedA = products(s, o.id).find((x) => x.id === loanA.id);
+  const refreshedB = products(s, o.id).find((x) => x.id === loanB.id);
+  assert.equal(refreshedB.loanAmount, 200000);
+  assert.equal(refreshedB.status, "Draft");
+  assert.deepEqual(refreshedA, loanASnapshot);
+  assert.equal(titleFile(o).loanAmount, fileAmountBefore);
+  assert.equal(titleFile(o).version, fileVersionBefore);
+});
+test("a multi-loan revision detects staleness scoped to its own loan, not the file", () => {
+  const { s, o } = finalCase();
+  policy(s, o, "Loan");
+  const loanB = policy(s, o, "Loan");
+  const r = createRevision(s, {
+    companyId: o.companyId,
+    orderId: o.id,
+    messageId: "",
+    text: "Change Loan B principal to 200000",
+    proposed: 200000,
+    productId: loanB.id,
+  });
+  loanB.loanAmount = 999999;
+  loanB.version++;
+  assert.throws(
+    () => applyRevision(s, r.id, true),
+    /changed after the request/,
+  );
+  recheckRevision(s, r.id);
+  applyRevision(s, r.id, true);
+  assert.equal(
+    products(s, o.id).find((x) => x.id === loanB.id).loanAmount,
+    200000,
   );
 });
 test("message routing cannot silently redirect an existing revision", () => {

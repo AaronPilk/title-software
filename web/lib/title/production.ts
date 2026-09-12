@@ -70,6 +70,16 @@ export type RevisionRequest = {
   before: number;
   proposed: number;
   baseVersion: number;
+  /**
+   * Which active Loan-kind PolicyProduct this revision targets. Empty string
+   * means "no specific loan" — the legacy behavior for a file with at most
+   * one active loan, where the file-level TitleFile.loanAmount stands in for
+   * "the" loan amount. A file with more than one active loan has no single
+   * "the loan amount", so it must name one explicitly; see activeLoans().
+   */
+  productId: string;
+  /** The targeted product's own PolicyProduct.version at capture/recheck time, used to detect staleness scoped to that product on a multi-loan file (see applyRevision). Unused (0) when productId is empty. */
+  productVersion: number;
   status: "Needs review" | "Applied" | "Needs information";
   note: string;
   createdAt: string;
@@ -357,6 +367,8 @@ export function createRevision(
     messageId: string;
     text: string;
     proposed: number;
+    /** Required when the file has more than one active loan (see activeLoans). Ignored otherwise — the sole loan, if any, is targeted automatically. */
+    productId?: string;
   },
 ): RevisionRequest {
   const o = s.orders.find(
@@ -384,11 +396,31 @@ export function createRevision(
     )
   )
     throw new Error("This message already has a revision request.");
+  const loans = activeLoans(s, o.id);
+  let productId = "";
+  let before = titleFile(o).loanAmount;
+  let productVersion = 0;
+  if (loans.length > 1) {
+    const target = loans.find((l) => l.id === input.productId);
+    if (!target)
+      throw new Error(
+        "Multiple loans are active on this file. Choose which loan this revision applies to.",
+      );
+    productId = target.id;
+    before = target.loanAmount;
+    productVersion = target.version;
+  } else if (loans[0]) {
+    productId = loans[0].id;
+    before = loans[0].loanAmount;
+    productVersion = loans[0].version;
+  }
   const p = titleFile(o);
   const request: RevisionRequest = {
     ...input,
     id: `revision-${crypto.randomUUID()}`,
-    before: p.loanAmount,
+    productId,
+    productVersion,
+    before,
     baseVersion: p.version,
     status: "Needs review",
     note: "",
@@ -412,33 +444,54 @@ export function applyRevision(s: Workspace, id: string, confirmed: boolean) {
   assertRevisionContext(s, o, r.messageId);
   if (p.financing !== "Financed")
     throw new Error("Choose an active financed order.");
-  if (p.version !== r.baseVersion || p.loanAmount !== r.before)
-    throw new Error(
-      "This file changed after the request was captured. Recheck the current values and create a new request.",
-    );
-  o.production = { ...p, loanAmount: r.proposed, version: p.version + 1 };
-  const loan = s.business?.policies.find(
-    (p) => p.orderId === o.id && p.kind === "Loan" && p.status !== "Void",
-  );
-  if (loan) {
-    loan.loanAmount = r.proposed;
-    loan.version++;
-    loan.status = "Draft";
-    loan.preparedSnapshot = "";
-    loan.loanReviewNote = "";
+  const loans = activeLoans(s, o.id);
+  let fileVersionAfter = p.version;
+  if (loans.length > 1) {
+    // No single "the loan amount" exists at the file level once a second
+    // loan is active, so this path only ever touches the specific product
+    // the request named — never the shared file fields or the other loan.
+    const target = loans.find((l) => l.id === r.productId);
+    if (!target)
+      throw new Error(
+        "The targeted loan is no longer active on this file. Recheck the request.",
+      );
+    if (target.version !== r.productVersion || target.loanAmount !== r.before)
+      throw new Error(
+        "This file changed after the request was captured. Recheck the current values and create a new request.",
+      );
+    target.loanAmount = r.proposed;
+    target.version++;
+    target.status = "Draft";
+    target.preparedSnapshot = "";
+    target.loanReviewNote = "";
+  } else {
+    if (p.version !== r.baseVersion || p.loanAmount !== r.before)
+      throw new Error(
+        "This file changed after the request was captured. Recheck the current values and create a new request.",
+      );
+    o.production = { ...p, loanAmount: r.proposed, version: p.version + 1 };
+    fileVersionAfter = o.production.version;
+    const loan = loans[0];
+    if (loan) {
+      loan.loanAmount = r.proposed;
+      loan.version++;
+      loan.status = "Draft";
+      loan.preparedSnapshot = "";
+      loan.loanReviewNote = "";
+    }
+    for (const f of o.fields) {
+      f.reviewed = false;
+      if (f.id === "loanAmount")
+        f.current = r.proposed.toLocaleString("en-US", {
+          style: "currency",
+          currency: "USD",
+        });
+    }
+    if (o.status === "Ready for jacket") o.status = "Needs review";
   }
-  for (const f of o.fields) {
-    f.reviewed = false;
-    if (f.id === "loanAmount")
-      f.current = r.proposed.toLocaleString("en-US", {
-        style: "currency",
-        currency: "USD",
-      });
-  }
-  if (o.status === "Ready for jacket") o.status = "Needs review";
   r.status = "Applied";
   const draft: ReplyDraft = {
-    fileVersion: o.production.version,
+    fileVersion: fileVersionAfter,
     id: `draft-${r.id}`,
     orderId: o.id,
     revisionId: r.id,
@@ -465,21 +518,36 @@ export function recheckRevision(s: Workspace, id: string) {
     titleFile(o).financing !== "Financed"
   )
     throw new Error("Choose an active financed order.");
-  r.before = titleFile(o).loanAmount;
+  // Recheck only refreshes the comparison baseline for the SAME loan (or the
+  // file, for a no-specific-loan request) — it never retargets a request to
+  // a different loan. That would be a materially different instruction and
+  // should go through a new request instead.
+  const loans = activeLoans(s, o.id);
+  if (loans.length > 1) {
+    const target = loans.find((l) => l.id === r.productId);
+    if (!target)
+      throw new Error(
+        "The targeted loan is no longer active on this file. Recheck the request.",
+      );
+    r.before = target.loanAmount;
+    r.productVersion = target.version;
+  } else {
+    r.before = titleFile(o).loanAmount;
+    if (loans[0]) r.productVersion = loans[0].version;
+  }
   r.baseVersion = titleFile(o).version;
   r.status = "Needs review";
+}
+function activeLoans(s: Workspace, orderId: string) {
+  return (
+    s.business?.policies.filter(
+      (p) => p.orderId === orderId && p.kind === "Loan" && p.status !== "Void",
+    ) || []
+  );
 }
 function assertRevisionContext(s: Workspace, o: Order, messageId: string) {
   if (productionLocked(s, o))
     throw new Error("Issued files require a separate correction workflow.");
-  const loans =
-    s.business?.policies.filter(
-      (p) => p.orderId === o.id && p.kind === "Loan" && p.status !== "Void",
-    ) || [];
-  if (loans.length > 1)
-    throw new Error(
-      "Multiple-loan files require a loan-specific review. This simple revision action supports one loan only.",
-    );
   const message = s.inbox.find((m) => m.id === messageId);
   if (
     message &&
@@ -498,6 +566,10 @@ export function missingDocumentDraft(s: Workspace, o: Order) {
 /** Add the new workflow model without discarding previous local companies or edits. */
 export function enrichWorkspace(s: Workspace): Workspace {
   s.revisions ??= [];
+  for (const r of s.revisions) {
+    r.productId ??= "";
+    r.productVersion ??= 0;
+  }
   s.replyDrafts ??= [];
   s.expenses ??= {};
   s.expansionStates ??= [];

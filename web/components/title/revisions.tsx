@@ -34,6 +34,7 @@ import {
   companyById,
   moneyCents,
   type Mail as MailRecord,
+  type Workspace,
 } from "@/lib/title/model";
 import {
   titleFile,
@@ -46,6 +47,17 @@ import {
   type ReplyDraft,
 } from "@/lib/title/production";
 import { UploadDocument, DocumentPreview } from "./documents";
+
+function orderLoans(s: Workspace, orderId: string) {
+  return (s.business?.policies || []).filter(
+    (p) => p.orderId === orderId && p.kind === "Loan" && p.status !== "Void",
+  );
+}
+function revisionLoanLabel(s: Workspace, r: RevisionRequest) {
+  if (!r.productId) return "";
+  const p = s.business?.policies.find((x) => x.id === r.productId);
+  return p ? p.loanReference || "Loan" : "";
+}
 
 export function Revisions({
   messageId,
@@ -118,7 +130,7 @@ export function Revisions({
                 >
                   <small>{companyById(s, r.companyId).name}</small>
                   <strong>{r.orderId}</strong>
-                  <span>Loan amount revision</span>
+                  <span>{revisionLoanLabel(s, r) || "Loan amount revision"}</span>
                   <Status value={r.status} />
                 </button>
               ))}
@@ -194,12 +206,15 @@ function NewRevision({
   const [amount, setAmount] = useState(
     message?.id === "tyler-revision-demo" ? "340000" : "",
   );
+  const [productId, setProductId] = useState("none");
   const eligible = s.orders.filter(
     (o) =>
       o.companyId === company &&
       !["Issued", "Rejected"].includes(o.status) &&
       titleFile(o).financing === "Financed",
   );
+  const loans = orderLoans(s, order);
+  const needsLoanChoice = loans.length > 1;
   function submit(e: React.FormEvent) {
     e.preventDefault();
     let id = "";
@@ -212,6 +227,7 @@ function NewRevision({
             messageId: message?.id || "",
             text,
             proposed: Number(amount),
+            productId: needsLoanChoice ? productId : undefined,
           });
           id = r.id;
           if (message)
@@ -241,6 +257,7 @@ function NewRevision({
               onChange={(v) => {
                 setCompany(v);
                 setOrder("none");
+                setProductId("none");
               }}
               options={s.companies.map((c) => ({ value: c.id, label: c.name }))}
             />
@@ -249,7 +266,10 @@ function NewRevision({
             <Picker
               value={order}
               label="Revision file"
-              onChange={setOrder}
+              onChange={(v) => {
+                setOrder(v);
+                setProductId("none");
+              }}
               options={[
                 { value: "none", label: "Select the exact file" },
                 ...eligible.map((o) => ({
@@ -259,6 +279,22 @@ function NewRevision({
               ]}
             />
           </FieldLabel>
+          {needsLoanChoice && (
+            <FieldLabel label="Which loan">
+              <Picker
+                value={productId}
+                label="Revision loan"
+                onChange={setProductId}
+                options={[
+                  { value: "none", label: "Select the exact loan" },
+                  ...loans.map((l) => ({
+                    value: l.id,
+                    label: `${l.loanReference || "Loan"} · ${moneyCents(l.loanAmount)}`,
+                  })),
+                ]}
+              />
+            </FieldLabel>
+          )}
           <FieldLabel label="Requested loan amount ($)">
             <Input
               type="number"
@@ -283,7 +319,12 @@ function NewRevision({
             Only a loan-amount revision is supported here. Legal wording,
             coverage, and other changes require a separate professional review.
           </p>
-          <Button disabled={order === "none"} type="submit">
+          <Button
+            disabled={
+              order === "none" || (needsLoanChoice && productId === "none")
+            }
+            type="submit"
+          >
             Create review request
           </Button>
         </form>
@@ -306,7 +347,19 @@ function RevisionDetail({
   const [note, setNote] = useState(r.note);
   const order = s.orders.find((o) => o.id === r.orderId)!;
   const file = titleFile(order);
-  const stale = file.version !== r.baseVersion && r.status !== "Applied";
+  const loans = orderLoans(s, order.id);
+  const multi = loans.length > 1;
+  // A multi-loan file has no single file-level "the loan amount", so staleness
+  // and the current-amount display track the specific loan the request named
+  // instead of the file record — mirroring applyRevision's own branching.
+  const targetLoan = multi ? loans.find((l) => l.id === r.productId) : loans[0];
+  const targetMissing = multi && !targetLoan;
+  const currentAmount =
+    multi && targetLoan ? targetLoan.loanAmount : file.loanAmount;
+  const currentVersion = multi && targetLoan ? targetLoan.version : file.version;
+  const baseline = multi && targetLoan ? r.productVersion : r.baseVersion;
+  const stale =
+    !targetMissing && currentVersion !== baseline && r.status !== "Applied";
   return (
     <section className="panel revision-review">
       <div className="source-summary">
@@ -321,6 +374,8 @@ function RevisionDetail({
       <p className="inline-note">
         Destination: {companyById(s, r.companyId).name} → {r.orderId}. File
         version {file.version}.
+        {r.productId &&
+          ` Loan: ${targetLoan?.loanReference || (targetMissing ? "no longer active" : "Loan")}.`}
       </p>
       <div className="revision-diff">
         <div>
@@ -337,12 +392,22 @@ function RevisionDetail({
         <h3>Source instruction</h3>
         <p>{r.text}</p>
       </div>
+      {targetMissing && r.status === "Needs review" && (
+        <div className="notice warning">
+          <p>
+            The loan this revision named is no longer active on this file (it
+            may have been voided). Hold this request for clarification or
+            open the file to review the current loans.
+          </p>
+        </div>
+      )}
       {stale && (
         <div className="notice warning">
           <p>
-            The file changed after this request was captured. Current loan
-            amount: {moneyCents(file.loanAmount)}. Recheck the request against
-            the current file.
+            {targetLoan ? "This loan" : "The file"} changed after this
+            request was captured. Current loan amount:{" "}
+            {moneyCents(currentAmount)}. Recheck the request against the
+            current file.
           </p>
           <Button
             variant="outline"
@@ -379,7 +444,7 @@ function RevisionDetail({
           </div>
           <div className="source-actions">
             <Button
-              disabled={!oCheck || !sCheck || stale}
+              disabled={!oCheck || !sCheck || stale || targetMissing}
               onClick={() => {
                 if (
                   update(
