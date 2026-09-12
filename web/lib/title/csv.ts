@@ -11,45 +11,69 @@ export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
-  let inQuotes = false;
+  let state: "start" | "plain" | "quoted" | "closed" = "start";
+  let pendingRow = false;
   const src = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  const fail = (detail: string): never => {
+    throw new Error(`CSV record ${rows.length + 1}: ${detail}`);
+  };
+  function finishField() {
+    row.push(field);
+    field = "";
+    state = "start";
+  }
   for (let i = 0; i < src.length; i++) {
     const c = src[i];
-    if (inQuotes) {
+    if (state === "quoted") {
       if (c === '"') {
         if (src[i + 1] === '"') {
           field += '"';
           i++;
         } else {
-          inQuotes = false;
+          state = "closed";
         }
       } else {
         field += c;
       }
       continue;
     }
-    if (c === '"') inQuotes = true;
-    else if (c === ",") {
-      row.push(field);
-      field = "";
-    } else if (c === "\r") {
-      // Swallowed; a following \n (or end of input) closes the row.
-    } else if (c === "\n") {
-      row.push(field);
+    if (c === ",") {
+      finishField();
+      pendingRow = true;
+    } else if (c === "\r" || c === "\n") {
+      if (c === "\r" && src[i + 1] === "\n") i++;
+      finishField();
       rows.push(row);
       row = [];
-      field = "";
-    } else field += c;
+      pendingRow = false;
+    } else if (state === "closed") {
+      if (c !== " " && c !== "\t")
+        fail(
+          "unexpected text after a closing quote. Check the original export.",
+        );
+    } else if (c === '"') {
+      if (state !== "start")
+        fail(
+          "a quote appears inside an unquoted field. Quote the whole field and double any quotes within it.",
+        );
+      state = "quoted";
+      pendingRow = true;
+    } else {
+      field += c;
+      state = "plain";
+      pendingRow = true;
+    }
   }
-  // Flush a final field/row for a file that doesn't end with a newline.
-  if (field.length || row.length) {
-    row.push(field);
+  if (state === "quoted")
+    fail(
+      "a quoted field is not closed. Export the file again or repair the missing quote.",
+    );
+  // A separator already closes its record. Preserve explicit empty cells,
+  // including a final quoted empty field, without adding a phantom record.
+  if (pendingRow) {
+    finishField();
     rows.push(row);
   }
-  // A file ending in a newline otherwise leaves one phantom fully-blank
-  // trailing row; drop just that one so callers don't see a fake last
-  // record. A genuinely blank row in the middle of the file is preserved.
-  if (rows.length && rows[rows.length - 1].every((c) => c === "")) rows.pop();
   return rows;
 }
 export type CsvPreview = {
@@ -65,5 +89,26 @@ export type CsvPreview = {
  */
 export function previewCsv(text: string, maxRows = 15): CsvPreview {
   const [headers = [], ...data] = parseCsv(text);
+  if (!headers.length)
+    throw new Error("This CSV is empty. Choose an export with a header row.");
+  const seen = new Set<string>();
+  for (const [i, header] of headers.entries()) {
+    const key = header.trim().toLowerCase();
+    if (!key)
+      throw new Error(
+        `Column ${i + 1} has no header. Give every column a unique name before mapping it.`,
+      );
+    if (seen.has(key))
+      throw new Error(
+        `Duplicate column header "${header}". Give each column a unique name so its mapping stays separate.`,
+      );
+    seen.add(key);
+  }
+  for (const [i, row] of data.entries()) {
+    if (row.length !== headers.length)
+      throw new Error(
+        `CSV record ${i + 2} has ${row.length} fields; the header has ${headers.length}. Check for missing fields or extra commas.`,
+      );
+  }
   return { headers, rows: data.slice(0, maxRows), totalDataRows: data.length };
 }

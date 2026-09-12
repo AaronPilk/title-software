@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Upload, FileSpreadsheet, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,31 +39,66 @@ export function AccountingImport() {
   const [preview, setPreview] = useState<CsvPreview | null>(null);
   const [map, setMap] = useState<Record<string, ImportTargetField>>({});
   const [templateName, setTemplateName] = useState("");
+  const [error, setError] = useState("");
+  const [reading, setReading] = useState(false);
+  const readId = useRef(0);
   const templates = s.importTemplates || [];
+  function savedTarget(
+    columnMap: Record<string, ImportTargetField>,
+    header: string,
+  ): ImportTargetField {
+    return Object.hasOwn(columnMap, header) &&
+      importTargetFields.includes(columnMap[header])
+      ? columnMap[header]
+      : "Ignore";
+  }
 
   function applyTemplate(columnMap: Record<string, ImportTargetField>) {
     if (!preview) return;
     setMap(
       Object.fromEntries(
-        preview.headers.map((h) => [h, columnMap[h] || "Ignore"]),
+        preview.headers.map((h) => [h, savedTarget(columnMap, h)]),
       ) as Record<string, ImportTargetField>,
     );
   }
 
   async function onFile(file: File) {
-    const text = await file.text();
-    const p = previewCsv(text, 15);
+    const request = ++readId.current;
     setFileName(file.name);
-    setPreview(p);
+    setPreview(null);
+    setMap({});
+    setError("");
+    setReading(true);
     setTemplateName("");
-    const matching = templates.find(
-      (t) => p.headers.length > 0 && p.headers.every((h) => h in t.columnMap),
-    );
-    setMap(
-      Object.fromEntries(
-        p.headers.map((h) => [h, matching?.columnMap[h] ?? guessTarget(h)]),
-      ) as Record<string, ImportTargetField>,
-    );
+    try {
+      if (file.size > 10 * 1024 * 1024)
+        throw new Error("Choose a CSV file up to 10 MB.");
+      const p = previewCsv(await file.text(), 15);
+      if (request !== readId.current) return;
+      setPreview(p);
+      const matching = templates.find(
+        (t) =>
+          p.headers.length > 0 &&
+          p.headers.every((h) => Object.hasOwn(t.columnMap, h)),
+      );
+      setMap(
+        Object.fromEntries(
+          p.headers.map((h) => [
+            h,
+            matching ? savedTarget(matching.columnMap, h) : guessTarget(h),
+          ]),
+        ) as Record<string, ImportTargetField>,
+      );
+    } catch (cause) {
+      if (request === readId.current)
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "This file could not be read. Choose it again.",
+        );
+    } finally {
+      if (request === readId.current) setReading(false);
+    }
   }
 
   return (
@@ -109,7 +144,17 @@ export function AccountingImport() {
             </div>
           )}
         </div>
-        {!preview && (
+        {error && (
+          <div className="notice warning" role="alert">
+            <p>{error}</p>
+          </div>
+        )}
+        {reading && (
+          <p role="status" className="inline-note">
+            Reading CSV…
+          </p>
+        )}
+        {!preview && !error && !reading && (
           <Empty
             title="No file previewed yet"
             text="Choose a CSV export from your bank or accounting software to preview its columns."
@@ -155,9 +200,7 @@ export function AccountingImport() {
                     <TableCell
                       key={j}
                       className={
-                        map[preview.headers[j]] === "Ignore"
-                          ? "muted-cell"
-                          : ""
+                        map[preview.headers[j]] === "Ignore" ? "muted-cell" : ""
                       }
                     >
                       {cell}

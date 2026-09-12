@@ -42,6 +42,7 @@ try {
       "tests/domain.test.mjs",
       "tests/business.test.mjs",
       "tests/materials.test.mjs",
+      "tests/csv.test.mjs",
     ],
     {
       stdio: "inherit",
