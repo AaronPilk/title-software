@@ -22,6 +22,24 @@ const WORKSPACE_ARRAY_KEYS = [
   "rules",
   "approvedReports",
 ] as const;
+/**
+ * Optional top-level modules (currently just `materials`, see
+ * lib/title/materials.ts) are never required here — an older or
+ * materials-untouched workspace simply omits the key — but if one IS
+ * present it must have its own expected shape, so a corrupted or foreign
+ * value doesn't pass hydration/restore only to fail later when
+ * materials-aware UI reads it. Add future optional modules the same way.
+ */
+function isValidOptionalMaterials(data: unknown): boolean {
+  if (data === undefined) return true;
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { version?: unknown }).version === 1 &&
+    Array.isArray((data as { items?: unknown }).items) &&
+    Array.isArray((data as { publications?: unknown }).publications)
+  );
+}
 function isWorkspaceShape(data: unknown): data is Workspace {
   return (
     !!data &&
@@ -29,7 +47,8 @@ function isWorkspaceShape(data: unknown): data is Workspace {
     (data as { version?: unknown }).version === 1 &&
     WORKSPACE_ARRAY_KEYS.every((k) =>
       Array.isArray((data as Record<string, unknown>)[k]),
-    )
+    ) &&
+    isValidOptionalMaterials((data as { materials?: unknown }).materials)
   );
 }
 type Store = {
@@ -251,6 +270,15 @@ export type WorkspaceBackup = {
   exportedAt: string;
   workspace: Workspace;
   assets: { id: string; name: string; mime: string; data: string }[];
+  /**
+   * Documents whose bytes could not be read from this browser's storage at
+   * export time (cleared IndexedDB, another tab/profile, etc). Restoring
+   * this backup will not recover these — they are persisted in the file
+   * itself (not just an export-time toast) so a later restore can tell the
+   * operator which documents — including any published company materials
+   * that reference them — still need their file re-attached afterward.
+   */
+  missingAssets: { id: string; name: string }[];
 };
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -272,7 +300,7 @@ function base64ToBlob(data: string, mime: string): Blob {
 export async function exportFullBackup(s: Workspace) {
   const docs = s.documents.filter((d) => d.assetId);
   const assets: WorkspaceBackup["assets"] = [];
-  const missing: string[] = [];
+  const missingAssets: WorkspaceBackup["missingAssets"] = [];
   for (const d of docs) {
     try {
       const blob = await getAsset(d.assetId!);
@@ -283,7 +311,7 @@ export async function exportFullBackup(s: Workspace) {
         data: await blobToBase64(blob),
       });
     } catch {
-      missing.push(d.name);
+      missingAssets.push({ id: d.assetId!, name: d.name });
     }
   }
   const payload: WorkspaceBackup = {
@@ -292,13 +320,18 @@ export async function exportFullBackup(s: Workspace) {
     exportedAt: new Date().toISOString(),
     workspace: s,
     assets,
+    missingAssets,
   };
   download(
     `titleos-full-backup-${new Date().toISOString().slice(0, 10)}.json`,
     JSON.stringify(payload),
     "application/json",
   );
-  return { total: docs.length, saved: assets.length, missing };
+  return {
+    total: docs.length,
+    saved: assets.length,
+    missing: missingAssets.map((m) => m.name),
+  };
 }
 export function parseBackupFile(raw: string): WorkspaceBackup {
   let data: unknown;
@@ -319,6 +352,9 @@ export function parseBackupFile(raw: string): WorkspaceBackup {
     throw new Error(
       "This is not a TitleOS full backup file (use one downloaded from Export full backup).",
     );
+  // missingAssets was added after the first release of this format — default
+  // to empty for a backup file made by that earlier version.
+  b.missingAssets ??= [];
   return b as WorkspaceBackup;
 }
 export async function restoreAssets(assets: WorkspaceBackup["assets"]) {

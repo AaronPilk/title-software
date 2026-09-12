@@ -723,6 +723,18 @@ export function Settings() {
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {!!pendingRestore?.missingAssets.length && (
+            <div className="notice warning">
+              <p>
+                {pendingRestore.missingAssets.length} document
+                {pendingRestore.missingAssets.length === 1 ? "" : "s"} had no
+                readable file when this backup was made and will stay
+                file-less after restoring:{" "}
+                {pendingRestore.missingAssets.map((m) => m.name).join(", ")}.
+                Re-attach the file on each one afterward if it's needed.
+              </p>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={restoreBusy}>
               Cancel
