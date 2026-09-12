@@ -12,6 +12,26 @@ import { createSeed, uid, type Workspace } from "./model";
 import { enrichWorkspace } from "./production";
 import { enrichBusiness, validateBusinessMutation } from "./business";
 const KEY = "titleos.workspace.v1";
+const WORKSPACE_ARRAY_KEYS = [
+  "companies",
+  "orders",
+  "documents",
+  "tasks",
+  "inbox",
+  "activity",
+  "rules",
+  "approvedReports",
+] as const;
+function isWorkspaceShape(data: unknown): data is Workspace {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { version?: unknown }).version === 1 &&
+    WORKSPACE_ARRAY_KEYS.every((k) =>
+      Array.isArray((data as Record<string, unknown>)[k]),
+    )
+  );
+}
 type Store = {
   s: Workspace;
   ready: boolean;
@@ -21,6 +41,7 @@ type Store = {
     detail?: string,
   ) => boolean;
   reset: () => void;
+  restore: (w: Workspace) => void;
 };
 const Context = createContext<Store | null>(null);
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
@@ -33,19 +54,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const raw = localStorage.getItem(KEY);
       if (raw) {
         const data = JSON.parse(raw);
-        if (
-          data.version === 1 &&
-          [
-            "companies",
-            "orders",
-            "documents",
-            "tasks",
-            "inbox",
-            "activity",
-            "rules",
-            "approvedReports",
-          ].every((k) => Array.isArray(data[k]))
-        ) {
+        if (isWorkspaceShape(data)) {
           for (const order of data.orders) {
             for (const field of order.fields || []) {
               if (
@@ -139,8 +148,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       },
     });
   }
+  function restore(w: Workspace) {
+    const previous = latest.current;
+    const next = enrichBusiness(enrichWorkspace(structuredClone(w)));
+    latest.current = next;
+    setState(next);
+    toast.success("Backup restored", {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          latest.current = previous;
+          setState(previous);
+        },
+      },
+    });
+  }
   return (
-    <Context.Provider value={{ s, ready, update, reset }}>
+    <Context.Provider value={{ s, ready, update, reset, restore }}>
       {children}
     </Context.Provider>
   );
@@ -214,4 +238,93 @@ export function exportCsv(name: string, rows: (string | number | boolean)[][]) {
     "\uFEFF" + rows.map((r) => r.map(cell).join(",")).join("\r\n"),
     "text/csv;charset=utf-8",
   );
+}
+/**
+ * Full binary backup/restore. The metadata-only "Export demo records" export
+ * intentionally leaves uploaded files in browser storage; this instead bundles
+ * every uploaded file's bytes alongside the workspace metadata into one JSON
+ * file, so the browser's IndexedDB is not the only copy of anything.
+ */
+export type WorkspaceBackup = {
+  backup: true;
+  version: 1;
+  exportedAt: string;
+  workspace: Workspace;
+  assets: { id: string; name: string; mime: string; data: string }[];
+};
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.slice(result.indexOf(",") + 1));
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+function base64ToBlob(data: string, mime: string): Blob {
+  const bin = atob(data);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+export async function exportFullBackup(s: Workspace) {
+  const docs = s.documents.filter((d) => d.assetId);
+  const assets: WorkspaceBackup["assets"] = [];
+  const missing: string[] = [];
+  for (const d of docs) {
+    try {
+      const blob = await getAsset(d.assetId!);
+      assets.push({
+        id: d.assetId!,
+        name: d.name,
+        mime: d.mime || blob.type || "application/octet-stream",
+        data: await blobToBase64(blob),
+      });
+    } catch {
+      missing.push(d.name);
+    }
+  }
+  const payload: WorkspaceBackup = {
+    backup: true,
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    workspace: s,
+    assets,
+  };
+  download(
+    `titleos-full-backup-${new Date().toISOString().slice(0, 10)}.json`,
+    JSON.stringify(payload),
+    "application/json",
+  );
+  return { total: docs.length, saved: assets.length, missing };
+}
+export function parseBackupFile(raw: string): WorkspaceBackup {
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error("This file is not valid JSON.");
+  }
+  const b = data as Partial<WorkspaceBackup> | null;
+  if (
+    !b ||
+    typeof b !== "object" ||
+    b.backup !== true ||
+    b.version !== 1 ||
+    !isWorkspaceShape(b.workspace) ||
+    !Array.isArray(b.assets)
+  )
+    throw new Error(
+      "This is not a TitleOS full backup file (use one downloaded from Export full backup).",
+    );
+  return b as WorkspaceBackup;
+}
+export async function restoreAssets(assets: WorkspaceBackup["assets"]) {
+  for (const a of assets)
+    await saveAsset(
+      a.id,
+      new File([base64ToBlob(a.data, a.mime)], a.name, { type: a.mime }),
+    );
 }

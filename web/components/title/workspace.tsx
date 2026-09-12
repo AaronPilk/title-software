@@ -2,7 +2,8 @@
 import { sameDocumentFamily } from "@/lib/title/production";
 import { PartnerStatements } from "./close-suite";
 import { partnerPeriod } from "@/lib/title/followups";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   Activity,
   ArrowUpRight,
@@ -19,6 +20,7 @@ import {
   Plus,
   Settings2,
   ShieldCheck,
+  Upload,
   UsersRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -41,7 +43,15 @@ import {
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { TableRow, TableCell } from "@/components/ui/table";
-import { useWorkspace, download, exportCsv } from "@/lib/title/store";
+import {
+  useWorkspace,
+  download,
+  exportCsv,
+  exportFullBackup,
+  parseBackupFile,
+  restoreAssets,
+  type WorkspaceBackup,
+} from "@/lib/title/store";
 import { money, type VaultDoc } from "@/lib/title/model";
 import {
   Heading,
@@ -288,13 +298,75 @@ function EyeIcon() {
   return <UsersRound size={14} />;
 }
 export function Settings() {
-  const { s, update, reset } = useWorkspace();
+  const { s, update, reset, restore } = useWorkspace();
   const [tab, setTab] = useState("Connections");
   const [connection, setConnection] = useState<
     (typeof integrations)[number] | null
   >(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [stateOpen, setStateOpen] = useState(false);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [pendingRestore, setPendingRestore] = useState<WorkspaceBackup | null>(
+    null,
+  );
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const backupFileRef = useRef<HTMLInputElement>(null);
+  async function handleExportBackup() {
+    setBackupBusy(true);
+    try {
+      const result = await exportFullBackup(s);
+      if (result.missing.length)
+        toast.warning(
+          `Backup saved. ${result.missing.length} file${result.missing.length === 1 ? "" : "s"} could not be read from this browser and were left out: ${result.missing.join(", ")}.`,
+        );
+      else
+        toast.success(
+          `Full backup saved with ${result.saved} file${result.saved === 1 ? "" : "s"}.`,
+        );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not prepare the backup.",
+      );
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+  async function handleBackupFileChosen(
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const backup = parseBackupFile(await file.text());
+      setPendingRestore(backup);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not read this backup file.",
+      );
+    }
+  }
+  async function confirmRestore() {
+    if (!pendingRestore) return;
+    setRestoreBusy(true);
+    try {
+      await restoreAssets(pendingRestore.assets);
+      restore(pendingRestore.workspace);
+      setPendingRestore(null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not restore this backup's files. Nothing was changed.",
+      );
+    } finally {
+      setRestoreBusy(false);
+    }
+  }
   return (
     <>
       <Heading
@@ -573,14 +645,42 @@ export function Settings() {
               <Download />
               Export demo records
             </Button>
+            <Button
+              variant="outline"
+              disabled={backupBusy}
+              onClick={handleExportBackup}
+            >
+              <Download />
+              {backupBusy ? "Preparing backup…" : "Export full backup"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => backupFileRef.current?.click()}
+            >
+              <Upload />
+              Restore from backup
+            </Button>
+            <input
+              ref={backupFileRef}
+              type="file"
+              accept="application/json"
+              hidden
+              onChange={handleBackupFileChosen}
+            />
             <Button variant="outline" onClick={() => setResetOpen(true)}>
               Reset sample workspace
             </Button>
           </div>
           <p className="inline-note">
-            The export contains metadata and sample text. Uploaded binary files
-            remain in browser storage and must be downloaded from the vault
-            separately.
+            "Export demo records" saves metadata and sample text only.
+            "Export full backup" also bundles every uploaded file's bytes into
+            the same downloaded file, so this browser's storage is not the
+            only copy of anything — use it before clearing browser data,
+            switching browsers, or moving to a new computer. "Restore from
+            backup" only accepts a file made by "Export full backup" and
+            replaces everything currently in this browser; the confirmation
+            step shows what it contains first, and the resulting toast offers
+            Undo.
           </p>
         </section>
       )}
@@ -629,6 +729,41 @@ export function Settings() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={reset}>Reset demo</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={!!pendingRestore}
+        onOpenChange={(v) => !v && setPendingRestore(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore this backup?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingRestore && (
+                <>
+                  Exported {new Date(pendingRestore.exportedAt).toLocaleString()}
+                  {" · "}
+                  {pendingRestore.workspace.companies.length} companies,{" "}
+                  {pendingRestore.workspace.orders.length} files,{" "}
+                  {pendingRestore.assets.length} uploaded document
+                  {pendingRestore.assets.length === 1 ? "" : "s"}. This
+                  replaces everything currently in this browser. The
+                  confirmation toast offers Undo.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restoreBusy}>
+              Cancel
+            </AlertDialogCancel>
+            {/* A plain Button, not AlertDialogAction: Radix's Action closes
+                the dialog on click, but this confirm is async and should
+                keep the dialog open (with a busy label) until it settles. */}
+            <Button disabled={restoreBusy} onClick={confirmRestore}>
+              {restoreBusy ? "Restoring…" : "Restore backup"}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

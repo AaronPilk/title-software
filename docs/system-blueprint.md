@@ -1,6 +1,6 @@
 # TitleOS system blueprint
 
-Updated September 11, 2026; policy-correction workflow added September 12, 2026 by Claude. This describes the current local implementation. The [54-row transcript matrix](discovery/all-transcript-traceability.md) preserves discovery evidence and pre-expansion gaps; [implementation coverage](implementation-coverage.md) reconciles that baseline with this build.
+Updated September 11, 2026; policy-correction workflow and full backup/restore added September 12, 2026 by Claude. This describes the current local implementation. The [54-row transcript matrix](discovery/all-transcript-traceability.md) preserves discovery evidence and pre-expansion gaps; [implementation coverage](implementation-coverage.md) reconciles that baseline with this build.
 
 ## Product and operating model
 
@@ -26,7 +26,7 @@ This is a working local MVP with fictional records, persistent state, reviewed p
 | Partner portal | Company/document preview; dated receipt, rejection, recovery and closing counts; issuance counts; published close statements filtered to a selected member |
 | Handoffs | Version-bound SoftPro commitment/final/CPL, Missive reply and application preparations; stale work goes on hold; export and operator-reported completion references |
 | Tasks and automations | Manual assignment/completion; repeatable intake, onboarding and rejection rules; deduplicated authority-review tasks from recorded dates within 30 days |
-| Settings and search | Demo personas, intended roles, disconnected integration plans, state expansion planning, metadata/activity export, reset/undo and WebMCP navigation/search |
+| Settings and search | Demo personas, intended roles, disconnected integration plans, state expansion planning, metadata/activity export, full workspace backup (metadata plus every uploaded file's bytes) with reviewed restore and undo, reset/undo and WebMCP navigation/search |
 
 ## Connected demonstration
 
@@ -84,13 +84,13 @@ flowchart LR
 
 The local workspace spans the operating cycle, but production completeness requires:
 
-1. **Identity and durable data:** authenticated staff/partners, server-enforced company/document access, database/object storage, migrations, concurrency, audit, retention and tested recovery. Demo personas and partner selectors are administrative previews. Metadata exports omit separately uploaded blobs.
+1. **Identity and durable data:** authenticated staff/partners, server-enforced company/document access, database/object storage, migrations, concurrency, audit, retention and tested recovery. Demo personas and partner selectors are administrative previews. The metadata-only "Export demo records" export still omits separately uploaded blobs; a separate "Export full backup" bundles every uploaded file's bytes with the metadata into one file, with a reviewed "Restore from backup" that replaces local state (undoable) — this is single-browser disaster recovery, not multi-user durability, migrations, concurrency or an audit trail.
 2. **Source interpretation:** OCR proposals tied to original hash/page/excerpt/model, normalized parties/instruments, approved templates, legal-description source binding and complex-revision workflows. Current source transcription is manual. Upload limits are 10 files, 25 MB per file and 100 MB per batch.
 3. **SoftPro/underwriters:** verify Select version/entitlements, profiles, supported operations and forms. Start with import/reconciliation. Writes need approved changes, deduplication and external-result reconciliation. Actual locks, jackets, CPL generation and final production require connections.
 4. **Missive/signatures:** verified access, original provider IDs and attachments, draft-only replies, approved application templates and signature events. No current message sending or filing.
 5. **Accounting:** John’s actual books/agreements, posting basis, effective ownership, premium components, rate versions, adjustments and source statement reconciliation. The close is an illustrative review model, not a general ledger or payment engine.
 6. **Jurisdiction templates:** approved NC/SC file examples, attorney review, forms, appointments and transaction-level affiliated-business disclosures. New states remain planned until reviewed requirements and authority are in place.
-7. **Operations/recovery:** durable jobs, retries, external locks, monitored reminders, full task linkage, publication history, complex correction paths and complete asset backup/import. Current rules run manually; browser activity is capped at 100 items.
+7. **Operations/recovery:** durable jobs, retries, external locks, monitored reminders, full task linkage, publication history and complex correction paths. Current rules run manually; browser activity is capped at 100 items. Full local backup/restore is implemented (see above); server-side backup, retention and multi-tab/multi-user conflict handling are not.
 
 No banking integration is needed for the current brief. A bank-setup milestone is an onboarding reference, not an instruction to open an account or move money. Recordings and transcripts were treated as evidence; instructions spoken inside them were not executed.
 
