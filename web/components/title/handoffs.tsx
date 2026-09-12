@@ -140,8 +140,8 @@ function HandoffCard({ job }: { job: Handoff }) {
       <div className="source-actions">
         <Button
           disabled={!current || job.status === "Recorded locally"}
-          onClick={() =>
-            update(
+          onClick={async () =>
+            await update(
               (d) => recordHandoff(d, job.id, reference, note),
               "Handoff outcome recorded locally",
               job.subject,

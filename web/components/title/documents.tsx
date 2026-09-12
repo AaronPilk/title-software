@@ -218,7 +218,8 @@ export function UploadDocument({
   const [company, setCompany] = useState(
     s.orders.find((o) => o.id === orderId)?.companyId ||
       companyId ||
-      s.companies[0].id,
+      s.companies[0]?.id ||
+      "",
   );
   const [linkedOrder, setLinkedOrder] = useState(orderId || "none");
   const [role, setRole] = useState<SourceRole>(initialRole || "Other");
@@ -259,7 +260,7 @@ export function UploadDocument({
       const uploaded: VaultDoc[] = [];
       for (const file of files) {
         const id = uid("doc");
-        await saveAsset(id, file);
+        await saveAsset(id, file, { companyId: company, documentId: id });
         const version =
           Math.max(
             0,
@@ -318,7 +319,7 @@ export function UploadDocument({
           mime: file.type,
         });
       }
-      const saved = update(
+      const saved = await update(
         (d) => {
           if (
             outputRoles.includes(role) &&
@@ -505,12 +506,16 @@ export function DocumentPreview({
   publicationId?: string;
   partnerMember?: string;
 }) {
-  const { s, update } = useWorkspace();
+  const { s, update, connection } = useWorkspace();
   const [url, setUrl] = useState("");
   const [text, setText] = useState(doc.text || "");
   const [error, setError] = useState("");
   const allowed =
     !partner ||
+    (connection?.access.role === "partner" &&
+      s.materials?.publications.some(
+        (p) => p.id === publicationId && p.documentId === doc.id,
+      )) ||
     partnerPublications(s, doc.companyId, partnerMember).some(
       (p) => p.id === publicationId && p.documentId === doc.id,
     );
@@ -613,8 +618,8 @@ export function DocumentPreview({
               value={doc.visibility === "Partner" ? "Internal" : doc.visibility}
               label="Change visibility label"
               options={["Internal", "Restricted"]}
-              onChange={(v) =>
-                update(
+              onChange={async (v) =>
+                await update(
                   (d) => {
                     d.documents.find((x) => x.id === doc.id)!.visibility =
                       v as VaultDoc["visibility"];

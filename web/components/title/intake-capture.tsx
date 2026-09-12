@@ -53,11 +53,11 @@ export function IntakeCapture({
       d.companyId === company &&
       (file === "none" ? !d.orderId : d.orderId === file),
   );
-  function save(e: React.FormEvent) {
+  async function save(e: React.FormEvent) {
     e.preventDefault();
     let mailId = message?.id || uid("mail");
     if (
-      update(
+      await update(
         (d) => {
           if (
             !from.trim() ||

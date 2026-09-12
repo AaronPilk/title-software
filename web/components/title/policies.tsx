@@ -1,4 +1,5 @@
 "use client";
+import { BufferedInput } from "./buffered-input";
 import {
   recordOrderOutcome,
   recoveryStage,
@@ -229,19 +230,25 @@ export function NewOrder({
   onClose: () => void;
 }) {
   const { s, update } = useWorkspace();
-  const [company, setCompany] = useState(s.companies[0].id);
+  const [company, setCompany] = useState(s.companies[0]?.id || "");
   const [owner, setOwner] = useState("Tyler");
   const [type, setType] = useState("Purchase");
   const [underwriter, setUnderwriter] = useState("WFG");
   const [state, setState] = useState(
-    s.companies[0].operatingStates?.[0] || s.companies[0].jurisdiction,
+    s.companies[0]?.operatingStates?.[0] ||
+      s.companies[0]?.jurisdiction ||
+      "NC",
   );
   const operatingStates = s.companies.find((c) => c.id === company)
     ?.operatingStates || [
-    s.companies.find((c) => c.id === company)!.jurisdiction,
+    s.companies.find((c) => c.id === company)?.jurisdiction || "NC",
   ];
-  function submit(e: React.FormEvent<HTMLFormElement>) {
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!s.companies.some((c) => c.id === company)) {
+      toast.error("Create or select a company first.");
+      return;
+    }
     const f = new FormData(e.currentTarget);
     const address = String(f.get("address")).trim(),
       client = String(f.get("client")).trim();
@@ -250,32 +257,35 @@ export function NewOrder({
       return;
     }
     const id = `T-2026-${Math.max(1048, ...s.orders.map((o) => Number(o.id.split("-").at(-1)) || 0)) + 1}`;
-    update(
-      (d) =>
-        d.orders.unshift({
-          receivedAt: new Date().toISOString().slice(0, 10),
-          id,
-          companyId: company,
-          address,
-          client,
-          type,
-          underwriter,
-          owner,
-          jurisdiction: state,
-          delivered: false,
-          remitted: false,
-          status: "New",
-          due: String(f.get("due")),
-          premium: Number(f.get("premium")),
-          rate: 0.4,
-          month: String(f.get("due")).slice(0, 7),
-          fields: [],
-          notes: "Created in the local demo workspace.",
-          exception: "",
-        }),
-      "Order created",
-      `${id} · ${address}`,
-    );
+    if (
+      !(await update(
+        (d) =>
+          d.orders.unshift({
+            receivedAt: new Date().toISOString().slice(0, 10),
+            id,
+            companyId: company,
+            address,
+            client,
+            type,
+            underwriter,
+            owner,
+            jurisdiction: state,
+            delivered: false,
+            remitted: false,
+            status: "New",
+            due: String(f.get("due")),
+            premium: Number(f.get("premium")),
+            rate: 0.4,
+            month: String(f.get("due")).slice(0, 7),
+            fields: [],
+            notes: "Created in the operations workspace.",
+            exception: "",
+          }),
+        "Order created",
+        `${id} · ${address}`,
+      ))
+    )
+      return;
     onClose();
   }
   return (
@@ -284,7 +294,7 @@ export function NewOrder({
         <DialogHeader>
           <DialogTitle>New order</DialogTitle>
           <DialogDescription>
-            Add a fictional transaction to your local workspace.
+            Add a transaction to your workspace.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="form-stack">
@@ -421,10 +431,10 @@ export function PolicyWorkbench({
     setAttorney(false);
     setAttorneyRef("");
   }
-  function changeField(id: string, value: string) {
+  async function changeField(id: string, value: string) {
     if (!order) return;
     setAttorney(false);
-    update((d) => {
+    await update((d) => {
       const o = d.orders.find((x) => x.id === order.id)!;
       const f = o.fields.find((x) => x.id === id)!;
       f.proposed = value;
@@ -433,7 +443,7 @@ export function PolicyWorkbench({
       if (o.status === "Ready for jacket") o.status = "Needs review";
     });
   }
-  function prepare() {
+  async function prepare() {
     if (
       !order ||
       !complete ||
@@ -442,7 +452,7 @@ export function PolicyWorkbench({
       !attorneyRef.trim()
     )
       return;
-    const saved = update(
+    const saved = await update(
       (d) => {
         const o = d.orders.find((x) => x.id === order.id)!;
         if (!finalReadiness(d, o).ready)
@@ -595,8 +605,8 @@ export function PolicyWorkbench({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => {
-                          update(
+                        onClick={async () => {
+                          await update(
                             (d) => {
                               const o = d.orders.find(
                                 (x) => x.id === order.id,
@@ -667,8 +677,8 @@ export function PolicyWorkbench({
                                   aria-label={`Reviewed ${f.label}`}
                                   checked={f.reviewed}
                                   disabled={locked || !f.proposed.trim()}
-                                  onCheckedChange={(v) =>
-                                    update((d) => {
+                                  onCheckedChange={async (v) =>
+                                    await update((d) => {
                                       const o = d.orders.find(
                                         (x) => x.id === order.id,
                                       )!;
@@ -685,13 +695,12 @@ export function PolicyWorkbench({
                                 />
                               </div>
                               <p className="old-value">{f.current}</p>
-                              <Input
+                              <BufferedInput
+                                key={`${order.id}-${f.id}`}
                                 id={`${order.id}-${f.id}`}
                                 value={f.proposed}
                                 disabled={locked}
-                                onChange={(e) =>
-                                  changeField(f.id, e.target.value)
-                                }
+                                onCommit={(value) => changeField(f.id, value)}
                               />
                               <small>
                                 <FileText size={11} />
@@ -866,8 +875,8 @@ export function PolicyLifecycle({ order }: { order: Order }) {
             />
             <Button
               disabled={!reference.trim()}
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => {
                     const o = d.orders.find((x) => x.id === order.id)!;
                     if (
@@ -903,8 +912,8 @@ export function PolicyLifecycle({ order }: { order: Order }) {
           (p) => p.orderId === order.id && p.status !== "Void",
         ) && (
           <Button
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) => {
                   d.orders.find((x) => x.id === order.id)!.delivered = true;
                 },
@@ -932,8 +941,8 @@ export function OrderNotes({ order }: { order: Order }) {
         />
       </FieldLabel>
       <Button
-        onClick={() =>
-          update(
+        onClick={async () =>
+          await update(
             (d) => {
               d.orders.find((x) => x.id === order.id)!.notes = note;
             },
@@ -1009,8 +1018,8 @@ export function OrderDetail({
             <Picker
               value={o.owner}
               label="Order owner"
-              onChange={(owner) =>
-                update(
+              onChange={async (owner) =>
+                await update(
                   (d) => {
                     d.orders.find((x) => x.id === id)!.owner = owner;
                   },
@@ -1024,8 +1033,8 @@ export function OrderDetail({
           {o.status === "New" && (
             <Button
               variant="outline"
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => {
                     d.orders.find((x) => x.id === id)!.status = "In progress";
                   },
@@ -1077,8 +1086,8 @@ function ReceivedDateBackfill({ order }: { order: Order }) {
       </FieldLabel>
       <Button
         variant="outline"
-        onClick={() =>
-          update(
+        onClick={async () =>
+          await update(
             (d) => backfillReceivedDate(d, order.id, date),
             "Receipt date backfilled",
             order.id,
@@ -1161,8 +1170,8 @@ function OrderOutcome({ order }: { order: Order }) {
       />
       <Button
         variant="outline"
-        onClick={() =>
-          update(
+        onClick={async () =>
+          await update(
             (d) => recordOrderOutcome(d, order.id, kind, date, note),
             "Order outcome recorded",
             order.id,

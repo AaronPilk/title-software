@@ -94,8 +94,8 @@ export function CompanyMaterials({
         </Button>
         <Button
           variant="ghost"
-          onClick={() =>
-            update((d) => {
+          onClick={async () =>
+            await update((d) => {
               setupMaterials(d, companyId);
             }, "Materials checklist prepared")
           }
@@ -264,8 +264,8 @@ function MaterialEditor({
       <div className="source-actions">
         <Button
           variant="outline"
-          onClick={() =>
-            update(
+          onClick={async () =>
+            await update(
               (d) =>
                 updateMaterial(d, item.id, {
                   title,
@@ -313,8 +313,8 @@ function MaterialEditor({
           </label>
           <Button
             disabled={dirty || !checked || !review.trim()}
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) => approveMaterial(d, item.id, item.revision, review),
                 "Material approval recorded",
                 item.title,
@@ -396,11 +396,11 @@ function NewMaterial({
         </DialogHeader>
         <form
           className="form-stack"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
             let id = "";
             if (
-              update(
+              await update(
                 (d) => {
                   id = createMaterial(d, {
                     companyId,

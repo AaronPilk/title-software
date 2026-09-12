@@ -114,8 +114,8 @@ export function FinalSources({ order }: { order: Order }) {
             label={`Source type for ${d.name}`}
             options={sourceRoles}
             disabled={productionLocked(s, order)}
-            onChange={(value) =>
-              update(
+            onChange={async (value) =>
+              await update(
                 (state) => {
                   const source = state.documents.find((x) => x.id === d.id)!;
                   const o = state.orders.find((x) => x.id === order.id)!;
@@ -217,9 +217,9 @@ export function FinalSources({ order }: { order: Order }) {
               rows={12}
             />
             <Button
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  update(
+                  await update(
                     (d) => {
                       createFollowup(d, order.id, {
                         body: draft,
@@ -272,13 +272,13 @@ function AddSource({ order, onClose }: { order: Order; onClose: () => void }) {
   const { s, update } = useWorkspace();
   const [role, setRole] = useState<SourceRole>("Final opinion");
   const [parent, setParent] = useState("none");
-  function submit(e: React.FormEvent<HTMLFormElement>) {
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
     const name = String(f.get("name")).trim(),
       text = String(f.get("text")).trim();
     if (!name || !text) return;
-    const ok = update(
+    const ok = await update(
       (d) => {
         const parentDoc = d.documents.find(
           (x) => x.id === parent && x.orderId === order.id,
@@ -379,14 +379,14 @@ function CaptureFields({
 }) {
   const { update } = useWorkspace();
   const defs = neededFields(order).filter((f) => f.role === doc.sourceRole);
-  function submit(e: React.FormEvent<HTMLFormElement>) {
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
     const values = Object.fromEntries(
       defs.map((f) => [f.id, String(data.get(f.id))]),
     );
     if (
-      update(
+      await update(
         (s) =>
           replaceSourceFields(
             s,
@@ -467,9 +467,9 @@ export function TitleFileDetails({ order }: { order: Order }) {
     setConfirmed(false);
     setDirty(true);
   }
-  function save() {
+  async function save() {
     if (
-      update(
+      await update(
         (s) => {
           const o = s.orders.find((o) => o.id === order.id)!;
           if (titleFile(o).version !== original.version)

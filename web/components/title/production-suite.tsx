@@ -101,10 +101,10 @@ export function ProductionSuite({
       >
         <Button
           variant="outline"
-          onClick={() => {
+          onClick={async () => {
             let id = "";
             if (
-              update(
+              await update(
                 (d) => {
                   id = loadDemoScenario(d);
                 },
@@ -374,9 +374,9 @@ function CommitmentEditor({ order }: { order: Order }) {
         <div className="source-actions">
           <Button
             variant="outline"
-            onClick={() => {
+            onClick={async () => {
               if (
-                update(
+                await update(
                   (d) => saveCommitment(d, c),
                   "Commitment draft saved",
                   order.id,
@@ -389,10 +389,10 @@ function CommitmentEditor({ order }: { order: Order }) {
             Save intake review
           </Button>
           <Button
-            onClick={() => {
+            onClick={async () => {
               let packet: unknown;
               if (
-                update(
+                await update(
                   (d) => {
                     packet = structuredClone(prepareCommitment(d, order.id));
                   },
@@ -472,8 +472,8 @@ function CommitmentEditor({ order }: { order: Order }) {
             </Button>
             <Button
               disabled={stale || original.status === "Returned"}
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => recordCommitmentReturn(d, order.id, returned, doc),
                   "Commitment return recorded",
                   order.id,
@@ -525,8 +525,8 @@ function PolicyList({
           <Button
             variant="outline"
             disabled={order.status === "Issued"}
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) => addPolicy(d, order.id, "Owner"),
                 "Owner policy added",
                 order.id,
@@ -541,8 +541,8 @@ function PolicyList({
             disabled={
               order.status === "Issued" || titleFile(order).financing === "Cash"
             }
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) => addPolicy(d, order.id, "Loan"),
                 "Loan policy added",
                 order.id,
@@ -624,8 +624,8 @@ function PolicyEditor({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => voidDraftPolicy(d, p.id),
                   "Draft policy removed",
                   order.id,
@@ -815,9 +815,9 @@ function PolicyEditor({
           <Button
             variant="outline"
             disabled={!dirty}
-            onClick={() => {
+            onClick={async () => {
               if (
-                update(
+                await update(
                   (d) => savePolicy(d, p),
                   "Policy details saved",
                   order.id,
@@ -831,8 +831,8 @@ function PolicyEditor({
           {finalMode && (
             <Button
               disabled={dirty || !ready}
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => preparePolicy(d, p.id, p.reviewNote),
                   "Policy preparation reviewed",
                   order.id,
@@ -894,8 +894,8 @@ function PolicyEditor({
               Upload final policy
             </Button>
             <Button
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => issuePolicy(d, p.id, { reference, documentId, month }),
                   "Local policy issuance recorded",
                   order.id,
@@ -930,8 +930,8 @@ function PolicyEditor({
                 />
               </div>
               <Button
-                onClick={() =>
-                  update(
+                onClick={async () =>
+                  await update(
                     (d) => deliverPolicy(d, p.id, recipient, deliveryRef),
                     "Policy delivery recorded locally",
                     order.id,
@@ -984,7 +984,11 @@ function PolicyCorrections({
       <div className="section-heading">
         <h4>Post-issuance corrections</h4>
         {!open && !requesting && (
-          <Button variant="outline" size="sm" onClick={() => setRequesting(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setRequesting(true)}
+          >
             <Plus />
             Request correction
           </Button>
@@ -1054,8 +1058,8 @@ function CorrectionCard({
           <div className="source-actions">
             <Button
               disabled={!reviewNote.trim()}
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => reviewCorrectionRequest(d, c.id, reviewNote),
                   "Correction reviewed",
                   order.id,
@@ -1065,7 +1069,11 @@ function CorrectionCard({
               <ShieldCheck />
               Mark reviewed
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setCancelling(true)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCancelling(true)}
+            >
               Cancel request
             </Button>
           </div>
@@ -1097,8 +1105,8 @@ function CorrectionCard({
               Upload correction document
             </Button>
             <Button
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => recordCorrection(d, c.id, reference, documentId),
                   "Correction recorded locally",
                   order.id,
@@ -1107,7 +1115,11 @@ function CorrectionCard({
             >
               Record correction
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setCancelling(true)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCancelling(true)}
+            >
               Cancel request
             </Button>
           </div>
@@ -1133,9 +1145,9 @@ function CorrectionCard({
           <Button
             variant="destructive"
             disabled={!cancelReason.trim()}
-            onClick={() => {
+            onClick={async () => {
               if (
-                update(
+                await update(
                   (d) => cancelCorrection(d, c.id, cancelReason),
                   "Correction request cancelled",
                   order.id,
@@ -1177,7 +1189,9 @@ function RequestCorrectionForm({
     useState<PolicyCorrection["correctionKind"]>("Endorsement");
   const [rows, setRows] = useState([{ label: "", before: "", after: "" }]);
   function setRow(i: number, key: "label" | "before" | "after", value: string) {
-    setRows((r) => r.map((row, idx) => (idx === i ? { ...row, [key]: value } : row)));
+    setRows((r) =>
+      r.map((row, idx) => (idx === i ? { ...row, [key]: value } : row)),
+    );
   }
   return (
     <div className="requirement-card">
@@ -1212,7 +1226,11 @@ function RequestCorrectionForm({
             setCorrectionKind(v as PolicyCorrection["correctionKind"])
           }
           label="Correction kind"
-          options={["Endorsement", "Reissued policy", "Administrative correction"]}
+          options={[
+            "Endorsement",
+            "Reissued policy",
+            "Administrative correction",
+          ]}
         />
       </FieldLabel>
       <h4>Corrected fields</h4>
@@ -1250,7 +1268,9 @@ function RequestCorrectionForm({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => setRows((r) => [...r, { label: "", before: "", after: "" }])}
+        onClick={() =>
+          setRows((r) => [...r, { label: "", before: "", after: "" }])
+        }
       >
         <Plus />
         Add corrected field
@@ -1260,9 +1280,9 @@ function RequestCorrectionForm({
           Cancel
         </Button>
         <Button
-          onClick={() => {
+          onClick={async () => {
             if (
-              update(
+              await update(
                 (d) =>
                   requestCorrection(d, policy.id, {
                     reason,
@@ -1294,8 +1314,8 @@ function CPLPlanner({ order }: { order: Order }) {
         <Button
           variant="outline"
           disabled={order.status === "Issued"}
-          onClick={() =>
-            update(
+          onClick={async () =>
+            await update(
               (d) =>
                 saveCPL(d, {
                   id: uid("cpl"),
@@ -1404,9 +1424,13 @@ function CPLEditor({ order, value }: { order: Order; value: CPLRecord }) {
           <Button
             variant="outline"
             disabled={!dirty}
-            onClick={() => {
+            onClick={async () => {
               if (
-                update((d) => saveCPL(d, c), "CPL decision recorded", order.id)
+                await update(
+                  (d) => saveCPL(d, c),
+                  "CPL decision recorded",
+                  order.id,
+                )
               )
                 setDirty(false);
             }}
@@ -1415,8 +1439,8 @@ function CPLEditor({ order, value }: { order: Order; value: CPLRecord }) {
           </Button>
           <Button
             disabled={dirty || c.decision !== "Requested"}
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) => prepareCPL(d, c.id),
                 "CPL handoff prepared",
                 order.id,
@@ -1452,8 +1476,8 @@ function CPLEditor({ order, value }: { order: Order; value: CPLRecord }) {
             </Button>
             <Button
               disabled={!current}
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => returnCPL(d, c.id, reference, doc),
                   "Returned CPL recorded locally",
                   order.id,
@@ -1477,8 +1501,8 @@ function CPLEditor({ order, value }: { order: Order; value: CPLRecord }) {
             placeholder="Delivery evidence reference"
           />
           <Button
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) => deliverCPL(d, c.id, delivery),
                 "CPL delivery recorded locally",
                 order.id,

@@ -177,7 +177,7 @@ export function NewCompany({
     .map((m) => `${m.company.id}=${m.strength}:${m.reasons.join("|")}`)
     .join(";");
   const reviewed = !!signature && reviewedSignature === signature;
-  function submit(e: React.FormEvent<HTMLFormElement>) {
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const trimmedName = name.trim(),
       trimmedContact = contact.trim();
@@ -194,42 +194,45 @@ export function NewCompany({
     const acknowledged = matches.length
       ? ` · created after reviewing ${matches.length} similar record${matches.length === 1 ? "" : "s"}: ${matches.map((m) => m.company.name).join(", ")}`
       : "";
-    update(
-      (d) => {
-        const id = uid("company");
-        d.companies.unshift({
-          id,
-          name: trimmedName,
-          initials: trimmedName
-            .split(" ")
-            .slice(0, 2)
-            .map((x) => x[0])
-            .join("")
-            .toUpperCase(),
-          color: ["teal", "blue", "violet", "amber", "rose"][
-            d.companies.length % 5
-          ],
-          contact: trimmedContact,
-          email: email.trim(),
-          location: city.trim(),
-          jurisdiction: state,
-          stage: "Onboarding",
-          steps: Array(7).fill(false),
-          members: [],
-        });
-        d.tasks.unshift({
-          id: uid("task"),
-          title: "Collect onboarding application",
-          companyId: id,
-          owner: "Stephenie",
-          due: "2026-09-15",
-          priority: "Normal",
-          done: false,
-        });
-      },
-      "Company added",
-      `${trimmedName} · onboarding started${acknowledged}`,
-    );
+    if (
+      !(await update(
+        (d) => {
+          const id = uid("company");
+          d.companies.unshift({
+            id,
+            name: trimmedName,
+            initials: trimmedName
+              .split(" ")
+              .slice(0, 2)
+              .map((x) => x[0])
+              .join("")
+              .toUpperCase(),
+            color: ["teal", "blue", "violet", "amber", "rose"][
+              d.companies.length % 5
+            ],
+            contact: trimmedContact,
+            email: email.trim(),
+            location: city.trim(),
+            jurisdiction: state,
+            stage: "Onboarding",
+            steps: Array(7).fill(false),
+            members: [],
+          });
+          d.tasks.unshift({
+            id: uid("task"),
+            title: "Collect onboarding application",
+            companyId: id,
+            owner: "Stephenie",
+            due: "2026-09-15",
+            priority: "Normal",
+            done: false,
+          });
+        },
+        "Company added",
+        `${trimmedName} · onboarding started${acknowledged}`,
+      ))
+    )
+      return;
     onClose();
   }
   return (
@@ -238,7 +241,7 @@ export function NewCompany({
         <DialogHeader>
           <DialogTitle>Add a company</DialogTitle>
           <DialogDescription>
-            Create a demo company workspace and onboarding checklist.
+            Create a company workspace and onboarding checklist.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="form-stack">
@@ -612,8 +615,8 @@ function CompanyJurisdictions({ id }: { id: string }) {
           label="Company formation state"
           value={c.formationState || c.jurisdiction}
           options={["NC", "SC"]}
-          onChange={(v) =>
-            update(
+          onChange={async (v) =>
+            await update(
               (d) => {
                 d.companies.find((c) => c.id === id)!.formationState = v;
               },
@@ -629,8 +632,8 @@ function CompanyJurisdictions({ id }: { id: string }) {
             <label key={state}>
               <Checkbox
                 checked={operating.includes(state)}
-                onCheckedChange={(v) =>
-                  update(
+                onCheckedChange={async (v) =>
+                  await update(
                     (d) => {
                       const c = d.companies.find((c) => c.id === id)!;
                       if (
@@ -682,10 +685,10 @@ function CompanyMembers({ company }: { company: Company }) {
     new Set(members.map((m) => m.name.trim().toLowerCase())).size ===
       members.length &&
     Math.abs(total - 100) < 0.000001;
-  function save(e: React.FormEvent) {
+  async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!valid) return;
-    update(
+    await update(
       (d) => {
         d.companies.find((c) => c.id === company.id)!.members = members.map(
           (m) => ({ name: m.name.trim(), share: m.share }),

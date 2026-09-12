@@ -1,4 +1,5 @@
 "use client";
+import { BufferedInput, BufferedTextarea } from "./buffered-input";
 import { useState } from "react";
 import {
   Plus,
@@ -71,8 +72,7 @@ function revisionLoanLabel(s: Workspace, r: RevisionRequest) {
  * across both kinds.
  */
 type AnyRequest =
-  | { kind: "amount"; r: RevisionRequest }
-  | { kind: "field"; r: FieldRevision };
+  { kind: "amount"; r: RevisionRequest } | { kind: "field"; r: FieldRevision };
 function allRequests(s: Workspace): AnyRequest[] {
   return [
     ...s.revisions.map((r) => ({ kind: "amount" as const, r })),
@@ -232,7 +232,7 @@ function NewRevision({
   const { s, update } = useWorkspace();
   const matched = s.orders.find((o) => o.id === message?.orderId);
   const [company, setCompany] = useState(
-    matched?.companyId || s.companies[0].id,
+    matched?.companyId || s.companies[0]?.id || "",
   );
   const [order, setOrder] = useState(matched?.id || "none");
   const [text, setText] = useState(message?.body || "");
@@ -268,11 +268,11 @@ function NewRevision({
   ];
   const currentValue =
     !isAmount && selectedOrder ? titleFile(selectedOrder)[kind] : "";
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     let id = "";
     if (
-      update(
+      await update(
         (d) => {
           const r = isAmount
             ? createRevision(d, {
@@ -373,7 +373,9 @@ function NewRevision({
                   )}
                 </p>
               )}
-              <FieldLabel label={`Requested ${revisableFieldLabel(kind).toLowerCase()}`}>
+              <FieldLabel
+                label={`Requested ${revisableFieldLabel(kind).toLowerCase()}`}
+              >
                 {kind === "legalDescription" ? (
                   <Textarea
                     aria-label="Requested value"
@@ -534,15 +536,14 @@ function RevisionDetail({
       {stale && (
         <div className="notice warning">
           <p>
-            {targetLoan ? "This loan" : "The file"} changed after this
-            request was captured. Current loan amount:{" "}
-            {moneyCents(currentAmount)}. Recheck the request against the
-            current file.
+            {targetLoan ? "This loan" : "The file"} changed after this request
+            was captured. Current loan amount: {moneyCents(currentAmount)}.
+            Recheck the request against the current file.
           </p>
           <Button
             variant="outline"
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) => recheckRevision(d, r.id),
                 "Revision comparison refreshed",
                 r.orderId,
@@ -575,9 +576,9 @@ function RevisionDetail({
           <div className="source-actions">
             <Button
               disabled={!oCheck || !sCheck || stale || targetMissing}
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  update(
+                  await update(
                     (d) => applyRevision(d, r.id, oCheck && sCheck),
                     "Reviewed revision applied locally",
                     r.orderId,
@@ -623,8 +624,8 @@ function RevisionDetail({
           <Button
             variant="ghost"
             disabled={!note.trim()}
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) => {
                   const item = d.revisions.find((x) => x.id === r.id)!;
                   item.note = note;
@@ -640,8 +641,8 @@ function RevisionDetail({
           {r.status === "Needs information" && (
             <Button
               variant="outline"
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => recheckRevision(d, r.id),
                   "Revision reopened",
                   r.orderId,
@@ -719,8 +720,8 @@ function FieldRevisionDetail({
           </p>
           <Button
             variant="outline"
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) => recheckFieldRevision(d, r.id),
                 "Revision comparison refreshed",
                 r.orderId,
@@ -754,9 +755,9 @@ function FieldRevisionDetail({
           <div className="source-actions">
             <Button
               disabled={!oCheck || !sCheck || stale}
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  update(
+                  await update(
                     (d) => applyFieldRevision(d, r.id, oCheck && sCheck),
                     "Reviewed revision applied locally",
                     r.orderId,
@@ -802,8 +803,8 @@ function FieldRevisionDetail({
           <Button
             variant="ghost"
             disabled={!note.trim()}
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) => {
                   const item = d.fieldRevisions.find((x) => x.id === r.id)!;
                   item.note = note;
@@ -819,8 +820,8 @@ function FieldRevisionDetail({
           {r.status === "Needs information" && (
             <Button
               variant="outline"
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => recheckFieldRevision(d, r.id),
                   "Revision reopened",
                   r.orderId,
@@ -860,11 +861,11 @@ function DraftCard({ draft }: { draft: ReplyDraft }) {
     !!draft.subject.trim() &&
     !!draft.body.trim() &&
     !stale;
-  function edit(
+  async function edit(
     field: "to" | "subject" | "body" | "attachmentId",
     value: string,
   ) {
-    update((s) => {
+    await update((s) => {
       const d = s.replyDrafts.find((x) => x.id === draft.id)!;
       d[field] = value;
       d.status = (field === "attachmentId" ? value : d.attachmentId)
@@ -885,25 +886,25 @@ function DraftCard({ draft }: { draft: ReplyDraft }) {
       </div>
       <div className="form-grid">
         <FieldLabel label="To">
-          <Input
+          <BufferedInput
             aria-label={`Recipient for ${draft.id}`}
             type="email"
             value={draft.to}
-            onChange={(e) => edit("to", e.target.value)}
+            onCommit={(value) => edit("to", value)}
           />
         </FieldLabel>
         <FieldLabel label="Subject">
-          <Input
+          <BufferedInput
             value={draft.subject}
-            onChange={(e) => edit("subject", e.target.value)}
+            onCommit={(value) => edit("subject", value)}
           />
         </FieldLabel>
       </div>
       <FieldLabel label="Reply draft">
-        <Textarea
+        <BufferedTextarea
           rows={7}
           value={draft.body}
-          onChange={(e) => edit("body", e.target.value)}
+          onCommit={(value) => edit("body", value)}
         />
       </FieldLabel>
       <div className="draft-attachment">
@@ -946,8 +947,8 @@ function DraftCard({ draft }: { draft: ReplyDraft }) {
         )}
         <Button
           disabled={!canApprove || draft.status === "Approved locally"}
-          onClick={() =>
-            update(
+          onClick={async () =>
+            await update(
               (s) => approveReplyDraft(s, draft.id),
               "Reply approved locally",
               order.id,

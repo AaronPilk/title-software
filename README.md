@@ -1,6 +1,6 @@
 # TitleOS
 
-A local MVP for a multi-company title operations workspace, built from the Stephenie and Tyler discovery calls. It covers Tyler’s policy preparation, Stephenie’s company onboarding, John’s monthly financial review, document management, partner publication, and automation previews.
+A title operations workspace with an optional shared Supabase backend, built from the Stephenie and Tyler discovery calls. It covers Tyler’s policy preparation, Stephenie’s company onboarding, John’s monthly financial review, document management, partner publication, and automation previews.
 
 Initial operating states: North Carolina and South Carolina. Future jurisdictions have an explicit planning path. The interface uses an Apple-inspired visual system with quiet navigation, focused work areas, and contextual detail panels.
 
@@ -15,6 +15,8 @@ npm run dev -- --host 127.0.0.1
 ```
 
 Open the local URL printed by the server, normally [http://localhost:5173](http://localhost:5173).
+
+For shared sign-in, copy `web/.env.example` to `web/.env.local` and configure the project URL and publishable key. See [backend setup and verification](docs/supabase-backend.md). Without those settings, the existing local sample workspace remains available.
 
 ## Explore
 
@@ -33,9 +35,9 @@ Open the local URL printed by the server, normally [http://localhost:5173](http:
 
 ## Scope and data
 
-All built-in companies, customers, records, documents and financial figures are fictional. Changes are saved in the current browser’s localStorage and uploaded files in IndexedDB. No shared backend, authentication, actual access enforcement, live extraction, mailbox, underwriter, accounting, payment, or signature API is connected. Use sample/redacted files only.
+All built-in sample records are fictional. Local sample mode stores metadata in localStorage and uploaded files in IndexedDB. Shared mode uses Supabase authentication, company/role permissions, private file storage, server-enforced workflows and durable audit. No browser data is uploaded automatically when shared mode is enabled.
 
-The partner view and persona switch demonstrate intended workflows, not production security. Locally recorded issuance and delivery are simulations. Uploaded files can populate review fields through manual source capture; OCR and AI extraction are not connected. Captured excerpts preserve the operator-entered wording, independently of proposed changes. They are not machine-verified readings of the document. A metadata export does not include separately uploaded binary files.
+SoftPro, Missive, signature, underwriter, AI extraction, accounting and payment APIs still require their own approved connections. Internal policy/delivery records require external evidence references and do not themselves execute vendor actions. Review [API setup dependencies](docs/integration-setup.md) before live operational rollout.
 
 ## Validation
 
@@ -46,9 +48,11 @@ npm test
 npm run build
 ```
 
-The 47 domain tests compile the actual TypeScript model/engine into an ignored temporary directory and remove it after execution. They cover source/version changes, multiple products, revisions, onboarding, frozen closes, attorney follow-ups, period reporting and repeated actions. The app uses the bundled Vinext/React/TypeScript starter. Its optional backend helpers are dormant; hosting and APIs remain a later project decision.
+The suite currently contains 109 domain tests and 15 backend tests. Run `npm run test:backend` for command/permission replay coverage, or `node scripts/backend/verify-five.mjs` to repeat both suites five times. Five live Supabase integration rounds and the connected browser walkthrough are documented in the backend report.
 
 ## Documentation
+
+- [Shared backend, account setup and verification](docs/supabase-backend.md)
 
 - [Current system blueprint](docs/system-blueprint.md)
 - [Implementation coverage and walkthrough](docs/implementation-coverage.md)

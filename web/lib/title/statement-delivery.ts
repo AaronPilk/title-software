@@ -1,3 +1,4 @@
+import { traceMutation, commandUuid } from "./command-log";
 import type { Workspace } from "./model";
 import { moneyCents } from "./model";
 import type { ClosePeriod } from "./business";
@@ -115,66 +116,68 @@ export function prepareStatementDelivery(
     confirmed: boolean;
   },
 ): StatementDelivery {
-  const p = s.business?.closes.find(
-    (p) => p.id === input.closeId && p.companyId === input.companyId,
-  );
-  if (
-    !p ||
-    p.status !== "Published" ||
-    !s.companies.some((c) => c.id === p.companyId)
-  )
-    throw new Error("Choose a published close for this company.");
-  if (
-    !input.confirmed ||
-    !input.reviewNote.trim() ||
-    !input.recipientName.trim() ||
-    !emailValid(input.recipientEmail.trim())
-  )
-    throw new Error(
-      "Review the statement, recipient name and email, and enter a review note.",
+  return traceMutation(s, "prepareStatementDelivery", [input], () => {
+    const p = s.business?.closes.find(
+      (p) => p.id === input.closeId && p.companyId === input.companyId,
     );
-  const snapshot = capturedStatement(p, input.memberName);
-  const existing = statementDeliveries(s).find(
-    (r) =>
-      r.status === "Prepared" &&
-      r.closeId === p.id &&
-      r.memberName === input.memberName &&
-      r.recipientName === input.recipientName.trim() &&
-      r.recipientEmail.toLowerCase() ===
-        input.recipientEmail.trim().toLowerCase() &&
-      r.reviewNote === input.reviewNote.trim() &&
-      r.preparedBy === s.user &&
-      JSON.stringify(r.snapshot) === JSON.stringify(snapshot),
-  );
-  if (existing) return existing;
-  const r: StatementDelivery = {
-    id: `statement-delivery-${crypto.randomUUID()}`,
-    companyId: p.companyId,
-    closeId: p.id,
-    memberName: input.memberName,
-    recipientName: input.recipientName.trim(),
-    recipientEmail: input.recipientEmail.trim(),
-    reviewNote: input.reviewNote.trim(),
-    preparedBy: actor(s),
-    preparedAt: now(),
-    snapshot,
-    status: "Prepared",
-    deliveredOn: "",
-    deliveryReference: "",
-    deliveryNote: "",
-    recordedBy: "",
-    recordedAt: "",
-    cancelReason: "",
-    cancelledBy: "",
-    cancelledAt: "",
-  };
-  if (!isValidStatementDeliveries([r]))
-    throw new Error(
-      "The published statement contains incomplete or invalid values.",
+    if (
+      !p ||
+      p.status !== "Published" ||
+      !s.companies.some((c) => c.id === p.companyId)
+    )
+      throw new Error("Choose a published close for this company.");
+    if (
+      !input.confirmed ||
+      !input.reviewNote.trim() ||
+      !input.recipientName.trim() ||
+      !emailValid(input.recipientEmail.trim())
+    )
+      throw new Error(
+        "Review the statement, recipient name and email, and enter a review note.",
+      );
+    const snapshot = capturedStatement(p, input.memberName);
+    const existing = statementDeliveries(s).find(
+      (r) =>
+        r.status === "Prepared" &&
+        r.closeId === p.id &&
+        r.memberName === input.memberName &&
+        r.recipientName === input.recipientName.trim() &&
+        r.recipientEmail.toLowerCase() ===
+          input.recipientEmail.trim().toLowerCase() &&
+        r.reviewNote === input.reviewNote.trim() &&
+        r.preparedBy === s.user &&
+        JSON.stringify(r.snapshot) === JSON.stringify(snapshot),
     );
-  s.statementDeliveries ??= [];
-  s.statementDeliveries.unshift(r);
-  return r;
+    if (existing) return existing;
+    const r: StatementDelivery = {
+      id: `statement-delivery-${commandUuid()}`,
+      companyId: p.companyId,
+      closeId: p.id,
+      memberName: input.memberName,
+      recipientName: input.recipientName.trim(),
+      recipientEmail: input.recipientEmail.trim(),
+      reviewNote: input.reviewNote.trim(),
+      preparedBy: actor(s),
+      preparedAt: now(),
+      snapshot,
+      status: "Prepared",
+      deliveredOn: "",
+      deliveryReference: "",
+      deliveryNote: "",
+      recordedBy: "",
+      recordedAt: "",
+      cancelReason: "",
+      cancelledBy: "",
+      cancelledAt: "",
+    };
+    if (!isValidStatementDeliveries([r]))
+      throw new Error(
+        "The published statement contains incomplete or invalid values.",
+      );
+    s.statementDeliveries ??= [];
+    s.statementDeliveries.unshift(r);
+    return r;
+  });
 }
 function getDelivery(s: Workspace, deliveryId: string) {
   const r = s.statementDeliveries?.find((r) => r.id === deliveryId);
@@ -224,58 +227,73 @@ export function recordStatementDelivery(
   deliveryId: string,
   input: DeliveryOutcome,
 ) {
-  const r = getDelivery(s, deliveryId);
-  if (r.status === "Recorded") {
-    if (
-      r.deliveredOn === input.deliveredOn &&
-      r.deliveryReference === input.reference.trim() &&
-      r.deliveryNote === input.note.trim()
-    )
+  return traceMutation(
+    s,
+    "recordStatementDelivery",
+    [deliveryId, input],
+    () => {
+      const r = getDelivery(s, deliveryId);
+      if (r.status === "Recorded") {
+        if (
+          r.deliveredOn === input.deliveredOn &&
+          r.deliveryReference === input.reference.trim() &&
+          r.deliveryNote === input.note.trim()
+        )
+          return r;
+        throw new Error(
+          "This delivery is already recorded. Preserve the original evidence.",
+        );
+      }
+      if (r.status !== "Prepared" || !statementDeliveryCurrent(s, r))
+        throw new Error(
+          "The published source changed or this preparation is closed. Prepare the current revision.",
+        );
+      if (
+        !deliveryDateValid(r, input.deliveredOn) ||
+        !input.reference.trim() ||
+        !input.note.trim()
+      )
+        throw new Error(
+          "Enter a delivery date from preparation through today, an evidence reference and a note.",
+        );
+      Object.assign(r, {
+        status: "Recorded",
+        deliveredOn: input.deliveredOn,
+        deliveryReference: input.reference.trim(),
+        deliveryNote: input.note.trim(),
+        recordedBy: actor(s),
+        recordedAt: now(),
+      });
       return r;
-    throw new Error(
-      "This delivery is already recorded. Preserve the original evidence.",
-    );
-  }
-  if (r.status !== "Prepared" || !statementDeliveryCurrent(s, r))
-    throw new Error(
-      "The published source changed or this preparation is closed. Prepare the current revision.",
-    );
-  if (
-    !deliveryDateValid(r, input.deliveredOn) ||
-    !input.reference.trim() ||
-    !input.note.trim()
-  )
-    throw new Error(
-      "Enter a delivery date from preparation through today, an evidence reference and a note.",
-    );
-  Object.assign(r, {
-    status: "Recorded",
-    deliveredOn: input.deliveredOn,
-    deliveryReference: input.reference.trim(),
-    deliveryNote: input.note.trim(),
-    recordedBy: actor(s),
-    recordedAt: now(),
-  });
-  return r;
+    },
+  );
 }
 export function cancelStatementDelivery(
   s: Workspace,
   deliveryId: string,
   reason: string,
 ) {
-  const r = getDelivery(s, deliveryId);
-  if (r.status === "Cancelled" && r.cancelReason === reason.trim()) return r;
-  if (r.status !== "Prepared" || !reason.trim())
-    throw new Error(
-      "Only a prepared statement can be cancelled; record the reason.",
-    );
-  Object.assign(r, {
-    status: "Cancelled",
-    cancelReason: reason.trim(),
-    cancelledBy: actor(s),
-    cancelledAt: now(),
-  });
-  return r;
+  return traceMutation(
+    s,
+    "cancelStatementDelivery",
+    [deliveryId, reason],
+    () => {
+      const r = getDelivery(s, deliveryId);
+      if (r.status === "Cancelled" && r.cancelReason === reason.trim())
+        return r;
+      if (r.status !== "Prepared" || !reason.trim())
+        throw new Error(
+          "Only a prepared statement can be cancelled; record the reason.",
+        );
+      Object.assign(r, {
+        status: "Cancelled",
+        cancelReason: reason.trim(),
+        cancelledBy: actor(s),
+        cancelledAt: now(),
+      });
+      return r;
+    },
+  );
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>

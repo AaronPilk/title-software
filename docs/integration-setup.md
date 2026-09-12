@@ -1,14 +1,10 @@
 # Ballantyne Title: backend and API setup
 
-Prepared September 12, 2026 against application commit `3f18014`, both recorded-call transcripts, and current official vendor documentation. This is an implementation and access checklist. No production API or shared backend was connected by preparing it.
+Updated September 12, 2026. The dedicated **Title Software** Supabase project is now connected: `yhneskzvmtcmbsknidlt`, us-east-2 (Ohio). Shared authentication, records, private files, server-enforced actions, access control, audit and recovery are implemented. See [backend architecture and verification](supabase-backend.md).
 
 ## First action for Aaron
 
-Create a dedicated development project named **Ballantyne Title Dev** in the [Supabase dashboard](https://supabase.com/dashboard), under an organization controlled by the business. Choose **East US (North Virginia), us-east-1**, if available, and save the generated database password in a password manager. This region is an engineering recommendation for the current NC/SC users, not a compliance determination. [Supabase regions](https://supabase.com/docs/guides/platform/regions)
-
-The Supabase connector already responds in this Codex session, but no Ballantyne project was listed. Once the new project is ready, provide its **project name or dashboard URL**. That is enough to identify it through the connector; there is no need to paste passwords, private API tokens or service credentials into chat. If the new organization is not visible to the existing connection, authorize that organization through the connector.
-
-Leave the project empty for the application migrations. The app needs company-specific permissions and private documents; a generic public-table tutorial would not model its access rules. New Data API grants must be deliberate as well as protected by Row Level Security. [Supabase API exposure change](https://supabase.com/changelog/45329-breaking-change-tables-not-exposed-to-data-and-graphql-api-automatically)
+Provide the email that should own the first application administrator account. We will bind the one-time owner claim to that verified address. Configure a business SMTP sender for staff confirmation and password-recovery email; the default Supabase test sender is restricted to project-team addresses. Do not paste private keys or passwords into chat.
 
 ## Access and decisions to gather
 
@@ -61,7 +57,7 @@ For the pilot, Tyler should supply a redacted financed final, cash final, simple
 
 ## Engineering order
 
-1. **Shared backend and permissions.** Add Supabase Auth, organization/company membership, private Storage, server-enforced workflow changes and durable audit records. Keep the current demo usable while the connected mode is implemented. Migrate selected data through a reviewed import, not an automatic upload of browser state.
+1. **Shared backend and permissions — implemented.** The implementation adds Supabase Auth, organization/company membership, private Storage, server-enforced workflow changes and durable audit records. Keep the current demo usable while the connected mode is implemented. Migrate selected data through a reviewed import, not an automatic upload of browser state.
 2. **One incoming-work pilot.** Connect one Missive inbox, preserve external IDs and attachments, deduplicate ingestion, and route ambiguous company/file matches to review. Compare AI/OCR extraction to Tyler's known examples. Every proposed field retains its source reference.
 3. **Reviewed title-production handoff.** Use the vendor-approved SoftPro interface for finals and simple revisions. Apply changes against the expected source/file version, reconcile timeouts before retrying, and save authoritative returned documents. Create a Missive reply draft only after the output and recipients are reviewed.
 4. **Onboarding and vault.** Connect DocuSign sandbox, validate completion events and archive signed artifacts; import selected existing folders; test partner publication with separate accounts.
@@ -74,4 +70,4 @@ Frontend code uses the project URL and publishable key. Privileged Supabase keys
 
 ## Current boundary
 
-This setup review made read-only calls to the Supabase project list and official documentation. It did not inspect unrelated project data, create a billed project, change a schema, migrate private records, register webhooks, send email, connect a vendor account, push GitHub commits or deploy the application. Runtime code is unchanged. The next implementation dependency is the dedicated Supabase project identity.
+Supabase schema, Auth settings and the `title-api` Edge Function are deployed in the user-created project. The frontend remains on localhost. The owner email and custom SMTP are still outstanding. Vendor credentials and approved test environments in the table above are still needed; no messages, signatures, underwriting actions or payments are being sent automatically. See the backend document for completed tests and current limits.

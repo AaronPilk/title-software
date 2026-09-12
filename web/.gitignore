@@ -47,3 +47,5 @@ next-env.d.ts
 
 /.local-test/
 *.tsbuildinfo
+
+!.env.example

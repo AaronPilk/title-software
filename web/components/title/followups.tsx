@@ -70,8 +70,8 @@ function FollowupCard({ request: r }: { request: AttorneyFollowup }) {
           </FieldLabel>
           <Button
             variant="outline"
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) => recordFollowupSent(d, r.id, reference),
                 "Attorney follow-up marked waiting",
                 r.orderId,
@@ -161,8 +161,8 @@ function FollowupItem({
           </FieldLabel>
           <Button
             variant="outline"
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) =>
                   resolveFollowupItem(d, r.id, item.id, {
                     documentId: doc === "none" ? "" : doc,
@@ -178,8 +178,8 @@ function FollowupItem({
           </Button>
           <Button
             variant="ghost"
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) => cancelFollowupItem(d, r.id, item.id, note),
                 "Follow-up item cancelled with reason; review reopened",
                 r.orderId,

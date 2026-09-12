@@ -220,8 +220,12 @@ export function AccountingImport() {
               </FieldLabel>
               <Button
                 variant="outline"
-                onClick={() => {
-                  if (update((d) => saveImportTemplate(d, templateName, map)))
+                onClick={async () => {
+                  if (
+                    await update((d) =>
+                      saveImportTemplate(d, templateName, map),
+                    )
+                  )
                     setTemplateName("");
                 }}
               >
@@ -248,8 +252,8 @@ export function AccountingImport() {
                 variant="ghost"
                 size="sm"
                 aria-label={`Delete mapping ${t.name}`}
-                onClick={() =>
-                  update(
+                onClick={async () =>
+                  await update(
                     (d) => deleteImportTemplate(d, t.id),
                     "Import mapping deleted",
                     t.name,

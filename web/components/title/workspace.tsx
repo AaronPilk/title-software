@@ -1,4 +1,5 @@
 "use client";
+import { BackendSettings } from "./backend-settings";
 import { PartnerStatements } from "./close-suite";
 import { PartnerDocuments } from "./partner-documents";
 import { partnerPeriod } from "@/lib/title/followups";
@@ -146,11 +147,19 @@ export const integrations = [
   },
 ];
 export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
-  const { s } = useWorkspace();
-  const [company, setCompany] = useState(s.companies[0].id);
+  const { s, connection } = useWorkspace();
+  const isPartner = connection?.access.role === "partner";
+  const [company, setCompany] = useState(s.companies[0]?.id || "");
   const [tab, setTab] = useState("Overview");
   const [month, setMonth] = useState("2026-09");
   const c = s.companies.find((x) => x.id === company) || s.companies[0];
+  if (!c)
+    return (
+      <section className="panel empty-state">
+        <h2>No company access assigned</h2>
+        <p>Your company documents will appear here after access is assigned.</p>
+      </section>
+    );
   const period = partnerPeriod(s, c.id, month);
   const orders = period.orders;
   return (
@@ -161,7 +170,7 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
       >
         <span className="subtle-pill">
           <EyeIcon />
-          Preview only
+          {isPartner ? "Shared with you" : "Preview only"}
         </span>
         <Input
           type="month"
@@ -185,34 +194,36 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
         </div>
         <Status value={c.stage} />
       </div>
-      <div className="metrics partner-metrics">
-        <Metric
-          label="Received orders"
-          value={period.received.length}
-          detail="Recorded receipt dates"
-        />
-        <Metric
-          label="Issued orders"
-          value={period.issued.length}
-          detail="Orders with issuance this month"
-        />
-        <Metric
-          label="Rejected orders"
-          value={period.rejected.length}
-          detail="Dated rejection events"
-        />
-        <Metric
-          label="Recovered orders"
-          value={period.recovered.length}
-          detail="Dated recovery events"
-        />
-        <Metric
-          label="Recorded closings"
-          value={period.closed.length}
-          detail="Independent of policy issuance"
-        />
-      </div>
-      {period.unknownReceived > 0 && (
+      {!isPartner && (
+        <div className="metrics partner-metrics">
+          <Metric
+            label="Received orders"
+            value={period.received.length}
+            detail="Recorded receipt dates"
+          />
+          <Metric
+            label="Issued orders"
+            value={period.issued.length}
+            detail="Orders with issuance this month"
+          />
+          <Metric
+            label="Rejected orders"
+            value={period.rejected.length}
+            detail="Dated rejection events"
+          />
+          <Metric
+            label="Recovered orders"
+            value={period.recovered.length}
+            detail="Dated recovery events"
+          />
+          <Metric
+            label="Recorded closings"
+            value={period.closed.length}
+            detail="Independent of policy issuance"
+          />
+        </div>
+      )}
+      {!isPartner && period.unknownReceived > 0 && (
         <p className="inline-note">
           {period.unknownReceived} legacy records have no receipt date and are
           excluded from received counts. Business rows include a recorded
@@ -222,9 +233,13 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
       <Segments
         value={tab}
         onChange={setTab}
-        items={["Overview", "Statements", "Shared documents", "Orders"]}
+        items={
+          isPartner
+            ? ["Statements", "Shared documents"]
+            : ["Overview", "Statements", "Shared documents", "Orders"]
+        }
       />
-      {tab === "Statements" ? (
+      {tab === "Statements" || (isPartner && tab !== "Shared documents") ? (
         <PartnerStatements key={c.id} companyId={c.id} />
       ) : tab === "Shared documents" ? (
         <PartnerDocuments key={c.id} companyId={c.id} />
@@ -256,9 +271,9 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
         </section>
       )}
       <p className="inline-note">
-        This is an administrator’s local preview, not a signed-in partner
-        account. Production will enforce company access on the server. Earnings
-        will appear only after an approved financial close.
+        {isPartner
+          ? "Only records published to your assigned membership appear here."
+          : "Administrator preview. Earnings appear after a reviewed financial close is published."}
       </p>
     </>
   );
@@ -267,7 +282,13 @@ function EyeIcon() {
   return <UsersRound size={14} />;
 }
 export function Settings() {
-  const { s, update, reset, restore } = useWorkspace();
+  const {
+    s,
+    update,
+    reset,
+    restore,
+    connection: sharedConnection,
+  } = useWorkspace();
   const [tab, setTab] = useState("Connections");
   const [connection, setConnection] = useState<
     (typeof integrations)[number] | null
@@ -342,6 +363,7 @@ export function Settings() {
         title="Workspace settings"
         description="Your team, connections, and operating standards."
       />
+      <BackendSettings />
       <Segments
         value={tab}
         onChange={setTab}
@@ -358,7 +380,7 @@ export function Settings() {
           <div className="settings-intro">
             <h2>Connect the systems behind your work.</h2>
             <p>
-              All connections are currently disconnected. Review each
+              Vendor connections are currently disconnected. Review each
               integration plan before connecting live services.
             </p>
           </div>
@@ -426,9 +448,9 @@ export function Settings() {
                     <Button
                       variant={s.user === p.name ? "secondary" : "outline"}
                       size="sm"
-                      disabled={s.user === p.name}
-                      onClick={() =>
-                        update(
+                      disabled={!!sharedConnection || s.user === p.name}
+                      onClick={async () =>
+                        await update(
                           (d) => {
                             d.user = p.name;
                           },
@@ -641,15 +663,14 @@ export function Settings() {
             </Button>
           </div>
           <p className="inline-note">
-            "Export demo records" saves metadata and sample text only.
-            "Export full backup" also bundles every uploaded file's bytes into
-            the same downloaded file, so this browser's storage is not the
-            only copy of anything — use it before clearing browser data,
-            switching browsers, or moving to a new computer. "Restore from
-            backup" only accepts a file made by "Export full backup" and
-            replaces everything currently in this browser; the confirmation
-            step shows what it contains first, and the resulting toast offers
-            Undo.
+            "Export demo records" saves metadata and sample text only. "Export
+            full backup" also bundles every uploaded file's bytes into the same
+            downloaded file, so this browser's storage is not the only copy of
+            anything — use it before clearing browser data, switching browsers,
+            or moving to a new computer. "Restore from backup" only accepts a
+            file made by "Export full backup" and replaces everything currently
+            in this browser; the confirmation step shows what it contains first,
+            and the resulting toast offers Undo.
           </p>
         </section>
       )}
@@ -711,14 +732,15 @@ export function Settings() {
             <AlertDialogDescription>
               {pendingRestore && (
                 <>
-                  Exported {new Date(pendingRestore.exportedAt).toLocaleString()}
+                  Exported{" "}
+                  {new Date(pendingRestore.exportedAt).toLocaleString()}
                   {" · "}
                   {pendingRestore.workspace.companies.length} companies,{" "}
                   {pendingRestore.workspace.orders.length} files,{" "}
                   {pendingRestore.assets.length} uploaded document
-                  {pendingRestore.assets.length === 1 ? "" : "s"}. This
-                  replaces everything currently in this browser. The
-                  confirmation toast offers Undo.
+                  {pendingRestore.assets.length === 1 ? "" : "s"}. This replaces
+                  everything currently in this browser. The confirmation toast
+                  offers Undo.
                 </>
               )}
             </AlertDialogDescription>
@@ -728,17 +750,15 @@ export function Settings() {
               <p>
                 {pendingRestore.missingAssets.length} document
                 {pendingRestore.missingAssets.length === 1 ? "" : "s"} had no
-                readable file when this backup was made and will stay
-                file-less after restoring:{" "}
+                readable file when this backup was made and will stay file-less
+                after restoring:{" "}
                 {pendingRestore.missingAssets.map((m) => m.name).join(", ")}.
                 Re-attach the file on each one afterward if it's needed.
               </p>
             </div>
           )}
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={restoreBusy}>
-              Cancel
-            </AlertDialogCancel>
+            <AlertDialogCancel disabled={restoreBusy}>Cancel</AlertDialogCancel>
             {/* A plain Button, not AlertDialogAction: Radix's Action closes
                 the dialog on click, but this confirm is async and should
                 keep the dialog open (with a busy label) until it settles. */}
@@ -759,21 +779,24 @@ export function Settings() {
           </DialogHeader>
           <form
             className="form-stack"
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
               const value = String(
                 new FormData(e.currentTarget).get("state"),
               ).trim();
               if (value) {
-                update(
-                  (d) => {
-                    d.expansionStates = Array.from(
-                      new Set([...(d.expansionStates || []), value]),
-                    );
-                  },
-                  "Expansion state added",
-                  value,
-                );
+                if (
+                  !(await update(
+                    (d) => {
+                      d.expansionStates = Array.from(
+                        new Set([...(d.expansionStates || []), value]),
+                      );
+                    },
+                    "Expansion state added",
+                    value,
+                  ))
+                )
+                  return;
                 setStateOpen(false);
               }
             }}

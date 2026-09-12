@@ -110,7 +110,7 @@ export default function Home() {
   );
 }
 function Workspace() {
-  const { s, ready } = useWorkspace();
+  const { s, ready, connection } = useWorkspace();
   const [page, setPage] = useState<Page>("Overview");
   const [search, setSearch] = useState(false);
   const [notifications, setNotifications] = useState(false);
@@ -130,7 +130,11 @@ function Workspace() {
       const found = pageNames.find(
         (p) => slug(p) === window.location.hash.slice(1),
       );
-      setPage(found || "Overview");
+      setPage(
+        connection?.access.role === "partner"
+          ? "Partner portal"
+          : found || "Overview",
+      );
     };
     read();
     window.addEventListener("hashchange", read);
@@ -396,42 +400,51 @@ function Workspace() {
         <SidebarContent>
           <p className="nav-caption">WORKSPACE</p>
           <SidebarMenu>
-            {navigation.map(({ label, icon: Icon }, i) => (
-              <SidebarMenuItem
-                key={label}
-                className={
-                  label === "Companies" || label === "Financials"
-                    ? "nav-section-break"
-                    : ""
-                }
-              >
-                <SidebarMenuButton
-                  onClick={() => navigate(label)}
-                  isActive={label === page}
-                  className="nav-button"
-                  aria-current={label === page ? "page" : undefined}
+            {navigation
+              .filter(
+                (n) =>
+                  connection?.access.role !== "partner" ||
+                  n.label === "Partner portal",
+              )
+              .map(({ label, icon: Icon }, i) => (
+                <SidebarMenuItem
+                  key={label}
+                  className={
+                    label === "Companies" || label === "Financials"
+                      ? "nav-section-break"
+                      : ""
+                  }
                 >
-                  <Icon />
-                  <span>{label}</span>
-                  {label === "Inbox" &&
-                    s.inbox.some((m) => m.status === "New") && (
-                      <b className="nav-count">
-                        {s.inbox.filter((m) => m.status === "New").length}
-                      </b>
-                    )}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
+                  <SidebarMenuButton
+                    onClick={() => navigate(label)}
+                    isActive={label === page}
+                    className="nav-button"
+                    aria-current={label === page ? "page" : undefined}
+                  >
+                    <Icon />
+                    <span>{label}</span>
+                    {label === "Inbox" &&
+                      s.inbox.some((m) => m.status === "New") && (
+                        <b className="nav-count">
+                          {s.inbox.filter((m) => m.status === "New").length}
+                        </b>
+                      )}
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
           <div className="local-card">
             <span className="local-dot" />
             <span>
-              Local demo workspace
+              {connection ? "Shared workspace" : "Local demo workspace"}
               <small>
-                Fictional data ·{" "}
-                {ready ? "saved in this browser" : "loading records"}
+                {connection
+                  ? connection.access.role + " · saved to Supabase"
+                  : ready
+                    ? "Fictional data · saved in this browser"
+                    : "loading records"}
               </small>
             </span>
           </div>
@@ -492,7 +505,11 @@ function Workspace() {
           {content}
           <footer className="page-footer">
             Ballantyne Title Company
-            <span>Local preview · September 2026 demo workspace</span>
+            <span>
+              {connection
+                ? "Shared company operations"
+                : "Local preview · September 2026 demo workspace"}
+            </span>
           </footer>
         </div>
       </main>

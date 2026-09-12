@@ -1,3 +1,4 @@
+import { traceMutation, commandUuid } from "./command-log";
 import type { Workspace, VaultDoc } from "./model";
 import { sameDocumentFamily } from "./production";
 
@@ -87,7 +88,7 @@ const event = (s: Workspace, action: string, note: string): MaterialEvent => ({
   action,
   note,
 });
-const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
+const id = (prefix: string) => `${prefix}-${commandUuid()}`;
 function company(s: Workspace, companyId: string) {
   const c = s.companies.find((c) => c.id === companyId);
   if (!c) throw new Error("Choose an existing company.");
@@ -158,89 +159,93 @@ export function createMaterial(
     "companyId" | "kind" | "title" | "owner" | "brief"
   >,
 ) {
-  company(s, input.companyId);
-  if (
-    !materialKinds.includes(input.kind) ||
-    !input.title.trim() ||
-    !input.owner.trim() ||
-    !input.brief.trim()
-  )
-    throw new Error(
-      "Enter the material, responsible person and requested content.",
-    );
-  const state = ensure(s);
-  if (
-    state.items.some(
-      (i) =>
-        i.companyId === input.companyId &&
-        i.title.toLowerCase() === input.title.trim().toLowerCase(),
+  return traceMutation(s, "createMaterial", [input], () => {
+    company(s, input.companyId);
+    if (
+      !materialKinds.includes(input.kind) ||
+      !input.title.trim() ||
+      !input.owner.trim() ||
+      !input.brief.trim()
     )
-  )
-    throw new Error("This company already has a material with that title.");
-  const item: CompanyMaterial = {
-    ...input,
-    title: input.title.trim(),
-    owner: input.owner.trim(),
-    brief: input.brief.trim(),
-    id: id("material"),
-    status: "Requested",
-    documentId: "",
-    revision: 1,
-    reviewNote: "",
-    reviewedBy: "",
-    reviewedAt: "",
-    reviewSnapshot: "",
-    history: [event(s, "Requested", input.brief.trim())],
-  };
-  state.items.unshift(item);
-  s.tasks.unshift({
-    id: `task-${item.id}`,
-    companyId: item.companyId,
-    title: `Prepare ${item.title}`,
-    owner: item.owner,
-    due: now().slice(0, 10),
-    done: false,
-    priority: "Normal",
+      throw new Error(
+        "Enter the material, responsible person and requested content.",
+      );
+    const state = ensure(s);
+    if (
+      state.items.some(
+        (i) =>
+          i.companyId === input.companyId &&
+          i.title.toLowerCase() === input.title.trim().toLowerCase(),
+      )
+    )
+      throw new Error("This company already has a material with that title.");
+    const item: CompanyMaterial = {
+      ...input,
+      title: input.title.trim(),
+      owner: input.owner.trim(),
+      brief: input.brief.trim(),
+      id: id("material"),
+      status: "Requested",
+      documentId: "",
+      revision: 1,
+      reviewNote: "",
+      reviewedBy: "",
+      reviewedAt: "",
+      reviewSnapshot: "",
+      history: [event(s, "Requested", input.brief.trim())],
+    };
+    state.items.unshift(item);
+    s.tasks.unshift({
+      id: `task-${item.id}`,
+      companyId: item.companyId,
+      title: `Prepare ${item.title}`,
+      owner: item.owner,
+      due: now().slice(0, 10),
+      done: false,
+      priority: "Normal",
+    });
+    return item.id;
   });
-  return item.id;
 }
 export function setupMaterials(s: Workspace, companyId: string) {
-  company(s, companyId);
-  let added = 0;
-  const presets: [MaterialKind, string][] = [
-    [
-      "Logo",
-      "Record the company name, business type, colors and approved logo format.",
-    ],
-    [
-      "Affiliated-business disclosure",
-      "Prepare the company disclosure template for professional review. Transaction delivery is recorded separately.",
-    ],
-    [
-      "Title preference form",
-      "Prepare the company-specific title preference form and confirm its wording.",
-    ],
-    [
-      "Business card",
-      "Confirm the company contact details and branding for the business card.",
-    ],
-  ];
-  for (const [kind, brief] of presets)
-    if (
-      !materials(s).items.some(
-        (i) => i.companyId === companyId && i.kind === kind,
-      )
-    ) {
-      createMaterial(s, {
-        companyId,
-        kind,
-        title: kind,
-        brief,
-        owner: "Stephenie",
-      });
-      added++;
-    }
-  return added;
+  return traceMutation(s, "setupMaterials", [companyId], () => {
+    company(s, companyId);
+    let added = 0;
+    const presets: [MaterialKind, string][] = [
+      [
+        "Logo",
+        "Record the company name, business type, colors and approved logo format.",
+      ],
+      [
+        "Affiliated-business disclosure",
+        "Prepare the company disclosure template for professional review. Transaction delivery is recorded separately.",
+      ],
+      [
+        "Title preference form",
+        "Prepare the company-specific title preference form and confirm its wording.",
+      ],
+      [
+        "Business card",
+        "Confirm the company contact details and branding for the business card.",
+      ],
+    ];
+    for (const [kind, brief] of presets)
+      if (
+        !materials(s).items.some(
+          (i) => i.companyId === companyId && i.kind === kind,
+        )
+      ) {
+        createMaterial(s, {
+          companyId,
+          kind,
+          title: kind,
+          brief,
+          owner: "Stephenie",
+        });
+        added++;
+      }
+    return added;
+  });
 }
 export function updateMaterial(
   s: Workspace,
@@ -250,72 +255,74 @@ export function updateMaterial(
     "title" | "owner" | "brief" | "documentId" | "status"
   > & { note: string; revision: number },
 ) {
-  const item = ensure(s).items.find((i) => i.id === itemId);
-  if (!item || item.revision !== input.revision)
-    throw new Error("This material changed. Reload its current revision.");
-  if (
-    !input.title.trim() ||
-    !input.owner.trim() ||
-    !input.brief.trim() ||
-    !["Requested", "In progress", "Awaiting review", "Not needed"].includes(
-      input.status,
+  return traceMutation(s, "updateMaterial", [itemId, input], () => {
+    const item = ensure(s).items.find((i) => i.id === itemId);
+    if (!item || item.revision !== input.revision)
+      throw new Error("This material changed. Reload its current revision.");
+    if (
+      !input.title.trim() ||
+      !input.owner.trim() ||
+      !input.brief.trim() ||
+      !["Requested", "In progress", "Awaiting review", "Not needed"].includes(
+        input.status,
+      )
     )
-  )
-    throw new Error(
-      "Complete the material details and choose a preparation status.",
+      throw new Error(
+        "Complete the material details and choose a preparation status.",
+      );
+    if (
+      input.documentId &&
+      !s.documents.some(
+        (d) =>
+          d.id === input.documentId &&
+          d.companyId === item.companyId &&
+          !d.orderId &&
+          d.category !== "Applications" &&
+          latestDocument(s, d),
+      )
+    )
+      throw new Error(
+        "Choose a current company document; applications and transaction files cannot be company materials.",
+      );
+    if (input.status === "Awaiting review" && !input.documentId)
+      throw new Error("Attach the material document before requesting review.");
+    if (input.status === "Not needed" && !input.note.trim())
+      throw new Error("Record why this material is not needed.");
+    if (
+      materials(s).items.some(
+        (i) =>
+          i.id !== item.id &&
+          i.companyId === item.companyId &&
+          i.title.toLowerCase() === input.title.trim().toLowerCase(),
+      )
+    )
+      throw new Error("This company already has a material with that title.");
+    Object.assign(item, {
+      title: input.title.trim(),
+      owner: input.owner.trim(),
+      brief: input.brief.trim(),
+      documentId: input.documentId,
+      status: input.status,
+      revision: item.revision + 1,
+      reviewSnapshot: "",
+      reviewNote: "",
+      reviewedAt: "",
+      reviewedBy: "",
+    });
+    item.history.push(
+      event(
+        s,
+        input.status,
+        input.note.trim() ||
+          "Working details updated; approval requires a new review.",
+      ),
     );
-  if (
-    input.documentId &&
-    !s.documents.some(
-      (d) =>
-        d.id === input.documentId &&
-        d.companyId === item.companyId &&
-        !d.orderId &&
-        d.category !== "Applications" &&
-        latestDocument(s, d),
-    )
-  )
-    throw new Error(
-      "Choose a current company document; applications and transaction files cannot be company materials.",
-    );
-  if (input.status === "Awaiting review" && !input.documentId)
-    throw new Error("Attach the material document before requesting review.");
-  if (input.status === "Not needed" && !input.note.trim())
-    throw new Error("Record why this material is not needed.");
-  if (
-    materials(s).items.some(
-      (i) =>
-        i.id !== item.id &&
-        i.companyId === item.companyId &&
-        i.title.toLowerCase() === input.title.trim().toLowerCase(),
-    )
-  )
-    throw new Error("This company already has a material with that title.");
-  Object.assign(item, {
-    title: input.title.trim(),
-    owner: input.owner.trim(),
-    brief: input.brief.trim(),
-    documentId: input.documentId,
-    status: input.status,
-    revision: item.revision + 1,
-    reviewSnapshot: "",
-    reviewNote: "",
-    reviewedAt: "",
-    reviewedBy: "",
+    const task = s.tasks.find((t) => t.id === `task-${item.id}`);
+    if (task) {
+      task.owner = item.owner;
+      task.done = item.status === "Not needed";
+    }
   });
-  item.history.push(
-    event(
-      s,
-      input.status,
-      input.note.trim() ||
-        "Working details updated; approval requires a new review.",
-    ),
-  );
-  const task = s.tasks.find((t) => t.id === `task-${item.id}`);
-  if (task) {
-    task.owner = item.owner;
-    task.done = item.status === "Not needed";
-  }
 }
 export function approveMaterial(
   s: Workspace,
@@ -323,37 +330,39 @@ export function approveMaterial(
   revision: number,
   note: string,
 ) {
-  const item = ensure(s).items.find((i) => i.id === itemId);
-  if (
-    !item ||
-    item.revision !== revision ||
-    item.status !== "Awaiting review" ||
-    !note.trim()
-  )
-    throw new Error("Save the material for review and record a review note.");
-  const d = materialDoc(s, item);
-  if (!d || !latestDocument(s, d))
-    throw new Error("Choose the current company document before approval.");
-  Object.assign(item, {
-    status: "Approved",
-    reviewNote: note.trim(),
-    reviewedBy: s.user,
-    reviewedAt: now(),
-    reviewSnapshot: materialSnapshot(s, item),
+  return traceMutation(s, "approveMaterial", [itemId, revision, note], () => {
+    const item = ensure(s).items.find((i) => i.id === itemId);
+    if (
+      !item ||
+      item.revision !== revision ||
+      item.status !== "Awaiting review" ||
+      !note.trim()
+    )
+      throw new Error("Save the material for review and record a review note.");
+    const d = materialDoc(s, item);
+    if (!d || !latestDocument(s, d))
+      throw new Error("Choose the current company document before approval.");
+    Object.assign(item, {
+      status: "Approved",
+      reviewNote: note.trim(),
+      reviewedBy: s.user,
+      reviewedAt: now(),
+      reviewSnapshot: materialSnapshot(s, item),
+    });
+    item.history.push({
+      ...event(s, "Approved", note.trim()),
+      approval: {
+        revision: item.revision,
+        documentId: d.id,
+        documentName: d.name,
+        documentVersion: d.version,
+        documentIdentity: documentIdentity(d),
+        materialSnapshot: item.reviewSnapshot,
+      },
+    });
+    const task = s.tasks.find((t) => t.id === `task-${item.id}`);
+    if (task) task.done = true;
   });
-  item.history.push({
-    ...event(s, "Approved", note.trim()),
-    approval: {
-      revision: item.revision,
-      documentId: d.id,
-      documentName: d.name,
-      documentVersion: d.version,
-      documentIdentity: documentIdentity(d),
-      materialSnapshot: item.reviewSnapshot,
-    },
-  });
-  const task = s.tasks.find((t) => t.id === `task-${item.id}`);
-  if (task) task.done = true;
 }
 function releaseDoc(s: Workspace, p: DocumentPublication) {
   return s.documents.find(
@@ -392,58 +401,66 @@ export function createPublication(
     "documentId" | "materialId" | "title" | "audience" | "memberNames"
   >,
 ) {
-  const d = s.documents.find((d) => d.id === input.documentId);
-  if (!d || !latestDocument(s, d) || !publicationEligible(d))
-    throw new Error(
-      "Choose a current, unrestricted document. Applications cannot be published.",
-    );
-  company(s, d.companyId);
-  const item = materials(s).items.find((i) => i.id === input.materialId);
-  if (
-    input.materialId &&
-    (!item ||
-      item.companyId !== d.companyId ||
-      item.documentId !== d.id ||
-      !materialCurrent(s, item))
-  )
-    throw new Error(
-      "Approve this company's current material before preparing its publication.",
-    );
-  if (!input.title.trim())
-    throw new Error("Enter the title partners should see.");
-  if (
-    materials(s).publications.some(
-      (p) =>
-        ["Draft", "Reviewed"].includes(p.status) &&
-        (p.documentId === d.id ||
-          (input.materialId && p.materialId === input.materialId)),
+  return traceMutation(s, "createPublication", [input], () => {
+    const d = s.documents.find((d) => d.id === input.documentId);
+    if (!d || !latestDocument(s, d) || !publicationEligible(d))
+      throw new Error(
+        "Choose a current, unrestricted document. Applications cannot be published.",
+      );
+    company(s, d.companyId);
+    const item = materials(s).items.find((i) => i.id === input.materialId);
+    if (
+      input.materialId &&
+      (!item ||
+        item.companyId !== d.companyId ||
+        item.documentId !== d.id ||
+        !materialCurrent(s, item))
     )
-  )
-    throw new Error("Finish or withdraw the existing publication draft first.");
-  const p: DocumentPublication = {
-    ...input,
-    memberNames: [...new Set(input.memberNames)].sort(),
-    title: input.title.trim(),
-    companyId: d.companyId,
-    id: id("publication"),
-    documentName: d.name,
-    documentVersion: d.version,
-    status: "Draft",
-    reviewNote: "",
-    reviewedBy: "",
-    reviewedAt: "",
-    reviewSnapshot: "",
-    publishedAt: "",
-    publishedBy: "",
-    supersededBy: "",
-    history: [
-      event(s, "Draft", "Prepared a document version and audience for review."),
-    ],
-  };
-  if (!audienceValid(s, p))
-    throw new Error("Select audience members from this company.");
-  ensure(s).publications.unshift(p);
-  return p.id;
+      throw new Error(
+        "Approve this company's current material before preparing its publication.",
+      );
+    if (!input.title.trim())
+      throw new Error("Enter the title partners should see.");
+    if (
+      materials(s).publications.some(
+        (p) =>
+          ["Draft", "Reviewed"].includes(p.status) &&
+          (p.documentId === d.id ||
+            (input.materialId && p.materialId === input.materialId)),
+      )
+    )
+      throw new Error(
+        "Finish or withdraw the existing publication draft first.",
+      );
+    const p: DocumentPublication = {
+      ...input,
+      memberNames: [...new Set(input.memberNames)].sort(),
+      title: input.title.trim(),
+      companyId: d.companyId,
+      id: id("publication"),
+      documentName: d.name,
+      documentVersion: d.version,
+      status: "Draft",
+      reviewNote: "",
+      reviewedBy: "",
+      reviewedAt: "",
+      reviewSnapshot: "",
+      publishedAt: "",
+      publishedBy: "",
+      supersededBy: "",
+      history: [
+        event(
+          s,
+          "Draft",
+          "Prepared a document version and audience for review.",
+        ),
+      ],
+    };
+    if (!audienceValid(s, p))
+      throw new Error("Select audience members from this company.");
+    ensure(s).publications.unshift(p);
+    return p.id;
+  });
 }
 export function publicationReady(s: Workspace, p: DocumentPublication) {
   const d = releaseDoc(s, p),
@@ -463,19 +480,21 @@ export function reviewPublication(
   publicationId: string,
   note: string,
 ) {
-  const p = ensure(s).publications.find((p) => p.id === publicationId);
-  if (!p || p.status !== "Draft" || !note.trim() || !publicationReady(s, p))
-    throw new Error(
-      "Review the current document and audience, then record a review note.",
-    );
-  Object.assign(p, {
-    status: "Reviewed",
-    reviewNote: note.trim(),
-    reviewedBy: s.user,
-    reviewedAt: now(),
-    reviewSnapshot: releaseSnapshot(s, p),
+  return traceMutation(s, "reviewPublication", [publicationId, note], () => {
+    const p = ensure(s).publications.find((p) => p.id === publicationId);
+    if (!p || p.status !== "Draft" || !note.trim() || !publicationReady(s, p))
+      throw new Error(
+        "Review the current document and audience, then record a review note.",
+      );
+    Object.assign(p, {
+      status: "Reviewed",
+      reviewNote: note.trim(),
+      reviewedBy: s.user,
+      reviewedAt: now(),
+      reviewSnapshot: releaseSnapshot(s, p),
+    });
+    p.history.push(event(s, "Reviewed", note.trim()));
   });
-  p.history.push(event(s, "Reviewed", note.trim()));
 }
 export function replacementPublications(s: Workspace, p: DocumentPublication) {
   const d = releaseDoc(s, p);
@@ -493,37 +512,44 @@ export function publishDocument(
   publicationId: string,
   expectedReplacementIds: string[] = [],
 ) {
-  const p = ensure(s).publications.find((p) => p.id === publicationId);
-  if (!p || p.status !== "Reviewed" || !publicationReady(s, p))
-    throw new Error(
-      "Review a current document and audience before publication.",
-    );
-  const prior = replacementPublications(s, p);
-  if (
-    JSON.stringify(prior.map((x) => x.id).sort()) !==
-    JSON.stringify([...expectedReplacementIds].sort())
-  )
-    throw new Error(
-      "Published versions changed. Review and explicitly confirm the replacement list.",
-    );
-  for (const x of prior) {
-    x.status = "Superseded";
-    x.supersededBy = p.id;
-    x.history.push(event(s, "Superseded", `Replaced by ${p.id}.`));
-  }
-  Object.assign(p, {
-    status: "Published",
-    publishedAt: now(),
-    publishedBy: s.user,
-  });
-  p.history.push(
-    event(
-      s,
-      "Published",
-      prior.length
-        ? "Replaced the explicitly selected prior publication."
-        : "Published this reviewed version and audience.",
-    ),
+  return traceMutation(
+    s,
+    "publishDocument",
+    [publicationId, expectedReplacementIds],
+    () => {
+      const p = ensure(s).publications.find((p) => p.id === publicationId);
+      if (!p || p.status !== "Reviewed" || !publicationReady(s, p))
+        throw new Error(
+          "Review a current document and audience before publication.",
+        );
+      const prior = replacementPublications(s, p);
+      if (
+        JSON.stringify(prior.map((x) => x.id).sort()) !==
+        JSON.stringify([...expectedReplacementIds].sort())
+      )
+        throw new Error(
+          "Published versions changed. Review and explicitly confirm the replacement list.",
+        );
+      for (const x of prior) {
+        x.status = "Superseded";
+        x.supersededBy = p.id;
+        x.history.push(event(s, "Superseded", `Replaced by ${p.id}.`));
+      }
+      Object.assign(p, {
+        status: "Published",
+        publishedAt: now(),
+        publishedBy: s.user,
+      });
+      p.history.push(
+        event(
+          s,
+          "Published",
+          prior.length
+            ? "Replaced the explicitly selected prior publication."
+            : "Published this reviewed version and audience.",
+        ),
+      );
+    },
   );
 }
 export function withdrawPublication(
@@ -531,17 +557,24 @@ export function withdrawPublication(
   publicationId: string,
   reason: string,
 ) {
-  const p = ensure(s).publications.find((p) => p.id === publicationId);
-  if (
-    !p ||
-    !["Draft", "Reviewed", "Published"].includes(p.status) ||
-    !reason.trim()
-  )
-    throw new Error(
-      "Choose an active publication and record a withdrawal reason.",
-    );
-  p.status = "Withdrawn";
-  p.history.push(event(s, "Withdrawn", reason.trim()));
+  return traceMutation(
+    s,
+    "withdrawPublication",
+    [publicationId, reason],
+    () => {
+      const p = ensure(s).publications.find((p) => p.id === publicationId);
+      if (
+        !p ||
+        !["Draft", "Reviewed", "Published"].includes(p.status) ||
+        !reason.trim()
+      )
+        throw new Error(
+          "Choose an active publication and record a withdrawal reason.",
+        );
+      p.status = "Withdrawn";
+      p.history.push(event(s, "Withdrawn", reason.trim()));
+    },
+  );
 }
 export function partnerPublications(
   s: Workspace,

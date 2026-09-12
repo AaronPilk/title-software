@@ -172,9 +172,9 @@ function PrepareDelivery({ period }: { period: ClosePeriod }) {
       <div className="source-actions">
         <Button
           disabled={!ready}
-          onClick={() => {
+          onClick={async () => {
             if (
-              update(
+              await update(
                 (d) =>
                   prepareStatementDelivery(d, {
                     companyId: period.companyId,
@@ -293,10 +293,10 @@ function DeliveryCard({ delivery: d }: { delivery: StatementDelivery }) {
       {state.label === "Source changed" && (
         <div className="notice warning">
           <p>
-            The published statement this record was prepared against has
-            changed or been withdrawn. It can't be exported or recorded as
-            delivered; cancel it and prepare a new record from the current
-            revision if the member still needs a statement.
+            The published statement this record was prepared against has changed
+            or been withdrawn. It can't be exported or recorded as delivered;
+            cancel it and prepare a new record from the current revision if the
+            member still needs a statement.
           </p>
         </div>
       )}
@@ -344,9 +344,9 @@ function DeliveryCard({ delivery: d }: { delivery: StatementDelivery }) {
           <div className="source-actions">
             <Button
               disabled={!deliveredOn || !reference.trim() || !note.trim()}
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  update(
+                  await update(
                     (w) =>
                       recordStatementDelivery(w, d.id, {
                         deliveredOn,
@@ -367,8 +367,8 @@ function DeliveryCard({ delivery: d }: { delivery: StatementDelivery }) {
             </Button>
           </div>
           <p className="form-note">
-            Downloading the statement does not record a delivery. Record it
-            here only after the statement actually reached the recipient.
+            Downloading the statement does not record a delivery. Record it here
+            only after the statement actually reached the recipient.
           </p>
         </div>
       )}
@@ -386,9 +386,9 @@ function DeliveryCard({ delivery: d }: { delivery: StatementDelivery }) {
           <Button
             variant="ghost"
             disabled={!reason.trim()}
-            onClick={() => {
+            onClick={async () => {
               if (
-                update(
+                await update(
                   (w) => cancelStatementDelivery(w, d.id, reason.trim()),
                   "Statement delivery cancelled",
                   `${d.snapshot.companyName} · ${d.memberName}`,

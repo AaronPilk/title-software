@@ -12,6 +12,17 @@ import { createSeed, uid, type Workspace } from "./model";
 import { enrichWorkspace } from "./production";
 import { enrichBusiness, validateBusinessMutation } from "./business";
 import { isValidStatementDeliveryWorkspace } from "./statement-delivery";
+import { captureCommands } from "./command-log";
+import { BackendAccess } from "@/components/title/backend-access";
+import {
+  supabase,
+  backendConfigured,
+  backendRequest,
+  activeWorkspace,
+  uploadRemoteAsset,
+  downloadRemoteAsset,
+  type RemoteState,
+} from "../backend/client";
 const KEY = "titleos.workspace.v1";
 const WORKSPACE_ARRAY_KEYS = [
   "companies",
@@ -60,12 +71,200 @@ type Store = {
     fn: (draft: Workspace) => void,
     title?: string,
     detail?: string,
-  ) => boolean;
+  ) => Promise<boolean>;
   reset: () => void;
   restore: (w: Workspace) => void;
+  connection?: {
+    access: RemoteState["access"];
+    revision: number;
+    saving: boolean;
+    refresh: () => Promise<void>;
+  };
 };
 const Context = createContext<Store | null>(null);
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
+  const [demo, setDemo] = useState(!backendConfigured);
+  if (demo)
+    return (
+      <LocalWorkspaceProvider>
+        {backendConfigured && (
+          <div className="demo-mode-bar">
+            Local sample workspace
+            <Buttonless onClick={() => setDemo(false)}>
+              Open shared workspace
+            </Buttonless>
+          </div>
+        )}
+        {children}
+      </LocalWorkspaceProvider>
+    );
+  return (
+    <BackendAccess onDemo={() => setDemo(true)}>
+      {(remote) => (
+        <ConnectedWorkspaceProvider initial={remote}>
+          {children}
+        </ConnectedWorkspaceProvider>
+      )}
+    </BackendAccess>
+  );
+}
+function Buttonless({
+  children,
+  onClick,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+function ConnectedWorkspaceProvider({
+  initial,
+  children,
+}: {
+  initial: RemoteState;
+  children: ReactNode;
+}) {
+  const [remote, setRemote] = useState(initial),
+    [saving, setSaving] = useState(false),
+    [failure, setFailure] = useState("");
+  const latest = useRef(initial),
+    busy = useRef(false);
+  function accept(next: RemoteState) {
+    if (next.revision < latest.current.revision) return;
+    latest.current = next;
+    setRemote(next);
+    setFailure("");
+  }
+  async function refresh() {
+    try {
+      accept(await backendRequest<RemoteState>("/state"));
+    } catch (e) {
+      setFailure(e instanceof Error ? e.message : "Unable to refresh.");
+      if ([401, 403].includes((e as { status?: number }).status || 0))
+        await supabase?.auth.signOut();
+    }
+  }
+  useEffect(() => {
+    const focus = () => {
+      if (!busy.current) void refresh();
+    };
+    window.addEventListener("focus", focus);
+    const interval = setInterval(focus, 30000);
+    return () => {
+      window.removeEventListener("focus", focus);
+      clearInterval(interval);
+    };
+  }, []);
+  async function update(
+    fn: (draft: Workspace) => void,
+    title?: string,
+    detail = "",
+  ) {
+    if (busy.current) {
+      toast.error(
+        "A save is still in progress. Please try again when it completes.",
+      );
+      return false;
+    }
+    const before = latest.current,
+      next = structuredClone(before.state);
+    let commands;
+    try {
+      commands = captureCommands(next, fn);
+      validateBusinessMutation(before.state, next);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Check this change.");
+      return false;
+    }
+    if (!commands.length) return true;
+    busy.current = true;
+    setSaving(true);
+    setFailure("");
+    const request = {
+      workspaceId: before.workspaceId,
+      expectedRevision: before.revision,
+      requestId: crypto.randomUUID(),
+      commands,
+    };
+    try {
+      let result: RemoteState;
+      try {
+        result = await backendRequest<RemoteState>("/commands", request);
+      } catch (e) {
+        // Only transport uncertainty is retried, with exactly the same request ID and payload.
+        if (e instanceof TypeError)
+          result = await backendRequest<RemoteState>("/commands", request);
+        else throw e;
+      }
+      accept(result);
+      if (title)
+        toast.success(
+          title.replace(/locally|local|Demo /gi, "shared workspace").trim(),
+        );
+      return true;
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : "The change was not saved.";
+      setFailure(message);
+      toast.error(message);
+      if ([401, 403, 409].includes((e as { status?: number }).status || 0))
+        await refresh();
+      return false;
+    } finally {
+      busy.current = false;
+      setSaving(false);
+    }
+  }
+  return (
+    <Context.Provider
+      value={{
+        s: remote.state,
+        ready: true,
+        update,
+        reset: () =>
+          toast.error(
+            "Use an owner-reviewed server backup to recover shared records.",
+          ),
+        restore: () => {
+          throw new Error(
+            "Local backup replacement is disabled for the shared workspace. Use server backups.",
+          );
+        },
+        connection: {
+          access: remote.access,
+          revision: remote.revision,
+          saving,
+          refresh,
+        },
+      }}
+    >
+      <div className="shared-mode-bar" role="status">
+        {saving
+          ? "Saving securely…"
+          : `Shared workspace · ${remote.access.email}`}
+        <span>Revision {remote.revision}</span>
+        {failure && (
+          <button type="button" onClick={() => void refresh()}>
+            Refresh connection
+          </button>
+        )}
+      </div>
+      {failure && (
+        <div className="backend-save-error" role="alert">
+          {failure}
+        </div>
+      )}
+      <div style={{ display: "contents" }} inert={saving || undefined}>
+        {children}
+      </div>
+    </Context.Provider>
+  );
+}
+function LocalWorkspaceProvider({ children }: { children: ReactNode }) {
   const [s, setState] = useState(createSeed);
   const [ready, setReady] = useState(false);
   const storageWarning = useRef(false);
@@ -127,7 +326,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }, 60000);
     return () => clearInterval(timer);
   }, [ready]);
-  function update(fn: (draft: Workspace) => void, title?: string, detail = "") {
+  async function update(
+    fn: (draft: Workspace) => void,
+    title?: string,
+    detail = "",
+  ) {
     const next = structuredClone(latest.current);
     try {
       fn(next);
@@ -170,7 +373,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     });
   }
   function restore(w: Workspace) {
-    if (!isWorkspaceShape(w)) throw new Error("This backup contains invalid workspace records.");
+    if (!isWorkspaceShape(w))
+      throw new Error("This backup contains invalid workspace records.");
     const previous = latest.current;
     const next = enrichBusiness(enrichWorkspace(structuredClone(w)));
     latest.current = next;
@@ -204,7 +408,17 @@ function openAssets(): Promise<IDBDatabase> {
     r.onerror = () => reject(r.error);
   });
 }
-export async function saveAsset(id: string, file: File) {
+export async function saveAsset(
+  id: string,
+  file: File,
+  binding?: { companyId: string; documentId: string },
+) {
+  if (activeWorkspace()) {
+    if (!binding)
+      throw new Error("Choose the company and document for this upload.");
+    await uploadRemoteAsset(id, file, binding.companyId, binding.documentId);
+    return;
+  }
   const db = await openAssets();
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction("files", "readwrite");
@@ -220,6 +434,7 @@ export async function saveAsset(id: string, file: File) {
   });
 }
 export async function getAsset(id: string): Promise<Blob> {
+  if (activeWorkspace()) return downloadRemoteAsset(id);
   const db = await openAssets();
   return new Promise((resolve, reject) => {
     const r = db.transaction("files").objectStore("files").get(id);
@@ -381,6 +596,10 @@ export function parseBackupFile(raw: string): WorkspaceBackup {
   return b as WorkspaceBackup;
 }
 export async function restoreAssets(assets: WorkspaceBackup["assets"]) {
+  if (activeWorkspace())
+    throw new Error(
+      "Restore shared records through owner-reviewed server backups.",
+    );
   for (const a of assets)
     await saveAsset(
       a.id,

@@ -1,3 +1,4 @@
+import { commandUuid } from "./command-log";
 import {
   enrichWorkspace,
   type TitleFile,
@@ -235,8 +236,7 @@ export const money = (value: number) =>
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(value);
-export const uid = (prefix: string) =>
-  `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+export const uid = (prefix: string) => `${prefix}-${commandUuid().slice(0, 8)}`;
 export const companyById = (state: Workspace, id: string) =>
   state.companies.find((c) => c.id === id)!;
 const fields = (name: string): Field[] =>

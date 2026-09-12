@@ -1,85 +1,88 @@
+import { traceMutation, commandUuid } from "./command-log";
 import { ledgerLines } from "./business";
 import { onboardingSteps, onboardingOwner, type Workspace } from "./model";
 export function executeRules(d: Workspace, ids: string[]) {
-  let count = 0;
-  for (const id of ids) {
-    const r = d.rules.find((x) => x.id === id);
-    if (!r || !r.enabled) continue;
-    if (id === "intake")
-      for (const m of d.inbox) {
-        const o = d.orders.find((x) => x.id === m.orderId);
-        if (m.status === "New" && m.kind !== "Revision" && o) {
-          m.status = "Queued";
-          if (
-            o.fields.length &&
-            !["Issued", "Ready for jacket", "Rejected"].includes(o.status)
-          )
-            o.status = "Needs review";
-          count++;
+  return traceMutation(d, "executeRules", [ids], () => {
+    let count = 0;
+    for (const id of ids) {
+      const r = d.rules.find((x) => x.id === id);
+      if (!r || !r.enabled) continue;
+      if (id === "intake")
+        for (const m of d.inbox) {
+          const o = d.orders.find((x) => x.id === m.orderId);
+          if (m.status === "New" && m.kind !== "Revision" && o) {
+            m.status = "Queued";
+            if (
+              o.fields.length &&
+              !["Issued", "Ready for jacket", "Rejected"].includes(o.status)
+            )
+              o.status = "Needs review";
+            count++;
+          }
         }
-      }
-    if (id === "onboarding")
-      for (const c of d.companies.filter((x) => x.stage === "Onboarding")) {
-        const title =
-          onboardingSteps[c.steps.findIndex((x) => !x)] ||
-          "Confirm launch readiness";
-        const key = `auto-onboard-${c.id}-${c.steps.findIndex((x) => !x)}`;
-        if (!d.tasks.some((t) => t.id === key)) {
+      if (id === "onboarding")
+        for (const c of d.companies.filter((x) => x.stage === "Onboarding")) {
+          const title =
+            onboardingSteps[c.steps.findIndex((x) => !x)] ||
+            "Confirm launch readiness";
+          const key = `auto-onboard-${c.id}-${c.steps.findIndex((x) => !x)}`;
+          if (!d.tasks.some((t) => t.id === key)) {
+            d.tasks.unshift({
+              id: key,
+              title,
+              companyId: c.id,
+              owner: onboardingOwner(c.steps.findIndex((x) => !x)),
+              due: "2026-09-15",
+              priority: "Normal",
+              done: false,
+            });
+            count++;
+          }
+        }
+      if (id === "exceptions")
+        for (const o of d.orders.filter((x) => x.status === "Rejected")) {
+          const key = `auto-rejected-${o.id}`;
+          if (!d.tasks.some((t) => t.id === key)) {
+            d.tasks.unshift({
+              id: key,
+              title: `Review rejected order ${o.id}`,
+              companyId: o.companyId,
+              owner: "John",
+              due: "2026-09-15",
+              priority: "High",
+              done: false,
+            });
+            count++;
+          }
+        }
+      if (id === "renewals") {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() + 30);
+        const cutoff = cutoffDate.toISOString().slice(0, 10);
+        for (const record of d.business?.credentials || []) {
+          const due = [record.expiresOn, record.reviewOn]
+            .filter(Boolean)
+            .sort()[0];
+          if (!due || due > cutoff) continue;
+          const key = `auto-renew-${record.id}-${due}`;
+          if (d.tasks.some((t) => t.id === key)) continue;
           d.tasks.unshift({
             id: key,
-            title,
-            companyId: c.id,
-            owner: onboardingOwner(c.steps.findIndex((x) => !x)),
-            due: "2026-09-15",
-            priority: "Normal",
-            done: false,
-          });
-          count++;
-        }
-      }
-    if (id === "exceptions")
-      for (const o of d.orders.filter((x) => x.status === "Rejected")) {
-        const key = `auto-rejected-${o.id}`;
-        if (!d.tasks.some((t) => t.id === key)) {
-          d.tasks.unshift({
-            id: key,
-            title: `Review rejected order ${o.id}`,
-            companyId: o.companyId,
-            owner: "John",
-            due: "2026-09-15",
+            title: `Review ${record.state} ${record.underwriter || record.kind} authority`,
+            companyId: record.companyId,
+            owner: record.reviewer || "John",
+            due,
             priority: "High",
             done: false,
           });
           count++;
         }
       }
-    if (id === "renewals") {
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() + 30);
-      const cutoff = cutoffDate.toISOString().slice(0, 10);
-      for (const record of d.business?.credentials || []) {
-        const due = [record.expiresOn, record.reviewOn]
-          .filter(Boolean)
-          .sort()[0];
-        if (!due || due > cutoff) continue;
-        const key = `auto-renew-${record.id}-${due}`;
-        if (d.tasks.some((t) => t.id === key)) continue;
-        d.tasks.unshift({
-          id: key,
-          title: `Review ${record.state} ${record.underwriter || record.kind} authority`,
-          companyId: record.companyId,
-          owner: record.reviewer || "John",
-          due,
-          priority: "High",
-          done: false,
-        });
-        count++;
-      }
+      r.runs++;
+      r.lastRun = new Date().toISOString();
     }
-    r.runs++;
-    r.lastRun = new Date().toISOString();
-  }
-  return count;
+    return count;
+  });
 }
 
 export const round = (n: number) =>

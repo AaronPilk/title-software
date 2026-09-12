@@ -257,8 +257,8 @@ export function OnboardingCasePanel({ company }: { company: Company }) {
             />
           </FieldLabel>
           <Button
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) =>
                   recordOnboardingEvidence(d, company.id, {
                     step: Number(step),
@@ -302,7 +302,7 @@ function ApplicationEditor({ company }: { company: Company }) {
   );
   const change = (key: keyof OnboardingCase, value: unknown) =>
     setApp((p) => ({ ...p, [key]: value }));
-  function packet() {
+  async function packet() {
     const content = {
       demo: true,
       company: app.legalName,
@@ -319,7 +319,7 @@ function ApplicationEditor({ company }: { company: Company }) {
       note: "This is a local packet checklist, not a sent application or a legal filing. Do not enter SSNs, dates of birth or bank details in this prototype.",
     };
     if (
-      update(
+      await update(
         (d) => {
           saveApplication(d, {
             ...app,
@@ -462,8 +462,8 @@ function ApplicationEditor({ company }: { company: Company }) {
       </FieldLabel>
       <div className="source-actions">
         <Button
-          onClick={() =>
-            update(
+          onClick={async () =>
+            await update(
               (d) => saveApplication(d, app),
               "Application workspace saved",
               company.name,
@@ -686,9 +686,9 @@ function CredentialEditor({
         </FieldLabel>
       </div>
       <Button
-        onClick={() => {
+        onClick={async () => {
           if (
-            update(
+            await update(
               (d) => saveCredential(d, r),
               "Authority record saved",
               company.name,

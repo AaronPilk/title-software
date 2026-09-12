@@ -75,29 +75,35 @@ export function InboxView({
     (x) => filter === "All messages" || x.status === filter,
   );
   const linked = m ? s.orders.find((o) => o.id === m.orderId) : null;
-  function queue() {
+  async function queue() {
     if (!m || !linked) return;
     if (m.kind === "Commitment") {
-      update(
-        (d) => {
-          const mail = d.inbox.find((x) => x.id === m.id)!;
-          mail.orderId = linked.id;
-          mail.status = "Queued";
-        },
-        "Commitment intake queued",
-        linked.id,
-      );
+      if (
+        !(await update(
+          (d) => {
+            const mail = d.inbox.find((x) => x.id === m.id)!;
+            mail.orderId = linked.id;
+            mail.status = "Queued";
+          },
+          "Commitment intake queued",
+          linked.id,
+        ))
+      )
+        return;
       onCommitment(linked.id);
       return;
     }
     if (m.kind === "Revision") {
-      update((d) => {
-        d.inbox.find((x) => x.id === m.id)!.orderId = linked.id;
-      });
+      if (
+        !(await update((d) => {
+          d.inbox.find((x) => x.id === m.id)!.orderId = linked.id;
+        }))
+      )
+        return;
       onRevision(m.id);
       return;
     }
-    update(
+    await update(
       (d) => {
         d.inbox.find((x) => x.id === m.id)!.status = "Queued";
         d.inbox.find((x) => x.id === m.id)!.orderId = linked.id;
@@ -175,8 +181,8 @@ export function InboxView({
                   size="icon"
                   aria-label="Archive message"
                   disabled={m.status === "Archived"}
-                  onClick={() =>
-                    update(
+                  onClick={async () =>
+                    await update(
                       (d) => {
                         d.inbox.find((x) => x.id === m.id)!.status = "Archived";
                       },
@@ -291,9 +297,9 @@ export function InboxView({
                 <>
                   <Picker
                     value={filingCompany}
-                    onChange={(value) => {
+                    onChange={async (value) => {
                       setCompany(value);
-                      update((d) => {
+                      await update((d) => {
                         const mail = d.inbox.find((x) => x.id === m.id)!;
                         if (
                           (mail.documentIds || []).some(
@@ -317,8 +323,8 @@ export function InboxView({
                   <div className="message-actions">
                     <Button
                       disabled={m.status === "Archived"}
-                      onClick={() =>
-                        update(
+                      onClick={async () =>
+                        await update(
                           (d) => {
                             d.documents.unshift({
                               id: uid("doc"),
@@ -411,32 +417,35 @@ export function Tasks() {
   const [filter, setFilter] = useState("Open");
   const [owner, setOwner] = useState("Everyone");
   const [newTask, setNewTask] = useState(false);
-  const [company, setCompany] = useState(s.companies[0].id);
+  const [company, setCompany] = useState(s.companies[0]?.id || "");
   const [assignee, setAssignee] = useState(s.user);
   const rows = s.tasks.filter(
     (t) =>
       (filter === "All tasks" || (filter === "Completed" ? t.done : !t.done)) &&
       (owner === "Everyone" || t.owner === owner),
   );
-  function create(e: React.FormEvent<HTMLFormElement>) {
+  async function create(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget),
       title = String(f.get("title")).trim();
     if (!title) return;
-    update(
-      (d) =>
-        d.tasks.unshift({
-          id: uid("task"),
-          title,
-          companyId: company,
-          owner: assignee,
-          due: String(f.get("due")),
-          priority: "Normal",
-          done: false,
-        }),
-      "Task created",
-      title,
-    );
+    if (
+      !(await update(
+        (d) =>
+          d.tasks.unshift({
+            id: uid("task"),
+            title,
+            companyId: company,
+            owner: assignee,
+            due: String(f.get("due")),
+            priority: "Normal",
+            done: false,
+          }),
+        "Task created",
+        title,
+      ))
+    )
+      return;
     setNewTask(false);
   }
   return (
@@ -473,8 +482,8 @@ export function Tasks() {
                 <Checkbox
                   aria-label={`Complete ${t.title}`}
                   checked={t.done}
-                  onCheckedChange={(v) =>
-                    update(
+                  onCheckedChange={async (v) =>
+                    await update(
                       (d) => {
                         d.tasks.find((x) => x.id === t.id)!.done = v === true;
                       },
@@ -493,8 +502,8 @@ export function Tasks() {
                   value={t.owner}
                   label={`Assign ${t.title}`}
                   options={["Stephenie", "Tyler", "John"]}
-                  onChange={(v) =>
-                    update(
+                  onChange={async (v) =>
+                    await update(
                       (d) => {
                         d.tasks.find((x) => x.id === t.id)!.owner = v;
                       },
@@ -574,16 +583,19 @@ export function Tasks() {
 export function Automations() {
   const { s, update } = useWorkspace();
   const [result, setResult] = useState("");
-  function run(ids: string[]) {
+  async function run(ids: string[]) {
     const copy = structuredClone(s);
     const count = executeRules(copy, ids);
-    update(
-      (d) => {
-        executeRules(d, ids);
-      },
-      "Demo automations completed",
-      `${count} records updated`,
-    );
+    if (
+      !(await update(
+        (d) => {
+          executeRules(d, ids);
+        },
+        "Demo automations completed",
+        `${count} records updated`,
+      ))
+    )
+      return;
     setResult(
       count
         ? `${count} records updated. The inbox and task list now reflect this run.`
@@ -627,8 +639,8 @@ export function Automations() {
               <Switch
                 checked={r.enabled}
                 aria-label={`Enable ${r.name}`}
-                onCheckedChange={(v) =>
-                  update(
+                onCheckedChange={async (v) =>
+                  await update(
                     (d) => {
                       d.rules.find((x) => x.id === r.id)!.enabled = v;
                     },

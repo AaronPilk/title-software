@@ -1,4 +1,5 @@
 "use client";
+import { BufferedInput } from "./buffered-input";
 import { ledgerLines } from "@/lib/title/business";
 import { CloseWorkspace } from "./close-suite";
 import { AccountingImport } from "./accounting-import";
@@ -217,8 +218,8 @@ export function Financials() {
               ))}
               <Button
                 disabled={!checks.every(Boolean) || !issued.length || approved}
-                onClick={() =>
-                  update(
+                onClick={async () =>
+                  await update(
                     (d) => d.approvedReports.push(reportKey),
                     "Demo close reviewed",
                     month,
@@ -285,8 +286,8 @@ export function Financials() {
                           !orders.length ||
                           orders.every((o) => o.remitted)
                         }
-                        onClick={() =>
-                          update(
+                        onClick={async () =>
+                          await update(
                             (d) => {
                               d.orders
                                 .filter(
@@ -358,19 +359,19 @@ export function Financials() {
                     </div>
                     <label>
                       <span>Illustrative expenses ($)</span>
-                      <Input
+                      <BufferedInput
                         type="number"
                         aria-label={`${r.company.name} illustrative expenses`}
                         value={expenses[r.company.id] || 0}
                         min="0"
                         max="10000000"
                         step=".01"
-                        onChange={(e) => {
+                        onCommit={async (text) => {
                           const value = Math.min(
                             10000000,
-                            Math.max(0, Number(e.target.value) || 0),
+                            Math.max(0, Number(text) || 0),
                           );
-                          update((d) => {
+                          await update((d) => {
                             d.expenses = {
                               ...d.expenses,
                               [month + ":" + r.company.id]: value,

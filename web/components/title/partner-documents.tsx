@@ -7,12 +7,15 @@ import { DocumentPreview } from "./documents";
 import { Empty, Picker, FieldLabel } from "./shared";
 
 export function PartnerDocuments({ companyId }: { companyId: string }) {
-  const { s } = useWorkspace();
+  const { s, connection } = useWorkspace();
+  const isPartner = connection?.access.role === "partner";
   const [member, setMember] = useState("all"),
     [selected, setSelected] = useState("");
   const c = s.companies.find((c) => c.id === companyId)!;
   const audience = c.members.some((m) => m.name === member) ? member : "";
-  const publications = partnerPublications(s, companyId, audience);
+  const publications = isPartner
+    ? (s.materials?.publications || []).filter((p) => p.companyId === companyId)
+    : partnerPublications(s, companyId, audience);
   const active = publications.find((p) => p.id === selected),
     doc = active && s.documents.find((d) => d.id === active.documentId);
   return (
@@ -25,20 +28,22 @@ export function PartnerDocuments({ companyId }: { companyId: string }) {
           </p>
         </div>
       </div>
-      <FieldLabel label="Preview document audience">
-        <Picker
-          label="Preview document audience"
-          value={audience || "all"}
-          onChange={(v) => {
-            setMember(v);
-            setSelected("");
-          }}
-          options={[
-            { value: "all", label: "All-company audience only" },
-            ...c.members.map((m) => ({ value: m.name, label: m.name })),
-          ]}
-        />
-      </FieldLabel>
+      {!isPartner && (
+        <FieldLabel label="Preview document audience">
+          <Picker
+            label="Preview document audience"
+            value={audience || "all"}
+            onChange={(v) => {
+              setMember(v);
+              setSelected("");
+            }}
+            options={[
+              { value: "all", label: "All-company audience only" },
+              ...c.members.map((m) => ({ value: m.name, label: m.name })),
+            ]}
+          />
+        </FieldLabel>
+      )}
       {publications.map((p) => (
         <button
           key={p.id}
@@ -72,8 +77,9 @@ export function PartnerDocuments({ companyId }: { companyId: string }) {
         />
       )}
       <p className="form-note">
-        Audience selection is an administrator preview, not a grant of portal
-        access.
+        {isPartner
+          ? "Access is checked against your assigned membership."
+          : "Audience selection is an administrator preview."}
       </p>
     </section>
   );

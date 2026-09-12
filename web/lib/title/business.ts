@@ -1,3 +1,4 @@
+import { traceMutation, commandUuid } from "./command-log";
 import type {
   Workspace,
   Order,
@@ -136,7 +137,8 @@ export type PolicyCorrection = {
   reason: string;
   requestedBy: string;
   requestReference: string;
-  correctionKind: "Endorsement" | "Reissued policy" | "Administrative correction";
+  correctionKind:
+    "Endorsement" | "Reissued policy" | "Administrative correction";
   fieldChanges: { label: string; before: string; after: string }[];
   status: "Requested" | "Reviewed" | "Recorded" | "Cancelled";
   reviewNote: string;
@@ -262,7 +264,7 @@ export function enrichBusiness(s: Workspace) {
   return s;
 }
 const ensure = (s: Workspace) => enrichBusiness(s).business!;
-const id = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
+const id = (prefix: string) => `${prefix}-${commandUuid()}`;
 const now = () => new Date().toISOString();
 export const today = () => new Date().toISOString().slice(0, 10);
 const moneyValid = (n: number, positive = false) =>
@@ -465,118 +467,127 @@ export function commitmentProblems(
   return errors;
 }
 export function saveCommitment(s: Workspace, value: CommitmentCase) {
-  const o = getOrder(s, value.orderId),
-    b = ensure(s),
-    existing = getCommitment(s, o);
-  if (["Issued", "Rejected"].includes(o.status))
-    throw new Error("This file is not open for commitment preparation.");
-  if (existing.version !== value.version)
-    throw new Error("The commitment changed. Reopen its current version.");
-  const next = {
-    ...structuredClone(value),
-    version: value.version + 1,
-    status: "Draft" as const,
-    snapshot: "",
-    returnedReference: "",
-    returnedDocumentId: "",
-  };
-  b.commitments = b.commitments.filter((x) => x.orderId !== o.id);
-  b.commitments.push(next);
+  return traceMutation(s, "saveCommitment", [value], () => {
+    const o = getOrder(s, value.orderId),
+      b = ensure(s),
+      existing = getCommitment(s, o);
+    if (["Issued", "Rejected"].includes(o.status))
+      throw new Error("This file is not open for commitment preparation.");
+    if (existing.version !== value.version)
+      throw new Error("The commitment changed. Reopen its current version.");
+    const next = {
+      ...structuredClone(value),
+      version: value.version + 1,
+      status: "Draft" as const,
+      snapshot: "",
+      returnedReference: "",
+      returnedDocumentId: "",
+    };
+    b.commitments = b.commitments.filter((x) => x.orderId !== o.id);
+    b.commitments.push(next);
+  });
 }
 export function prepareCommitment(s: Workspace, orderId: string) {
-  const o = getOrder(s, orderId),
-    c = getCommitment(s, o),
-    errors = commitmentProblems(s, o, c);
-  if (errors.length) throw new Error(`Complete: ${errors.join("; ")}.`);
-  const b = ensure(s);
-  if (!b.commitments.some((x) => x.orderId === orderId)) b.commitments.push(c);
-  c.status = "Prepared";
-  c.snapshot = commitmentFingerprint(s, o, c);
-  c.preparedAt = now();
-  c.preparedBy = s.user;
-  addHandoff(s, {
-    kind: "SoftPro commitment",
-    subject: `Prepare commitment · ${orderId}`,
-    companyId: o.companyId,
-    orderId,
-    sourceId: `commitment-${orderId}`,
-    fingerprint: c.snapshot,
+  return traceMutation(s, "prepareCommitment", [orderId], () => {
+    const o = getOrder(s, orderId),
+      c = getCommitment(s, o),
+      errors = commitmentProblems(s, o, c);
+    if (errors.length) throw new Error(`Complete: ${errors.join("; ")}.`);
+    const b = ensure(s);
+    if (!b.commitments.some((x) => x.orderId === orderId))
+      b.commitments.push(c);
+    c.status = "Prepared";
+    c.snapshot = commitmentFingerprint(s, o, c);
+    c.preparedAt = now();
+    c.preparedBy = s.user;
+    addHandoff(s, {
+      kind: "SoftPro commitment",
+      subject: `Prepare commitment · ${orderId}`,
+      companyId: o.companyId,
+      orderId,
+      sourceId: `commitment-${orderId}`,
+      fingerprint: c.snapshot,
+    });
+    return c;
   });
-  return c;
 }
 export function addPolicy(
   s: Workspace,
   orderId: string,
   kind: PolicyProduct["kind"],
 ) {
-  const o = getOrder(s, orderId);
-  if (
-    ["Issued", "Rejected"].includes(o.status) ||
-    products(s, o.id).some((p) => ["Issued", "Delivered"].includes(p.status))
-  )
-    throw new Error("Add products before the first issuance.");
-  if (kind === "Loan" && titleFile(o).financing !== "Financed")
-    throw new Error("A loan policy needs a financed file.");
-  const p: PolicyProduct = {
-    id: id("policy"),
-    orderId,
-    kind,
-    insured: "",
-    loanReference: "",
-    loanAmount: kind === "Loan" ? titleFile(o).loanAmount : 0,
-    securityDocumentId: "",
-    securityPage: "",
-    loanReviewNote: "",
-    amount:
-      kind === "Loan" ? titleFile(o).loanAmount : titleFile(o).purchasePrice,
-    premium: 0,
-    rate: o.rate,
-    form: "",
-    endorsements: "",
-    version: 1,
-    status: "Draft",
-    reviewNote: "",
-    exceptions: [],
-    preparedSnapshot: "",
-    policyNumber: "",
-    documentId: "",
-    issuedMonth: "",
-    issuedAt: "",
-    deliveryTo: "",
-    deliveryReference: "",
-    deliveredAt: "",
-    remittanceReference: "",
-  };
-  ensure(s).policies.push(p);
-  return p;
+  return traceMutation(s, "addPolicy", [orderId, kind], () => {
+    const o = getOrder(s, orderId);
+    if (
+      ["Issued", "Rejected"].includes(o.status) ||
+      products(s, o.id).some((p) => ["Issued", "Delivered"].includes(p.status))
+    )
+      throw new Error("Add products before the first issuance.");
+    if (kind === "Loan" && titleFile(o).financing !== "Financed")
+      throw new Error("A loan policy needs a financed file.");
+    const p: PolicyProduct = {
+      id: id("policy"),
+      orderId,
+      kind,
+      insured: "",
+      loanReference: "",
+      loanAmount: kind === "Loan" ? titleFile(o).loanAmount : 0,
+      securityDocumentId: "",
+      securityPage: "",
+      loanReviewNote: "",
+      amount:
+        kind === "Loan" ? titleFile(o).loanAmount : titleFile(o).purchasePrice,
+      premium: 0,
+      rate: o.rate,
+      form: "",
+      endorsements: "",
+      version: 1,
+      status: "Draft",
+      reviewNote: "",
+      exceptions: [],
+      preparedSnapshot: "",
+      policyNumber: "",
+      documentId: "",
+      issuedMonth: "",
+      issuedAt: "",
+      deliveryTo: "",
+      deliveryReference: "",
+      deliveredAt: "",
+      remittanceReference: "",
+    };
+    ensure(s).policies.push(p);
+    return p;
+  });
 }
 export function savePolicy(s: Workspace, value: PolicyProduct) {
-  const b = ensure(s),
-    p = b.policies.find((p) => p.id === value.id);
-  if (
-    !p ||
-    p.version !== value.version ||
-    ["Issued", "Delivered", "Void"].includes(p.status)
-  )
-    throw new Error("This policy cannot be edited in its current state.");
-  const o = getOrder(s, p.orderId);
-  if (value.orderId !== p.orderId || value.kind !== p.kind)
-    throw new Error("Policy identity cannot change.");
-  if (
-    !moneyValid(value.amount, true) ||
-    !moneyValid(value.premium) ||
-    !Number.isFinite(value.rate) ||
-    value.rate < 0 ||
-    value.rate > 1
-  )
-    throw new Error("Enter valid coverage, premium and underwriter share.");
-  Object.assign(p, {
-    ...value,
-    version: p.version + 1,
-    status: "Draft",
-    preparedSnapshot: "",
+  return traceMutation(s, "savePolicy", [value], () => {
+    const b = ensure(s),
+      p = b.policies.find((p) => p.id === value.id);
+    if (
+      !p ||
+      p.version !== value.version ||
+      ["Issued", "Delivered", "Void"].includes(p.status)
+    )
+      throw new Error("This policy cannot be edited in its current state.");
+    const o = getOrder(s, p.orderId);
+    if (value.orderId !== p.orderId || value.kind !== p.kind)
+      throw new Error("Policy identity cannot change.");
+    if (
+      !moneyValid(value.amount, true) ||
+      !moneyValid(value.premium) ||
+      !Number.isFinite(value.rate) ||
+      value.rate < 0 ||
+      value.rate > 1
+    )
+      throw new Error("Enter valid coverage, premium and underwriter share.");
+    Object.assign(p, {
+      ...value,
+      version: p.version + 1,
+      status: "Draft",
+      preparedSnapshot: "",
+    });
+    if (o.status === "Ready for jacket") o.status = "Needs review";
   });
-  if (o.status === "Ready for jacket") o.status = "Needs review";
 }
 export function finalProductFingerprint(
   s: Workspace,
@@ -611,59 +622,61 @@ export function finalProductFingerprint(
   });
 }
 export function preparePolicy(s: Workspace, policyId: string, note: string) {
-  const p = ensure(s).policies.find((p) => p.id === policyId);
-  if (!p || !["Draft", "Prepared"].includes(p.status))
-    throw new Error("Choose a draft policy.");
-  const o = getOrder(s, p.orderId);
-  if (["Rejected", "Issued"].includes(o.status))
-    throw new Error("This order is no longer open for preparation.");
-  if (
-    !note.trim() ||
-    policyProblems(s, o, p).length ||
-    !finalReadiness(s, o).ready
-  )
-    throw new Error(
-      "Complete the final source review, policy details and review note first.",
-    );
-  if (
-    p.kind === "Loan" &&
-    (!p.securityPage.trim() ||
-      !p.loanReviewNote.trim() ||
-      !orderSources(s, o.id).some(
-        (d) =>
-          d.id === p.securityDocumentId &&
-          ["Mortgage", "Deed of trust"].includes(d.sourceRole!),
-      ))
-  )
-    throw new Error(
-      "Review this loan principal against its current security instrument and source page.",
-    );
-  if (
-    titleFile(o)
-      .requirements.filter((r) => r.kind === "Exception")
-      .some(
-        (r) =>
-          !p.exceptions.some(
-            (e) =>
-              e.itemId === r.id &&
-              e.reason.trim() &&
-              (e.disposition === "Omit" || e.wording.trim()),
-          ),
-      )
-  )
-    throw new Error(
-      "Map each commitment exception into this policy with a reason and final wording.",
-    );
-  p.reviewNote = note.trim();
-  p.preparedSnapshot = finalProductFingerprint(s, o, p);
-  p.status = "Prepared";
-  addHandoff(s, {
-    kind: "SoftPro final policy",
-    subject: `${p.kind} policy · ${o.id}`,
-    companyId: o.companyId,
-    orderId: o.id,
-    sourceId: p.id,
-    fingerprint: p.preparedSnapshot,
+  return traceMutation(s, "preparePolicy", [policyId, note], () => {
+    const p = ensure(s).policies.find((p) => p.id === policyId);
+    if (!p || !["Draft", "Prepared"].includes(p.status))
+      throw new Error("Choose a draft policy.");
+    const o = getOrder(s, p.orderId);
+    if (["Rejected", "Issued"].includes(o.status))
+      throw new Error("This order is no longer open for preparation.");
+    if (
+      !note.trim() ||
+      policyProblems(s, o, p).length ||
+      !finalReadiness(s, o).ready
+    )
+      throw new Error(
+        "Complete the final source review, policy details and review note first.",
+      );
+    if (
+      p.kind === "Loan" &&
+      (!p.securityPage.trim() ||
+        !p.loanReviewNote.trim() ||
+        !orderSources(s, o.id).some(
+          (d) =>
+            d.id === p.securityDocumentId &&
+            ["Mortgage", "Deed of trust"].includes(d.sourceRole!),
+        ))
+    )
+      throw new Error(
+        "Review this loan principal against its current security instrument and source page.",
+      );
+    if (
+      titleFile(o)
+        .requirements.filter((r) => r.kind === "Exception")
+        .some(
+          (r) =>
+            !p.exceptions.some(
+              (e) =>
+                e.itemId === r.id &&
+                e.reason.trim() &&
+                (e.disposition === "Omit" || e.wording.trim()),
+            ),
+        )
+    )
+      throw new Error(
+        "Map each commitment exception into this policy with a reason and final wording.",
+      );
+    p.reviewNote = note.trim();
+    p.preparedSnapshot = finalProductFingerprint(s, o, p);
+    p.status = "Prepared";
+    addHandoff(s, {
+      kind: "SoftPro final policy",
+      subject: `${p.kind} policy · ${o.id}`,
+      companyId: o.companyId,
+      orderId: o.id,
+      sourceId: p.id,
+      fingerprint: p.preparedSnapshot,
+    });
   });
 }
 export function issuePolicy(
@@ -671,63 +684,65 @@ export function issuePolicy(
   policyId: string,
   input: { reference: string; documentId: string; month: string },
 ) {
-  const p = ensure(s).policies.find((p) => p.id === policyId);
-  if (!p || p.status !== "Prepared")
-    throw new Error("Prepare this policy before recording issuance.");
-  const o = getOrder(s, p.orderId),
-    d = orderSources(s, o.id).find((d) => d.id === input.documentId);
-  if (["Rejected", "Issued"].includes(o.status))
-    throw new Error("This order is no longer open for issuance.");
-  if (
-    products(s, o.id).some(
-      (sibling) =>
-        !["Prepared", "Issued", "Delivered"].includes(sibling.status) ||
-        sibling.preparedSnapshot !== finalProductFingerprint(s, o, sibling),
+  return traceMutation(s, "issuePolicy", [policyId, input], () => {
+    const p = ensure(s).policies.find((p) => p.id === policyId);
+    if (!p || p.status !== "Prepared")
+      throw new Error("Prepare this policy before recording issuance.");
+    const o = getOrder(s, p.orderId),
+      d = orderSources(s, o.id).find((d) => d.id === input.documentId);
+    if (["Rejected", "Issued"].includes(o.status))
+      throw new Error("This order is no longer open for issuance.");
+    if (
+      products(s, o.id).some(
+        (sibling) =>
+          !["Prepared", "Issued", "Delivered"].includes(sibling.status) ||
+          sibling.preparedSnapshot !== finalProductFingerprint(s, o, sibling),
+      )
     )
-  )
-    throw new Error(
-      "Prepare every policy product against current source evidence before issuance.",
-    );
-  if (
-    !finalReadiness(s, o).ready ||
-    p.preparedSnapshot !== finalProductFingerprint(s, o, p)
-  )
-    throw new Error(
-      "The final evidence or policy changed. Review and prepare again.",
-    );
-  if (!input.reference.trim() || !/^\d{4}-(0[1-9]|1[0-2])$/.test(input.month))
-    throw new Error("Record a policy reference and valid issuance month.");
-  if (
-    !d ||
-    d.sourceRole !== "Final policy" ||
-    d.policyId !== p.id ||
-    d.productionVersion !== titleFile(o).version ||
-    d.policyVersion !== p.version ||
-    d.preparationFingerprint !== p.preparedSnapshot
-  )
-    throw new Error(
-      "Attach the final policy document for this product and current version.",
-    );
-  if (
-    business(s).policies.some(
-      (x) =>
-        x.id !== p.id &&
-        x.policyNumber === input.reference.trim() &&
-        x.status !== "Void",
+      throw new Error(
+        "Prepare every policy product against current source evidence before issuance.",
+      );
+    if (
+      !finalReadiness(s, o).ready ||
+      p.preparedSnapshot !== finalProductFingerprint(s, o, p)
     )
-  )
-    throw new Error("That policy reference is already recorded.");
-  p.policyNumber = input.reference.trim();
-  p.documentId = d.id;
-  p.issuedMonth = input.month;
-  p.issuedAt = now();
-  p.status = "Issued";
-  const all = products(s, o.id);
-  o.premium = round(all.reduce((n, p) => n + p.premium, 0));
-  if (all.every((p) => ["Issued", "Delivered"].includes(p.status))) {
-    o.status = "Issued";
-    o.month = input.month;
-  }
+      throw new Error(
+        "The final evidence or policy changed. Review and prepare again.",
+      );
+    if (!input.reference.trim() || !/^\d{4}-(0[1-9]|1[0-2])$/.test(input.month))
+      throw new Error("Record a policy reference and valid issuance month.");
+    if (
+      !d ||
+      d.sourceRole !== "Final policy" ||
+      d.policyId !== p.id ||
+      d.productionVersion !== titleFile(o).version ||
+      d.policyVersion !== p.version ||
+      d.preparationFingerprint !== p.preparedSnapshot
+    )
+      throw new Error(
+        "Attach the final policy document for this product and current version.",
+      );
+    if (
+      business(s).policies.some(
+        (x) =>
+          x.id !== p.id &&
+          x.policyNumber === input.reference.trim() &&
+          x.status !== "Void",
+      )
+    )
+      throw new Error("That policy reference is already recorded.");
+    p.policyNumber = input.reference.trim();
+    p.documentId = d.id;
+    p.issuedMonth = input.month;
+    p.issuedAt = now();
+    p.status = "Issued";
+    const all = products(s, o.id);
+    o.premium = round(all.reduce((n, p) => n + p.premium, 0));
+    if (all.every((p) => ["Issued", "Delivered"].includes(p.status))) {
+      o.status = "Issued";
+      o.month = input.month;
+    }
+  });
 }
 export function deliverPolicy(
   s: Workspace,
@@ -735,24 +750,26 @@ export function deliverPolicy(
   to: string,
   reference: string,
 ) {
-  const p = ensure(s).policies.find((p) => p.id === policyId);
-  if (!p || p.status !== "Issued") throw new Error("Record issuance first.");
-  const o = getOrder(s, p.orderId);
-  if (!emailValid(to) || !reference.trim())
-    throw new Error("Record the delivery recipient and evidence reference.");
-  if (p.preparedSnapshot !== finalProductFingerprint(s, o, p))
-    throw new Error(
-      "The issued policy evidence changed. Review a correction before delivery.",
-    );
-  if (!orderSources(s, o.id).some((d) => d.id === p.documentId))
-    throw new Error(
-      "The issued document was replaced. Review the correction before delivery.",
-    );
-  p.deliveryTo = to;
-  p.deliveryReference = reference.trim();
-  p.deliveredAt = now();
-  p.status = "Delivered";
-  o.delivered = products(s, o.id).every((p) => p.status === "Delivered");
+  return traceMutation(s, "deliverPolicy", [policyId, to, reference], () => {
+    const p = ensure(s).policies.find((p) => p.id === policyId);
+    if (!p || p.status !== "Issued") throw new Error("Record issuance first.");
+    const o = getOrder(s, p.orderId);
+    if (!emailValid(to) || !reference.trim())
+      throw new Error("Record the delivery recipient and evidence reference.");
+    if (p.preparedSnapshot !== finalProductFingerprint(s, o, p))
+      throw new Error(
+        "The issued policy evidence changed. Review a correction before delivery.",
+      );
+    if (!orderSources(s, o.id).some((d) => d.id === p.documentId))
+      throw new Error(
+        "The issued document was replaced. Review the correction before delivery.",
+      );
+    p.deliveryTo = to;
+    p.deliveryReference = reference.trim();
+    p.deliveredAt = now();
+    p.status = "Delivered";
+    o.delivered = products(s, o.id).every((p) => p.status === "Delivered");
+  });
 }
 /**
  * Issued and delivered policy content is otherwise frozen by
@@ -779,7 +796,8 @@ export function correctionFingerprint(s: Workspace, c: PolicyCorrection) {
 }
 export function openCorrection(s: Workspace, policyId: string) {
   return business(s).corrections.find(
-    (c) => c.policyId === policyId && ["Requested", "Reviewed"].includes(c.status),
+    (c) =>
+      c.policyId === policyId && ["Requested", "Reviewed"].includes(c.status),
   );
 }
 export function requestCorrection(
@@ -793,77 +811,90 @@ export function requestCorrection(
     fieldChanges: { label: string; before: string; after: string }[];
   },
 ) {
-  const p = ensure(s).policies.find((p) => p.id === policyId);
-  if (!p || !["Issued", "Delivered"].includes(p.status))
-    throw new Error("Only an issued or delivered policy can have a correction request.");
-  const o = getOrder(s, p.orderId);
-  if (openCorrection(s, policyId))
-    throw new Error(
-      "This policy already has an open correction request. Resolve or cancel it first.",
-    );
-  const changes = input.fieldChanges
-    .map((f) => ({
-      label: f.label.trim(),
-      before: f.before.trim(),
-      after: f.after.trim(),
-    }))
-    .filter((f) => f.label || f.before || f.after);
-  if (
-    !input.reason.trim() ||
-    !input.requestedBy.trim() ||
-    !changes.length ||
-    changes.some((f) => !f.label || !f.before || !f.after)
-  )
-    throw new Error(
-      "Record the reason, who requested it, and every corrected field with its before and after value.",
-    );
-  const correction: PolicyCorrection = {
-    id: id("correction"),
-    policyId,
-    orderId: o.id,
-    policyVersionAtRequest: p.version,
-    issuedSnapshot: finalProductFingerprint(s, o, p),
-    reason: input.reason.trim(),
-    requestedBy: input.requestedBy.trim(),
-    requestReference: input.requestReference.trim(),
-    correctionKind: input.correctionKind,
-    fieldChanges: changes,
-    status: "Requested",
-    reviewNote: "",
-    reviewSnapshot: "",
-    correctionReference: "",
-    documentId: "",
-    cancelReason: "",
-    createdAt: now(),
-    reviewedAt: "",
-    recordedAt: "",
-  };
-  ensure(s).corrections.unshift(correction);
-  return correction;
+  return traceMutation(s, "requestCorrection", [policyId, input], () => {
+    const p = ensure(s).policies.find((p) => p.id === policyId);
+    if (!p || !["Issued", "Delivered"].includes(p.status))
+      throw new Error(
+        "Only an issued or delivered policy can have a correction request.",
+      );
+    const o = getOrder(s, p.orderId);
+    if (openCorrection(s, policyId))
+      throw new Error(
+        "This policy already has an open correction request. Resolve or cancel it first.",
+      );
+    const changes = input.fieldChanges
+      .map((f) => ({
+        label: f.label.trim(),
+        before: f.before.trim(),
+        after: f.after.trim(),
+      }))
+      .filter((f) => f.label || f.before || f.after);
+    if (
+      !input.reason.trim() ||
+      !input.requestedBy.trim() ||
+      !changes.length ||
+      changes.some((f) => !f.label || !f.before || !f.after)
+    )
+      throw new Error(
+        "Record the reason, who requested it, and every corrected field with its before and after value.",
+      );
+    const correction: PolicyCorrection = {
+      id: id("correction"),
+      policyId,
+      orderId: o.id,
+      policyVersionAtRequest: p.version,
+      issuedSnapshot: finalProductFingerprint(s, o, p),
+      reason: input.reason.trim(),
+      requestedBy: input.requestedBy.trim(),
+      requestReference: input.requestReference.trim(),
+      correctionKind: input.correctionKind,
+      fieldChanges: changes,
+      status: "Requested",
+      reviewNote: "",
+      reviewSnapshot: "",
+      correctionReference: "",
+      documentId: "",
+      cancelReason: "",
+      createdAt: now(),
+      reviewedAt: "",
+      recordedAt: "",
+    };
+    ensure(s).corrections.unshift(correction);
+    return correction;
+  });
 }
 export function reviewCorrectionRequest(
   s: Workspace,
   correctionId: string,
   reviewNote: string,
 ) {
-  const c = ensure(s).corrections.find((c) => c.id === correctionId);
-  if (!c || c.status !== "Requested")
-    throw new Error("Only a requested correction can be reviewed.");
-  if (!reviewNote.trim())
-    throw new Error("Record the review note confirming this correction is warranted.");
-  const o = getOrder(s, c.orderId);
-  c.reviewNote = reviewNote.trim();
-  c.reviewSnapshot = correctionFingerprint(s, c);
-  c.status = "Reviewed";
-  c.reviewedAt = now();
-  addHandoff(s, {
-    kind: "SoftPro correction",
-    subject: `${c.correctionKind} · ${o.id}`,
-    companyId: o.companyId,
-    orderId: o.id,
-    sourceId: c.id,
-    fingerprint: c.reviewSnapshot,
-  });
+  return traceMutation(
+    s,
+    "reviewCorrectionRequest",
+    [correctionId, reviewNote],
+    () => {
+      const c = ensure(s).corrections.find((c) => c.id === correctionId);
+      if (!c || c.status !== "Requested")
+        throw new Error("Only a requested correction can be reviewed.");
+      if (!reviewNote.trim())
+        throw new Error(
+          "Record the review note confirming this correction is warranted.",
+        );
+      const o = getOrder(s, c.orderId);
+      c.reviewNote = reviewNote.trim();
+      c.reviewSnapshot = correctionFingerprint(s, c);
+      c.status = "Reviewed";
+      c.reviewedAt = now();
+      addHandoff(s, {
+        kind: "SoftPro correction",
+        subject: `${c.correctionKind} · ${o.id}`,
+        companyId: o.companyId,
+        orderId: o.id,
+        sourceId: c.id,
+        fingerprint: c.reviewSnapshot,
+      });
+    },
+  );
 }
 export function recordCorrection(
   s: Workspace,
@@ -871,53 +902,67 @@ export function recordCorrection(
   correctionReference: string,
   documentId: string,
 ) {
-  const b = ensure(s),
-    c = b.corrections.find((c) => c.id === correctionId);
-  if (!c || c.status !== "Reviewed" || c.reviewSnapshot !== correctionFingerprint(s, c))
-    throw new Error("Review a current correction request first.");
-  const doc = orderSources(s, c.orderId).find((d) => d.id === documentId);
-  if (
-    !correctionReference.trim() ||
-    !doc ||
-    doc.sourceRole !== "Correction output" ||
-    doc.correctionId !== c.id ||
-    doc.preparationFingerprint !== c.reviewSnapshot
-  )
-    throw new Error(
-      "Record the correction reference and the current correction document for this request.",
-    );
-  c.correctionReference = correctionReference.trim();
-  c.documentId = documentId;
-  c.status = "Recorded";
-  c.recordedAt = now();
-  const job = b.handoffs.find(
-    (j) => j.kind === "SoftPro correction" && j.sourceId === c.id,
+  return traceMutation(
+    s,
+    "recordCorrection",
+    [correctionId, correctionReference, documentId],
+    () => {
+      const b = ensure(s),
+        c = b.corrections.find((c) => c.id === correctionId);
+      if (
+        !c ||
+        c.status !== "Reviewed" ||
+        c.reviewSnapshot !== correctionFingerprint(s, c)
+      )
+        throw new Error("Review a current correction request first.");
+      const doc = orderSources(s, c.orderId).find((d) => d.id === documentId);
+      if (
+        !correctionReference.trim() ||
+        !doc ||
+        doc.sourceRole !== "Correction output" ||
+        doc.correctionId !== c.id ||
+        doc.preparationFingerprint !== c.reviewSnapshot
+      )
+        throw new Error(
+          "Record the correction reference and the current correction document for this request.",
+        );
+      c.correctionReference = correctionReference.trim();
+      c.documentId = documentId;
+      c.status = "Recorded";
+      c.recordedAt = now();
+      const job = b.handoffs.find(
+        (j) => j.kind === "SoftPro correction" && j.sourceId === c.id,
+      );
+      if (job) {
+        job.status = "Recorded locally";
+        job.reference = c.correctionReference;
+        job.note = "Recorded through the policy correction workflow.";
+      }
+    },
   );
-  if (job) {
-    job.status = "Recorded locally";
-    job.reference = c.correctionReference;
-    job.note = "Recorded through the policy correction workflow.";
-  }
 }
 export function cancelCorrection(
   s: Workspace,
   correctionId: string,
   reason: string,
 ) {
-  const b = ensure(s),
-    c = b.corrections.find((c) => c.id === correctionId);
-  if (!c || !["Requested", "Reviewed"].includes(c.status))
-    throw new Error("Only an open correction request can be cancelled.");
-  if (!reason.trim()) throw new Error("Record why this correction is being cancelled.");
-  c.status = "Cancelled";
-  c.cancelReason = reason.trim();
-  const job = b.handoffs.find(
-    (j) => j.kind === "SoftPro correction" && j.sourceId === c.id,
-  );
-  if (job && job.status === "Awaiting connection") {
-    job.status = "Hold";
-    job.note = "Correction request cancelled.";
-  }
+  return traceMutation(s, "cancelCorrection", [correctionId, reason], () => {
+    const b = ensure(s),
+      c = b.corrections.find((c) => c.id === correctionId);
+    if (!c || !["Requested", "Reviewed"].includes(c.status))
+      throw new Error("Only an open correction request can be cancelled.");
+    if (!reason.trim())
+      throw new Error("Record why this correction is being cancelled.");
+    c.status = "Cancelled";
+    c.cancelReason = reason.trim();
+    const job = b.handoffs.find(
+      (j) => j.kind === "SoftPro correction" && j.sourceId === c.id,
+    );
+    if (job && job.status === "Awaiting connection") {
+      job.status = "Hold";
+      job.note = "Correction request cancelled.";
+    }
+  });
 }
 export function getOnboarding(s: Workspace, c: Company): OnboardingCase {
   return (
@@ -937,54 +982,56 @@ export function getOnboarding(s: Workspace, c: Company): OnboardingCase {
   );
 }
 export function saveApplication(s: Workspace, input: OnboardingCase) {
-  const c = s.companies.find((c) => c.id === input.companyId);
-  if (!c) throw new Error("Choose a company.");
-  if (!input.legalName.trim() || !emailValid(input.contactEmail))
-    throw new Error("Enter legal name and valid contact email.");
-  if (
-    ["Received", "Reviewed"].includes(input.applicationStatus) &&
-    !input.secureApplicationReference.trim()
-  )
-    throw new Error("Record the approved secure application reference.");
-  if (
-    input.applicationStatus === "Reviewed" &&
-    (!input.signatureReference.trim() ||
-      !input.applicationNote.trim() ||
-      !input.mailingAddress.trim())
-  )
-    throw new Error(
-      "Record mailing address, signature evidence and application review note.",
-    );
-  const b = ensure(s),
-    previous = getOnboarding(s, c);
-  const changed =
-    JSON.stringify({
-      ...input,
-      evidence: [],
-      launchedAt: "",
-      launchSnapshot: "",
-    }) !==
-    JSON.stringify({
-      ...previous,
-      evidence: [],
-      launchedAt: "",
-      launchSnapshot: "",
-    });
-  const next = {
-    ...structuredClone(input),
-    evidence: changed
-      ? previous.evidence.filter((e) => e.step !== 0 && e.step !== 6)
-      : previous.evidence,
-    launchedAt: changed ? "" : previous.launchedAt,
-    launchSnapshot: changed ? "" : previous.launchSnapshot,
-  };
-  if (changed) {
-    c.steps[0] = false;
-    c.steps[6] = false;
-    c.stage = "Onboarding";
-  }
-  b.onboarding = b.onboarding.filter((x) => x.companyId !== c.id);
-  b.onboarding.push(next);
+  return traceMutation(s, "saveApplication", [input], () => {
+    const c = s.companies.find((c) => c.id === input.companyId);
+    if (!c) throw new Error("Choose a company.");
+    if (!input.legalName.trim() || !emailValid(input.contactEmail))
+      throw new Error("Enter legal name and valid contact email.");
+    if (
+      ["Received", "Reviewed"].includes(input.applicationStatus) &&
+      !input.secureApplicationReference.trim()
+    )
+      throw new Error("Record the approved secure application reference.");
+    if (
+      input.applicationStatus === "Reviewed" &&
+      (!input.signatureReference.trim() ||
+        !input.applicationNote.trim() ||
+        !input.mailingAddress.trim())
+    )
+      throw new Error(
+        "Record mailing address, signature evidence and application review note.",
+      );
+    const b = ensure(s),
+      previous = getOnboarding(s, c);
+    const changed =
+      JSON.stringify({
+        ...input,
+        evidence: [],
+        launchedAt: "",
+        launchSnapshot: "",
+      }) !==
+      JSON.stringify({
+        ...previous,
+        evidence: [],
+        launchedAt: "",
+        launchSnapshot: "",
+      });
+    const next = {
+      ...structuredClone(input),
+      evidence: changed
+        ? previous.evidence.filter((e) => e.step !== 0 && e.step !== 6)
+        : previous.evidence,
+      launchedAt: changed ? "" : previous.launchedAt,
+      launchSnapshot: changed ? "" : previous.launchSnapshot,
+    };
+    if (changed) {
+      c.steps[0] = false;
+      c.steps[6] = false;
+      c.stage = "Onboarding";
+    }
+    b.onboarding = b.onboarding.filter((x) => x.companyId !== c.id);
+    b.onboarding.push(next);
+  });
 }
 export function credentialCurrent(r: CredentialRecord, date = today()) {
   return (
@@ -1012,14 +1059,42 @@ export type CompanyMatch = {
 // Words that appear in nearly every title-company name and so say nothing
 // about whether two names refer to the same business.
 const companyNoise = new Set([
-  "title", "titles", "llc", "inc", "co", "company", "corp", "corporation",
-  "agency", "services", "service", "group", "the", "and", "of", "a", "an",
-  "jv", "joint", "venture", "insurance", "ltd", "closing", "closings",
+  "title",
+  "titles",
+  "llc",
+  "inc",
+  "co",
+  "company",
+  "corp",
+  "corporation",
+  "agency",
+  "services",
+  "service",
+  "group",
+  "the",
+  "and",
+  "of",
+  "a",
+  "an",
+  "jv",
+  "joint",
+  "venture",
+  "insurance",
+  "ltd",
+  "closing",
+  "closings",
 ]);
 // Email domains shared by unrelated businesses; a match there means nothing.
 const sharedEmailDomains = new Set([
-  "gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com",
-  "aol.com", "example.com", "example.org", "test.com",
+  "gmail.com",
+  "yahoo.com",
+  "outlook.com",
+  "hotmail.com",
+  "icloud.com",
+  "aol.com",
+  "example.com",
+  "example.org",
+  "test.com",
 ]);
 const words = (text: string) =>
   text
@@ -1049,7 +1124,8 @@ export function similarCompanies(
     const theirs = theirAll.filter((w) => !companyNoise.has(w));
     let nameMatch: "exact" | "similar" | null = null;
     if (tokens.length && theirs.length) {
-      const a = new Set(tokens), b = new Set(theirs);
+      const a = new Set(tokens),
+        b = new Set(theirs);
       const shared = [...a].filter((w) => b.has(w)).length;
       const dice = (2 * shared) / (a.size + b.size);
       if (dice === 1) nameMatch = "exact";
@@ -1077,7 +1153,10 @@ export function similarCompanies(
     } else if (
       domain &&
       !sharedEmailDomains.has(domain) &&
-      c.email.trim().toLowerCase().endsWith("@" + domain)
+      c.email
+        .trim()
+        .toLowerCase()
+        .endsWith("@" + domain)
     )
       reasons.push(`Same email domain (@${domain})`);
     if (contact && words(c.contact).join(" ") === contact)
@@ -1176,83 +1255,96 @@ export function recordOnboardingEvidence(
   companyId: string,
   input: Omit<OnboardingEvidence, "reviewer" | "reviewedAt">,
 ) {
-  const c = s.companies.find((c) => c.id === companyId);
-  if (!c) throw new Error("Choose a company.");
-  const b = ensure(s);
-  let oc = b.onboarding.find((x) => x.companyId === companyId);
-  if (!oc) {
-    oc = getOnboarding(s, c);
-    b.onboarding.push(oc);
-  }
-  if (
-    input.step < 0 ||
-    input.step > 6 ||
-    !Number.isInteger(input.step) ||
-    !input.reference.trim() ||
-    !input.note.trim()
-  )
-    throw new Error("Record evidence and a review note.");
-  if (
-    input.documentId &&
-    !evidenceCurrent(s, c.id, { ...input, reviewer: s.user, reviewedAt: now() })
-  )
-    throw new Error("Choose a current document from this company.");
-  if (
-    input.step === 2 &&
-    !evidenceCurrent(
-      s,
-      c.id,
-      oc.evidence.find((e) => e.step === 1),
-    )
-  )
-    throw new Error(
-      "Record formation or existing-entity evidence before the EIN step.",
-    );
-  if (input.step === 0 && oc.applicationStatus !== "Reviewed")
-    throw new Error("Review the application before completing this step.");
-  if (input.step === 6 && companyProblems(s, c).length)
-    throw new Error(
-      `Complete launch checks: ${companyProblems(s, c).join("; ")}.`,
-    );
-  oc.evidence = oc.evidence.filter((e) => e.step !== input.step);
-  oc.evidence.push({ ...input, reviewer: s.user, reviewedAt: now() });
-  c.steps[input.step] = true;
-  if (input.step === 6) {
-    c.stage = "Active";
-    oc.launchedAt = now();
-    oc.launchSnapshot = launchFingerprint(s, c);
-  } else {
-    oc.evidence = oc.evidence.filter((e) => e.step !== 6);
-    c.steps[6] = false;
-    c.stage = "Onboarding";
-    oc.launchedAt = "";
-  }
+  return traceMutation(
+    s,
+    "recordOnboardingEvidence",
+    [companyId, input],
+    () => {
+      const c = s.companies.find((c) => c.id === companyId);
+      if (!c) throw new Error("Choose a company.");
+      const b = ensure(s);
+      let oc = b.onboarding.find((x) => x.companyId === companyId);
+      if (!oc) {
+        oc = getOnboarding(s, c);
+        b.onboarding.push(oc);
+      }
+      if (
+        input.step < 0 ||
+        input.step > 6 ||
+        !Number.isInteger(input.step) ||
+        !input.reference.trim() ||
+        !input.note.trim()
+      )
+        throw new Error("Record evidence and a review note.");
+      if (
+        input.documentId &&
+        !evidenceCurrent(s, c.id, {
+          ...input,
+          reviewer: s.user,
+          reviewedAt: now(),
+        })
+      )
+        throw new Error("Choose a current document from this company.");
+      if (
+        input.step === 2 &&
+        !evidenceCurrent(
+          s,
+          c.id,
+          oc.evidence.find((e) => e.step === 1),
+        )
+      )
+        throw new Error(
+          "Record formation or existing-entity evidence before the EIN step.",
+        );
+      if (input.step === 0 && oc.applicationStatus !== "Reviewed")
+        throw new Error("Review the application before completing this step.");
+      if (input.step === 6 && companyProblems(s, c).length)
+        throw new Error(
+          `Complete launch checks: ${companyProblems(s, c).join("; ")}.`,
+        );
+      oc.evidence = oc.evidence.filter((e) => e.step !== input.step);
+      oc.evidence.push({ ...input, reviewer: s.user, reviewedAt: now() });
+      c.steps[input.step] = true;
+      if (input.step === 6) {
+        c.stage = "Active";
+        oc.launchedAt = now();
+        oc.launchSnapshot = launchFingerprint(s, c);
+      } else {
+        oc.evidence = oc.evidence.filter((e) => e.step !== 6);
+        c.steps[6] = false;
+        c.stage = "Onboarding";
+        oc.launchedAt = "";
+      }
+    },
+  );
 }
 export function saveCredential(s: Workspace, r: CredentialRecord) {
-  const c = s.companies.find((c) => c.id === r.companyId);
-  if (!c || !(c.operatingStates || [c.jurisdiction]).includes(r.state))
-    throw new Error("Choose an operating state for this company.");
-  if (r.kind === "Underwriter authority" && !r.underwriter.trim())
-    throw new Error("Name the underwriter for this authority.");
-  for (const date of [r.expiresOn, r.reviewOn])
-    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date))
-      throw new Error("Enter a valid date.");
-  if (r.status === "Verified locally" && !credentialCurrent(r))
-    throw new Error(
-      "Verified records need holder, identifier, evidence, reviewer and current dates.",
-    );
-  const b = ensure(s);
-  if (b.credentials.some((x) => x.id === r.id && x.companyId !== r.companyId))
-    throw new Error("An authority record cannot move to another company.");
-  b.credentials = b.credentials.filter((x) => x.id !== r.id);
-  b.credentials.push({ ...r, id: r.id || id("credential") });
-  const oc = b.onboarding.find((x) => x.companyId === c.id);
-  if (oc) {
-    oc.launchedAt = "";
-    oc.evidence = oc.evidence.filter((e) => e.step !== 6);
-  }
-  c.steps[6] = false;
-  c.stage = "Onboarding";
+  return traceMutation(s, "saveCredential", [r], () => {
+    const c = s.companies.find((c) => c.id === r.companyId);
+    if (!c || !(c.operatingStates || [c.jurisdiction]).includes(r.state))
+      throw new Error("Choose an operating state for this company.");
+    if (r.kind === "Underwriter authority" && !r.underwriter.trim())
+      throw new Error("Name the underwriter for this authority.");
+    for (const date of [r.expiresOn, r.reviewOn])
+      if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date))
+        throw new Error("Enter a valid date.");
+    if (r.status === "Verified locally" && !credentialCurrent(r))
+      throw new Error(
+        "Verified records need holder, identifier, evidence, reviewer and current dates.",
+      );
+    const b = ensure(s);
+    if (b.credentials.some((x) => x.id === r.id && x.companyId !== r.companyId))
+      throw new Error("An authority record cannot move to another company.");
+    b.credentials = b.credentials.filter((x) => x.id !== r.id);
+    b.credentials.push({ ...r, id: r.id || id("credential") });
+    const oc = b.onboarding.find((x) => x.companyId === c.id);
+    if (oc) {
+      oc.launchedAt = "";
+      oc.evidence = oc.evidence.filter((e) => e.step !== 6);
+    }
+    c.steps[6] = false;
+    c.stage = "Onboarding";
+  });
 }
 export function ledgerLines(
   s: Workspace,
@@ -1295,58 +1387,62 @@ export function closeFingerprint(s: Workspace, c: Company, month: string) {
   });
 }
 export function newClose(s: Workspace, companyId: string, month: string) {
-  const c = s.companies.find((c) => c.id === companyId);
-  if (!c || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
-    throw new Error("Choose company and reporting month.");
-  const b = ensure(s);
-  if (
-    b.closes.some(
-      (x) =>
-        x.companyId === companyId && x.month === month && x.status === "Draft",
+  return traceMutation(s, "newClose", [companyId, month], () => {
+    const c = s.companies.find((c) => c.id === companyId);
+    if (!c || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
+      throw new Error("Choose company and reporting month.");
+    const b = ensure(s);
+    if (
+      b.closes.some(
+        (x) =>
+          x.companyId === companyId &&
+          x.month === month &&
+          x.status === "Draft",
+      )
     )
-  )
-    throw new Error("Finish or update the existing draft for this period.");
-  const rows = ledgerLines(s, c.id, month),
-    premium = round(rows.reduce((n, r) => n + r.premium, 0)),
-    remittance = round(rows.reduce((n, r) => n + r.remittance, 0));
-  const p: ClosePeriod = {
-    id: id("close"),
-    companyId,
-    companyName: c.name,
-    month,
-    revision:
-      Math.max(
-        0,
-        ...b.closes
-          .filter((x) => x.companyId === companyId && x.month === month)
-          .map((x) => x.revision),
-      ) + 1,
-    status: "Draft",
-    sourceHash: closeFingerprint(s, c, month),
-    rows: structuredClone(rows),
-    members: structuredClone(c.members),
-    expenses: s.expenses[`${month}:${companyId}`] || 0,
-    adjustment: 0,
-    reserve: 0,
-    externalPremium: premium,
-    externalRemittance: remittance,
-    booksReference: "",
-    agreementReference: "",
-    note: "",
-    totals: {
-      premium,
-      remittance,
-      retained: round(premium - remittance),
-      profit: 0,
-      available: 0,
-    },
-    allocations: [],
-    reviewedAt: "",
-    reviewedBy: "",
-    publishedAt: "",
-  };
-  b.closes.unshift(p);
-  return p;
+      throw new Error("Finish or update the existing draft for this period.");
+    const rows = ledgerLines(s, c.id, month),
+      premium = round(rows.reduce((n, r) => n + r.premium, 0)),
+      remittance = round(rows.reduce((n, r) => n + r.remittance, 0));
+    const p: ClosePeriod = {
+      id: id("close"),
+      companyId,
+      companyName: c.name,
+      month,
+      revision:
+        Math.max(
+          0,
+          ...b.closes
+            .filter((x) => x.companyId === companyId && x.month === month)
+            .map((x) => x.revision),
+        ) + 1,
+      status: "Draft",
+      sourceHash: closeFingerprint(s, c, month),
+      rows: structuredClone(rows),
+      members: structuredClone(c.members),
+      expenses: s.expenses[`${month}:${companyId}`] || 0,
+      adjustment: 0,
+      reserve: 0,
+      externalPremium: premium,
+      externalRemittance: remittance,
+      booksReference: "",
+      agreementReference: "",
+      note: "",
+      totals: {
+        premium,
+        remittance,
+        retained: round(premium - remittance),
+        profit: 0,
+        available: 0,
+      },
+      allocations: [],
+      reviewedAt: "",
+      reviewedBy: "",
+      publishedAt: "",
+    };
+    b.closes.unshift(p);
+    return p;
+  });
 }
 export function closeCalculations(p: ClosePeriod) {
   const premium = round(p.rows.reduce((n, r) => n + r.premium, 0)),
@@ -1357,106 +1453,112 @@ export function closeCalculations(p: ClosePeriod) {
   return { premium, remittance, retained, profit, available };
 }
 export function reviewClose(s: Workspace, input: ClosePeriod) {
-  const p = ensure(s).closes.find((p) => p.id === input.id),
-    c = s.companies.find((c) => c.id === p?.companyId);
-  if (!p || !c || p.status !== "Draft")
-    throw new Error("Only a draft close can be reviewed.");
-  if (
-    input.sourceHash !== p.sourceHash ||
-    input.revision !== p.revision ||
-    p.sourceHash !== closeFingerprint(s, c, p.month)
-  )
-    throw new Error(
-      "Source records changed. Refresh this draft before reviewing.",
-    );
-  for (const n of [
-    input.expenses,
-    input.reserve,
-    input.externalPremium,
-    input.externalRemittance,
-  ])
-    if (!moneyValid(n)) throw new Error("Enter valid nonnegative amounts.");
-  if (
-    !Number.isFinite(input.adjustment) ||
-    Math.abs(input.adjustment) > 100000000
-  )
-    throw new Error("Enter a valid adjustment.");
-  if (
-    !input.booksReference.trim() ||
-    !input.agreementReference.trim() ||
-    !input.note.trim()
-  )
-    throw new Error("Record books, allocation agreement and review note.");
-  const approved = {
-    ...p,
-    expenses: input.expenses,
-    reserve: input.reserve,
-    adjustment: round(input.adjustment),
-    externalPremium: input.externalPremium,
-    externalRemittance: input.externalRemittance,
-    booksReference: input.booksReference,
-    agreementReference: input.agreementReference,
-    note: input.note,
-  };
-  const totals = closeCalculations(approved);
-  if (
-    round(input.externalPremium) !== totals.premium ||
-    round(input.externalRemittance) !== totals.remittance
-  )
-    throw new Error(
-      "Reconcile premium and remittance differences before approval.",
-    );
-  const allocations = allocateOwnership(totals.available, p.members);
-  if (allocations.length !== p.members.length || !allocations.length)
-    throw new Error("Review ownership interests totaling 100%.");
-  Object.assign(p, approved, {
-    totals,
-    allocations,
-    status: "Reviewed",
-    reviewedAt: now(),
-    reviewedBy: s.user,
+  return traceMutation(s, "reviewClose", [input], () => {
+    const p = ensure(s).closes.find((p) => p.id === input.id),
+      c = s.companies.find((c) => c.id === p?.companyId);
+    if (!p || !c || p.status !== "Draft")
+      throw new Error("Only a draft close can be reviewed.");
+    if (
+      input.sourceHash !== p.sourceHash ||
+      input.revision !== p.revision ||
+      p.sourceHash !== closeFingerprint(s, c, p.month)
+    )
+      throw new Error(
+        "Source records changed. Refresh this draft before reviewing.",
+      );
+    for (const n of [
+      input.expenses,
+      input.reserve,
+      input.externalPremium,
+      input.externalRemittance,
+    ])
+      if (!moneyValid(n)) throw new Error("Enter valid nonnegative amounts.");
+    if (
+      !Number.isFinite(input.adjustment) ||
+      Math.abs(input.adjustment) > 100000000
+    )
+      throw new Error("Enter a valid adjustment.");
+    if (
+      !input.booksReference.trim() ||
+      !input.agreementReference.trim() ||
+      !input.note.trim()
+    )
+      throw new Error("Record books, allocation agreement and review note.");
+    const approved = {
+      ...p,
+      expenses: input.expenses,
+      reserve: input.reserve,
+      adjustment: round(input.adjustment),
+      externalPremium: input.externalPremium,
+      externalRemittance: input.externalRemittance,
+      booksReference: input.booksReference,
+      agreementReference: input.agreementReference,
+      note: input.note,
+    };
+    const totals = closeCalculations(approved);
+    if (
+      round(input.externalPremium) !== totals.premium ||
+      round(input.externalRemittance) !== totals.remittance
+    )
+      throw new Error(
+        "Reconcile premium and remittance differences before approval.",
+      );
+    const allocations = allocateOwnership(totals.available, p.members);
+    if (allocations.length !== p.members.length || !allocations.length)
+      throw new Error("Review ownership interests totaling 100%.");
+    Object.assign(p, approved, {
+      totals,
+      allocations,
+      status: "Reviewed",
+      reviewedAt: now(),
+      reviewedBy: s.user,
+    });
   });
 }
 export function refreshClose(s: Workspace, closeId: string) {
-  const p = ensure(s).closes.find((p) => p.id === closeId),
-    c = s.companies.find((c) => c.id === p?.companyId);
-  if (!p || !c || p.status !== "Draft")
-    throw new Error("Only draft source records can be refreshed.");
-  p.rows = structuredClone(ledgerLines(s, c.id, p.month));
-  p.members = structuredClone(c.members);
-  p.sourceHash = closeFingerprint(s, c, p.month);
-  p.expenses = s.expenses[`${p.month}:${c.id}`] || 0;
-  p.totals = closeCalculations(p);
+  return traceMutation(s, "refreshClose", [closeId], () => {
+    const p = ensure(s).closes.find((p) => p.id === closeId),
+      c = s.companies.find((c) => c.id === p?.companyId);
+    if (!p || !c || p.status !== "Draft")
+      throw new Error("Only draft source records can be refreshed.");
+    p.rows = structuredClone(ledgerLines(s, c.id, p.month));
+    p.members = structuredClone(c.members);
+    p.sourceHash = closeFingerprint(s, c, p.month);
+    p.expenses = s.expenses[`${p.month}:${c.id}`] || 0;
+    p.totals = closeCalculations(p);
+  });
 }
 export function publishClose(s: Workspace, closeId: string) {
-  const b = ensure(s),
-    p = b.closes.find((p) => p.id === closeId),
-    c = s.companies.find((c) => c.id === p?.companyId);
-  if (!p || !c || p.status !== "Reviewed")
-    throw new Error("Review this close before publishing.");
-  if (p.sourceHash !== closeFingerprint(s, c, p.month))
-    throw new Error(
-      "The source records changed. Create and review a revised close.",
-    );
-  if (
-    b.closes.some(
-      (x) =>
-        x.companyId === p.companyId &&
-        x.month === p.month &&
-        x.status === "Published" &&
-        x.revision > p.revision,
-    )
-  )
-    throw new Error("A newer close revision is already published.");
-  for (const prior of b.closes)
+  return traceMutation(s, "publishClose", [closeId], () => {
+    const b = ensure(s),
+      p = b.closes.find((p) => p.id === closeId),
+      c = s.companies.find((c) => c.id === p?.companyId);
+    if (!p || !c || p.status !== "Reviewed")
+      throw new Error("Review this close before publishing.");
+    if (p.sourceHash !== closeFingerprint(s, c, p.month))
+      throw new Error(
+        "The source records changed. Create and review a revised close.",
+      );
     if (
-      prior.companyId === p.companyId &&
-      prior.month === p.month &&
-      prior.status === "Published"
+      b.closes.some(
+        (x) =>
+          x.companyId === p.companyId &&
+          x.month === p.month &&
+          x.status === "Published" &&
+          x.revision > p.revision,
+      )
     )
-      prior.status = "Superseded";
-  p.status = "Published";
-  p.publishedAt = now();
+      throw new Error("A newer close revision is already published.");
+    for (const prior of b.closes)
+      if (
+        prior.companyId === p.companyId &&
+        prior.month === p.month &&
+        prior.status === "Published"
+      )
+        prior.status = "Superseded";
+    p.status = "Published";
+    p.publishedAt = now();
+  });
 }
 export function addHandoff(
   s: Workspace,
@@ -1465,60 +1567,64 @@ export function addHandoff(
     "kind" | "subject" | "companyId" | "orderId" | "sourceId" | "fingerprint"
   >,
 ) {
-  const b = ensure(s);
-  for (const prior of b.handoffs)
-    if (
-      prior.kind === input.kind &&
-      prior.sourceId === input.sourceId &&
-      prior.fingerprint !== input.fingerprint &&
-      prior.status === "Awaiting connection"
-    ) {
-      prior.status = "Hold";
-      prior.note = "Superseded by a later preparation.";
-    }
-  const old = b.handoffs.find(
-    (j) =>
-      j.kind === input.kind &&
-      j.sourceId === input.sourceId &&
-      j.fingerprint === input.fingerprint,
-  );
-  if (old) return old;
-  const next: Handoff = {
-    ...input,
-    id: id("handoff"),
-    status: "Awaiting connection",
-    reference: "",
-    note: "",
-    createdAt: now(),
-  };
-  b.handoffs.unshift(next);
-  return next;
+  return traceMutation(s, "addHandoff", [input], () => {
+    const b = ensure(s);
+    for (const prior of b.handoffs)
+      if (
+        prior.kind === input.kind &&
+        prior.sourceId === input.sourceId &&
+        prior.fingerprint !== input.fingerprint &&
+        prior.status === "Awaiting connection"
+      ) {
+        prior.status = "Hold";
+        prior.note = "Superseded by a later preparation.";
+      }
+    const old = b.handoffs.find(
+      (j) =>
+        j.kind === input.kind &&
+        j.sourceId === input.sourceId &&
+        j.fingerprint === input.fingerprint,
+    );
+    if (old) return old;
+    const next: Handoff = {
+      ...input,
+      id: id("handoff"),
+      status: "Awaiting connection",
+      reference: "",
+      note: "",
+      createdAt: now(),
+    };
+    b.handoffs.unshift(next);
+    return next;
+  });
 }
 export function saveCPL(s: Workspace, input: CPLRecord) {
-  const o = getOrder(s, input.orderId);
-  if (["Issued", "Rejected"].includes(o.status))
-    throw new Error("This file is no longer open for CPL planning.");
-  if (input.decision !== "Review required" && !input.reason.trim())
-    throw new Error("Record the reason for this CPL decision.");
-  const b = ensure(s);
-  const prior = b.cpls.find((x) => x.id === input.id);
-  if (
-    prior &&
-    (prior.orderId !== input.orderId ||
-      prior.version !== input.version ||
-      ["Returned", "Delivered"].includes(prior.status))
-  )
-    throw new Error("This CPL record cannot be edited.");
-  b.cpls = b.cpls.filter((x) => x.id !== input.id);
-  b.cpls.push({
-    ...input,
-    id: input.id || id("cpl"),
-    version: (prior?.version || 0) + 1,
-    status: "Draft",
-    snapshot: "",
-    reference: "",
-    documentId: "",
-    deliveryReference: "",
+  return traceMutation(s, "saveCPL", [input], () => {
+    const o = getOrder(s, input.orderId);
+    if (["Issued", "Rejected"].includes(o.status))
+      throw new Error("This file is no longer open for CPL planning.");
+    if (input.decision !== "Review required" && !input.reason.trim())
+      throw new Error("Record the reason for this CPL decision.");
+    const b = ensure(s);
+    const prior = b.cpls.find((x) => x.id === input.id);
+    if (
+      prior &&
+      (prior.orderId !== input.orderId ||
+        prior.version !== input.version ||
+        ["Returned", "Delivered"].includes(prior.status))
+    )
+      throw new Error("This CPL record cannot be edited.");
+    b.cpls = b.cpls.filter((x) => x.id !== input.id);
+    b.cpls.push({
+      ...input,
+      id: input.id || id("cpl"),
+      version: (prior?.version || 0) + 1,
+      status: "Draft",
+      snapshot: "",
+      reference: "",
+      documentId: "",
+      deliveryReference: "",
+    });
   });
 }
 export function recordCommitmentReturn(
@@ -1527,25 +1633,35 @@ export function recordCommitmentReturn(
   reference: string,
   documentId: string,
 ) {
-  const o = getOrder(s, orderId),
-    c = getCommitment(s, o),
-    doc = orderSources(s, orderId).find((d) => d.id === documentId);
-  if (c.status !== "Prepared" || c.snapshot !== commitmentFingerprint(s, o, c))
-    throw new Error("Review and prepare the current commitment first.");
-  if (
-    !reference.trim() ||
-    !doc ||
-    doc.sourceRole !== "Commitment output" ||
-    doc.productionVersion !== titleFile(o).version ||
-    doc.commitmentVersion !== c.version ||
-    doc.preparationFingerprint !== c.snapshot
-  )
-    throw new Error(
-      "Record the SoftPro reference and current commitment document.",
-    );
-  c.returnedReference = reference.trim();
-  c.returnedDocumentId = documentId;
-  c.status = "Returned";
+  return traceMutation(
+    s,
+    "recordCommitmentReturn",
+    [orderId, reference, documentId],
+    () => {
+      const o = getOrder(s, orderId),
+        c = getCommitment(s, o),
+        doc = orderSources(s, orderId).find((d) => d.id === documentId);
+      if (
+        c.status !== "Prepared" ||
+        c.snapshot !== commitmentFingerprint(s, o, c)
+      )
+        throw new Error("Review and prepare the current commitment first.");
+      if (
+        !reference.trim() ||
+        !doc ||
+        doc.sourceRole !== "Commitment output" ||
+        doc.productionVersion !== titleFile(o).version ||
+        doc.commitmentVersion !== c.version ||
+        doc.preparationFingerprint !== c.snapshot
+      )
+        throw new Error(
+          "Record the SoftPro reference and current commitment document.",
+        );
+      c.returnedReference = reference.trim();
+      c.returnedDocumentId = documentId;
+      c.status = "Returned";
+    },
+  );
 }
 export function handoffCurrent(s: Workspace, j: Handoff) {
   const o = s.orders.find((o) => o.id === j.orderId);
@@ -1790,14 +1906,18 @@ export function recordHandoff(
   reference: string,
   note: string,
 ) {
-  const j = ensure(s).handoffs.find((j) => j.id === handoffId);
-  if (!j || !handoffCurrent(s, j))
-    throw new Error("The handoff source changed. Prepare the current version.");
-  if (!reference.trim() || !note.trim())
-    throw new Error("Record the external outcome reference and review note.");
-  j.reference = reference.trim();
-  j.note = note.trim();
-  j.status = "Recorded locally";
+  return traceMutation(s, "recordHandoff", [handoffId, reference, note], () => {
+    const j = ensure(s).handoffs.find((j) => j.id === handoffId);
+    if (!j || !handoffCurrent(s, j))
+      throw new Error(
+        "The handoff source changed. Prepare the current version.",
+      );
+    if (!reference.trim() || !note.trim())
+      throw new Error("Record the external outcome reference and review note.");
+    j.reference = reference.trim();
+    j.note = note.trim();
+    j.status = "Recorded locally";
+  });
 }
 
 export function launchFingerprint(s: Workspace, c: Company) {
@@ -1823,19 +1943,21 @@ export function launchFingerprint(s: Workspace, c: Company) {
 }
 
 export function voidDraftPolicy(s: Workspace, policyId: string) {
-  const p = ensure(s).policies.find((p) => p.id === policyId);
-  if (!p || !["Draft", "Prepared"].includes(p.status))
-    throw new Error("Only unissued draft products can be removed.");
-  p.status = "Void";
-  const o = getOrder(s, p.orderId),
-    remaining = products(s, o.id);
-  if (
-    remaining.length &&
-    remaining.every((p) => ["Issued", "Delivered"].includes(p.status))
-  ) {
-    o.status = "Issued";
-    o.premium = round(remaining.reduce((n, p) => n + p.premium, 0));
-  }
+  return traceMutation(s, "voidDraftPolicy", [policyId], () => {
+    const p = ensure(s).policies.find((p) => p.id === policyId);
+    if (!p || !["Draft", "Prepared"].includes(p.status))
+      throw new Error("Only unissued draft products can be removed.");
+    p.status = "Void";
+    const o = getOrder(s, p.orderId),
+      remaining = products(s, o.id);
+    if (
+      remaining.length &&
+      remaining.every((p) => ["Issued", "Delivered"].includes(p.status))
+    ) {
+      o.status = "Issued";
+      o.premium = round(remaining.reduce((n, p) => n + p.premium, 0));
+    }
+  });
 }
 
 export function cplFingerprint(s: Workspace, c: CPLRecord) {
@@ -1863,31 +1985,33 @@ export function cplFingerprint(s: Workspace, c: CPLRecord) {
   ]);
 }
 export function prepareCPL(s: Workspace, cplId: string) {
-  const c = ensure(s).cpls.find((c) => c.id === cplId);
-  if (
-    !c ||
-    !["Draft", "Prepared"].includes(c.status) ||
-    c.decision !== "Requested" ||
-    !c.party.trim() ||
-    !emailValid(c.recipient) ||
-    !c.form.trim() ||
-    !c.reason.trim()
-  )
-    throw new Error(
-      "Save the requested party, recipient, form and decision reason first.",
-    );
-  const o = getOrder(s, c.orderId);
-  if (["Issued", "Rejected"].includes(o.status))
-    throw new Error("This file is no longer open for CPL preparation.");
-  c.snapshot = cplFingerprint(s, c);
-  c.status = "Prepared";
-  addHandoff(s, {
-    kind: "SoftPro CPL",
-    subject: `CPL · ${c.party}`,
-    companyId: o.companyId,
-    orderId: o.id,
-    sourceId: c.id,
-    fingerprint: c.snapshot,
+  return traceMutation(s, "prepareCPL", [cplId], () => {
+    const c = ensure(s).cpls.find((c) => c.id === cplId);
+    if (
+      !c ||
+      !["Draft", "Prepared"].includes(c.status) ||
+      c.decision !== "Requested" ||
+      !c.party.trim() ||
+      !emailValid(c.recipient) ||
+      !c.form.trim() ||
+      !c.reason.trim()
+    )
+      throw new Error(
+        "Save the requested party, recipient, form and decision reason first.",
+      );
+    const o = getOrder(s, c.orderId);
+    if (["Issued", "Rejected"].includes(o.status))
+      throw new Error("This file is no longer open for CPL preparation.");
+    c.snapshot = cplFingerprint(s, c);
+    c.status = "Prepared";
+    addHandoff(s, {
+      kind: "SoftPro CPL",
+      subject: `CPL · ${c.party}`,
+      companyId: o.companyId,
+      orderId: o.id,
+      sourceId: c.id,
+      fingerprint: c.snapshot,
+    });
   });
 }
 export function returnCPL(
@@ -1896,273 +2020,281 @@ export function returnCPL(
   reference: string,
   documentId: string,
 ) {
-  const c = ensure(s).cpls.find((c) => c.id === cplId);
-  if (!c || c.status !== "Prepared" || c.snapshot !== cplFingerprint(s, c))
-    throw new Error("Prepare a current CPL request first.");
-  const o = getOrder(s, c.orderId),
-    doc = orderSources(s, o.id).find((d) => d.id === documentId);
-  if (
-    !reference.trim() ||
-    !doc ||
-    doc.sourceRole !== "CPL" ||
-    doc.cplId !== c.id ||
-    doc.cplVersion !== c.version ||
-    doc.preparationFingerprint !== c.snapshot
-  )
-    throw new Error(
-      "Record the returned CPL reference and current recipient document.",
-    );
-  c.reference = reference.trim();
-  c.documentId = documentId;
-  c.status = "Returned";
+  return traceMutation(s, "returnCPL", [cplId, reference, documentId], () => {
+    const c = ensure(s).cpls.find((c) => c.id === cplId);
+    if (!c || c.status !== "Prepared" || c.snapshot !== cplFingerprint(s, c))
+      throw new Error("Prepare a current CPL request first.");
+    const o = getOrder(s, c.orderId),
+      doc = orderSources(s, o.id).find((d) => d.id === documentId);
+    if (
+      !reference.trim() ||
+      !doc ||
+      doc.sourceRole !== "CPL" ||
+      doc.cplId !== c.id ||
+      doc.cplVersion !== c.version ||
+      doc.preparationFingerprint !== c.snapshot
+    )
+      throw new Error(
+        "Record the returned CPL reference and current recipient document.",
+      );
+    c.reference = reference.trim();
+    c.documentId = documentId;
+    c.status = "Returned";
+  });
 }
 export function deliverCPL(s: Workspace, cplId: string, reference: string) {
-  const c = ensure(s).cpls.find((c) => c.id === cplId);
-  if (
-    !c ||
-    c.status !== "Returned" ||
-    !reference.trim() ||
-    c.snapshot !== cplFingerprint(s, c) ||
-    !orderSources(s, c.orderId).some((d) => d.id === c.documentId)
-  )
-    throw new Error("Review the current returned CPL and delivery evidence.");
-  c.deliveryReference = reference.trim();
-  c.status = "Delivered";
+  return traceMutation(s, "deliverCPL", [cplId, reference], () => {
+    const c = ensure(s).cpls.find((c) => c.id === cplId);
+    if (
+      !c ||
+      c.status !== "Returned" ||
+      !reference.trim() ||
+      c.snapshot !== cplFingerprint(s, c) ||
+      !orderSources(s, c.orderId).some((d) => d.id === c.documentId)
+    )
+      throw new Error("Review the current returned CPL and delivery evidence.");
+    c.deliveryReference = reference.trim();
+    c.status = "Delivered";
+  });
 }
 export function saveCloseDraft(s: Workspace, input: ClosePeriod) {
-  const p = ensure(s).closes.find((p) => p.id === input.id);
-  if (!p || p.status !== "Draft" || p.sourceHash !== input.sourceHash)
-    throw new Error("Reload the current draft before saving.");
-  for (const n of [
-    input.expenses,
-    input.reserve,
-    input.externalPremium,
-    input.externalRemittance,
-  ])
-    if (!moneyValid(n)) throw new Error("Enter valid nonnegative amounts.");
-  if (
-    !Number.isFinite(input.adjustment) ||
-    Math.abs(input.adjustment) > 100000000
-  )
-    throw new Error("Enter a valid adjustment.");
-  Object.assign(p, {
-    expenses: input.expenses,
-    reserve: input.reserve,
-    externalPremium: input.externalPremium,
-    externalRemittance: input.externalRemittance,
-    adjustment: round(input.adjustment),
-    booksReference: input.booksReference,
-    agreementReference: input.agreementReference,
-    note: input.note,
+  return traceMutation(s, "saveCloseDraft", [input], () => {
+    const p = ensure(s).closes.find((p) => p.id === input.id);
+    if (!p || p.status !== "Draft" || p.sourceHash !== input.sourceHash)
+      throw new Error("Reload the current draft before saving.");
+    for (const n of [
+      input.expenses,
+      input.reserve,
+      input.externalPremium,
+      input.externalRemittance,
+    ])
+      if (!moneyValid(n)) throw new Error("Enter valid nonnegative amounts.");
+    if (
+      !Number.isFinite(input.adjustment) ||
+      Math.abs(input.adjustment) > 100000000
+    )
+      throw new Error("Enter a valid adjustment.");
+    Object.assign(p, {
+      expenses: input.expenses,
+      reserve: input.reserve,
+      externalPremium: input.externalPremium,
+      externalRemittance: input.externalRemittance,
+      adjustment: round(input.adjustment),
+      booksReference: input.booksReference,
+      agreementReference: input.agreementReference,
+      note: input.note,
+    });
+    p.totals = closeCalculations(p);
   });
-  p.totals = closeCalculations(p);
 }
 export function loadDemoScenario(s: Workspace) {
-  const orderId = "DEMO-COMPLETE-001";
-  if (s.orders.some((o) => o.id === orderId)) return orderId;
-  const companyId = "demo-training-company";
-  if (!s.companies.some((c) => c.id === companyId))
-    s.companies.push({
-      id: companyId,
-      name: "Training Title",
-      initials: "TT",
-      color: "blue",
-      contact: "Avery Example",
-      email: "avery@example.com",
-      location: "Charlotte, NC",
+  return traceMutation(s, "loadDemoScenario", [], () => {
+    const orderId = "DEMO-COMPLETE-001";
+    if (s.orders.some((o) => o.id === orderId)) return orderId;
+    const companyId = "demo-training-company";
+    if (!s.companies.some((c) => c.id === companyId))
+      s.companies.push({
+        id: companyId,
+        name: "Training Title",
+        initials: "TT",
+        color: "blue",
+        contact: "Avery Example",
+        email: "avery@example.com",
+        location: "Charlotte, NC",
+        jurisdiction: "NC",
+        formationState: "NC",
+        operatingStates: ["NC"],
+        stage: "Onboarding",
+        steps: Array(7).fill(false),
+        members: [
+          { name: "Avery Example", share: 60 },
+          { name: "Title Group — sample", share: 40 },
+        ],
+      });
+    const values: Record<string, string> = {
+      name: "Jordan Demo, a single person",
+      deedDated: "September 8, 2026",
+      date: "September 9, 2026",
+      time: "2:43 PM",
+      reference: "Book DEMO-100 · Page 10",
+      loanAmount: "$320,000.00",
+      dotDated: "September 8, 2026",
+      dotDate: "September 9, 2026",
+      dotTime: "2:45 PM",
+      dotReference: "Book DEMO-100 · Page 20",
+      trustee: "Example Trustee",
+    };
+    const o: Order = {
+      receivedAt: today(),
+      id: orderId,
+      companyId,
+      address: "100 Demonstration Avenue",
+      client: "Jordan Demo",
+      type: "Purchase",
+      underwriter: "WFG",
+      owner: "Tyler",
       jurisdiction: "NC",
-      formationState: "NC",
-      operatingStates: ["NC"],
-      stage: "Onboarding",
-      steps: Array(7).fill(false),
-      members: [
-        { name: "Avery Example", share: 60 },
-        { name: "Title Group — sample", share: 40 },
-      ],
-    });
-  const values: Record<string, string> = {
-    name: "Jordan Demo, a single person",
-    deedDated: "September 8, 2026",
-    date: "September 9, 2026",
-    time: "2:43 PM",
-    reference: "Book DEMO-100 · Page 10",
-    loanAmount: "$320,000.00",
-    dotDated: "September 8, 2026",
-    dotDate: "September 9, 2026",
-    dotTime: "2:45 PM",
-    dotReference: "Book DEMO-100 · Page 20",
-    trustee: "Example Trustee",
-  };
-  const o: Order = {
-    receivedAt: today(),
-    id: orderId,
-    companyId,
-    address: "100 Demonstration Avenue",
-    client: "Jordan Demo",
-    type: "Purchase",
-    underwriter: "WFG",
-    owner: "Tyler",
-    jurisdiction: "NC",
-    status: "New",
-    due: today(),
-    month: today().slice(0, 7),
-    rate: 0.4,
-    delivered: false,
-    remitted: false,
-    premium: 0,
-    notes:
-      "Fictional end-to-end training case. Review each step; no external system is connected.",
-    exception: "",
-    fields: fieldDefinitions.map((f) => ({
-      id: f.id,
-      label: f.label,
-      current: "Not captured",
-      proposed: values[f.id],
-      sourceValue: values[f.id],
-      source: "Demo source",
-      reviewed: false,
-      confidence: "Sample",
-    })),
-  };
-  o.production = {
-    ...titleFile(o),
-    version: 1,
-    securityInstrument: "Deed of trust",
-    financing: "Financed",
-    loanAmount: 320000,
-    purchasePrice: 400000,
-    county: "Mecklenburg",
-    commitmentReview: undefined,
-    attorney: "Example Closing Counsel",
-    attorneyEmail: "closings@example.com",
-    seller: "Example Seller",
-    lender: "Example Lender",
-    legalDescription:
-      "FICTIONAL: Lot 1 of Demonstration Subdivision. This is not a legal property description.",
-    commitmentReference: "DEMO-COMMITMENT-001",
-    requirements: [
-      {
-        id: "demo-requirement",
-        kind: "Requirement",
-        text: "Review the documented satisfaction of the prior lien.",
-        status: "Open",
-        evidence: "",
-        note: "",
-      },
-      {
-        id: "demo-exception",
-        kind: "Exception",
-        text: "Illustrative utility easement referenced by the opinion.",
-        status: "Open",
-        evidence: "",
-        note: "",
-      },
-    ],
-  };
-  o.production.requirements = o.production.requirements.map((r) => ({
-    ...r,
-    id: id("requirement"),
-    status: "Open",
-    evidence: "",
-    note: "",
-  }));
-  s.orders.unshift(o);
-  for (const role of [
-    "Preliminary opinion",
-    "Final opinion",
-    "Deed",
-    "Deed of trust",
-  ] as const) {
-    const docId = id("sample-doc");
-    const defs = o.fields.filter((f) =>
-      role === "Deed"
-        ? ["name", "deedDated", "date", "time", "reference"].includes(f.id)
-        : role === "Deed of trust"
-          ? !["name", "deedDated", "date", "time", "reference"].includes(f.id)
-          : false,
-    );
-    for (const f of defs) {
-      f.documentId = docId;
-      f.sourcePage = "1";
-      f.reviewed = false;
-      if (f.id === "name") {
-        f.current = "Jordan Demo";
-        f.proposed = "Jordan Demo, a single person";
-        f.sourceValue = f.proposed;
-      }
-      f.source = `${role} — fictional sample · page 1`;
-    }
-    s.documents.push({
-      id: docId,
-      companyId: o.companyId,
-      orderId,
-      sourceRole: role,
-      name: `DEMO ${role}.txt`,
-      category: "Policy documents",
-      visibility: "Internal",
-      date: today(),
-      size: "2 KB",
+      status: "New",
+      due: today(),
+      month: today().slice(0, 7),
+      rate: 0.4,
+      delivered: false,
+      remitted: false,
+      premium: 0,
+      notes:
+        "Fictional end-to-end training case. Review each step; no external system is connected.",
+      exception: "",
+      fields: fieldDefinitions.map((f) => ({
+        id: f.id,
+        label: f.label,
+        current: "Not captured",
+        proposed: values[f.id],
+        sourceValue: values[f.id],
+        source: "Demo source",
+        reviewed: false,
+        confidence: "Sample",
+      })),
+    };
+    o.production = {
+      ...titleFile(o),
       version: 1,
-      text: `FICTIONAL ${role.toUpperCase()} — NOT A LEGAL DOCUMENT\n\nFile: ${orderId}\nProperty: ${o.address}\n${defs.map((f) => `${f.label}: ${f.sourceValue}`).join("\n")}\n\nSource and legal sufficiency need human review. The requirements in this example start unresolved. No attorney signature, public recording or insurer approval is represented.`,
+      securityInstrument: "Deed of trust",
+      financing: "Financed",
+      loanAmount: 320000,
+      purchasePrice: 400000,
+      county: "Mecklenburg",
+      commitmentReview: undefined,
+      attorney: "Example Closing Counsel",
+      attorneyEmail: "closings@example.com",
+      seller: "Example Seller",
+      lender: "Example Lender",
+      legalDescription:
+        "FICTIONAL: Lot 1 of Demonstration Subdivision. This is not a legal property description.",
+      commitmentReference: "DEMO-COMMITMENT-001",
+      requirements: [
+        {
+          id: "demo-requirement",
+          kind: "Requirement",
+          text: "Review the documented satisfaction of the prior lien.",
+          status: "Open",
+          evidence: "",
+          note: "",
+        },
+        {
+          id: "demo-exception",
+          kind: "Exception",
+          text: "Illustrative utility easement referenced by the opinion.",
+          status: "Open",
+          evidence: "",
+          note: "",
+        },
+      ],
+    };
+    o.production.requirements = o.production.requirements.map((r) => ({
+      ...r,
+      id: id("requirement"),
+      status: "Open",
+      evidence: "",
+      note: "",
+    }));
+    s.orders.unshift(o);
+    for (const role of [
+      "Preliminary opinion",
+      "Final opinion",
+      "Deed",
+      "Deed of trust",
+    ] as const) {
+      const docId = id("sample-doc");
+      const defs = o.fields.filter((f) =>
+        role === "Deed"
+          ? ["name", "deedDated", "date", "time", "reference"].includes(f.id)
+          : role === "Deed of trust"
+            ? !["name", "deedDated", "date", "time", "reference"].includes(f.id)
+            : false,
+      );
+      for (const f of defs) {
+        f.documentId = docId;
+        f.sourcePage = "1";
+        f.reviewed = false;
+        if (f.id === "name") {
+          f.current = "Jordan Demo";
+          f.proposed = "Jordan Demo, a single person";
+          f.sourceValue = f.proposed;
+        }
+        f.source = `${role} — fictional sample · page 1`;
+      }
+      s.documents.push({
+        id: docId,
+        companyId: o.companyId,
+        orderId,
+        sourceRole: role,
+        name: `DEMO ${role}.txt`,
+        category: "Policy documents",
+        visibility: "Internal",
+        date: today(),
+        size: "2 KB",
+        version: 1,
+        text: `FICTIONAL ${role.toUpperCase()} — NOT A LEGAL DOCUMENT\n\nFile: ${orderId}\nProperty: ${o.address}\n${defs.map((f) => `${f.label}: ${f.sourceValue}`).join("\n")}\n\nSource and legal sufficiency need human review. The requirements in this example start unresolved. No attorney signature, public recording or insurer approval is represented.`,
+      });
+    }
+    const owner = addPolicy(s, orderId, "Owner");
+    savePolicy(s, {
+      ...owner,
+      insured: "Jordan Demo, a single person",
+      amount: 400000,
+      premium: 1000,
+      form: "DEMO owner form — verify actual selection",
+      endorsements: "None selected in this example",
     });
-  }
-  const owner = addPolicy(s, orderId, "Owner");
-  savePolicy(s, {
-    ...owner,
-    insured: "Jordan Demo, a single person",
-    amount: 400000,
-    premium: 1000,
-    form: "DEMO owner form — verify actual selection",
-    endorsements: "None selected in this example",
+    const loan = addPolicy(s, orderId, "Loan");
+    savePolicy(s, {
+      ...loan,
+      insured: "Example Lender",
+      loanReference: "DEMO primary loan",
+      loanAmount: 320000,
+      amount: 320000,
+      premium: 250,
+      form: "DEMO loan form — verify actual selection",
+    });
+    const c = getCommitment(s, o);
+    saveCommitment(s, {
+      ...c,
+      ptoDocumentId: orderSources(s, orderId).find(
+        (d) => d.sourceRole === "Preliminary opinion",
+      )!.id,
+    });
+    saveCPL(s, {
+      id: id("cpl"),
+      orderId,
+      party: "Example Lender",
+      recipient: "closings@example.com",
+      form: "",
+      reason: "",
+      decision: "Review required",
+      reference: "",
+      documentId: "",
+      version: 1,
+      loanReference: "DEMO primary loan",
+      status: "Draft",
+      snapshot: "",
+      deliveryReference: "",
+    });
+    s.inbox.unshift({
+      id: id("mail"),
+      companyId: o.companyId,
+      kind: "Commitment",
+      from: "Example Closing Counsel",
+      email: "closings@example.com",
+      subject: `Preliminary opinion · ${orderId}`,
+      body: "Fictional training request: please review the preliminary opinion and prepare a commitment for the owner and lender products. All documents in this case are demonstration fixtures.",
+      orderId,
+      time: "Sample",
+      status: "New",
+      attachments: ["DEMO Preliminary opinion.txt"],
+      documentIds: [getCommitment(s, o).ptoDocumentId],
+    });
+    return orderId;
   });
-  const loan = addPolicy(s, orderId, "Loan");
-  savePolicy(s, {
-    ...loan,
-    insured: "Example Lender",
-    loanReference: "DEMO primary loan",
-    loanAmount: 320000,
-    amount: 320000,
-    premium: 250,
-    form: "DEMO loan form — verify actual selection",
-  });
-  const c = getCommitment(s, o);
-  saveCommitment(s, {
-    ...c,
-    ptoDocumentId: orderSources(s, orderId).find(
-      (d) => d.sourceRole === "Preliminary opinion",
-    )!.id,
-  });
-  saveCPL(s, {
-    id: id("cpl"),
-    orderId,
-    party: "Example Lender",
-    recipient: "closings@example.com",
-    form: "",
-    reason: "",
-    decision: "Review required",
-    reference: "",
-    documentId: "",
-    version: 1,
-    loanReference: "DEMO primary loan",
-    status: "Draft",
-    snapshot: "",
-    deliveryReference: "",
-  });
-  s.inbox.unshift({
-    id: id("mail"),
-    companyId: o.companyId,
-    kind: "Commitment",
-    from: "Example Closing Counsel",
-    email: "closings@example.com",
-    subject: `Preliminary opinion · ${orderId}`,
-    body: "Fictional training request: please review the preliminary opinion and prepare a commitment for the owner and lender products. All documents in this case are demonstration fixtures.",
-    orderId,
-    time: "Sample",
-    status: "New",
-    attachments: ["DEMO Preliminary opinion.txt"],
-    documentIds: [getCommitment(s, o).ptoDocumentId],
-  });
-  return orderId;
 }
 export function recordOrderOutcome(
   s: Workspace,
@@ -2171,36 +2303,47 @@ export function recordOrderOutcome(
   date: string,
   note: string,
 ) {
-  const o = getOrder(s, orderId);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !note.trim())
-    throw new Error("Record an event date and supporting reason.");
-  if (kind === "Rejected") {
-    if (
-      o.status === "Issued" ||
-      products(s, o.id).some((p) => ["Issued", "Delivered"].includes(p.status))
-    )
-      throw new Error("Issued files need a separate correction workflow.");
-    o.status = "Rejected";
-    o.exception = note.trim();
-  }
-  if (kind === "Recovered") {
-    if (o.status !== "Rejected")
-      throw new Error("Only a rejected order can be recovered.");
-    o.status = o.fields.length ? "Needs review" : "New";
-    o.exception = "";
-  }
-  // Contacted/Recovery lost are recovery-pipeline checkpoints, not status
-  // changes — the order stays Rejected either way. A later "Contacted" is
-  // still allowed after a "Recovery lost" (recoveryStage below reads
-  // whichever of the two happened most recently), since a contact that
-  // seemed lost can genuinely resume later.
-  if (
-    (kind === "Contacted" || kind === "Recovery lost") &&
-    o.status !== "Rejected"
-  )
-    throw new Error("Only a rejected file has an active recovery to track.");
-  o.outcomes ??= [];
-  o.outcomes.push({ kind, date, note: note.trim(), actor: s.user });
+  return traceMutation(
+    s,
+    "recordOrderOutcome",
+    [orderId, kind, date, note],
+    () => {
+      const o = getOrder(s, orderId);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !note.trim())
+        throw new Error("Record an event date and supporting reason.");
+      if (kind === "Rejected") {
+        if (
+          o.status === "Issued" ||
+          products(s, o.id).some((p) =>
+            ["Issued", "Delivered"].includes(p.status),
+          )
+        )
+          throw new Error("Issued files need a separate correction workflow.");
+        o.status = "Rejected";
+        o.exception = note.trim();
+      }
+      if (kind === "Recovered") {
+        if (o.status !== "Rejected")
+          throw new Error("Only a rejected order can be recovered.");
+        o.status = o.fields.length ? "Needs review" : "New";
+        o.exception = "";
+      }
+      // Contacted/Recovery lost are recovery-pipeline checkpoints, not status
+      // changes — the order stays Rejected either way. A later "Contacted" is
+      // still allowed after a "Recovery lost" (recoveryStage below reads
+      // whichever of the two happened most recently), since a contact that
+      // seemed lost can genuinely resume later.
+      if (
+        (kind === "Contacted" || kind === "Recovery lost") &&
+        o.status !== "Rejected"
+      )
+        throw new Error(
+          "Only a rejected file has an active recovery to track.",
+        );
+      o.outcomes ??= [];
+      o.outcomes.push({ kind, date, note: note.trim(), actor: s.user });
+    },
+  );
 }
 export type RecoveryStage = "Not yet contacted" | "Awaiting response" | "Lost";
 /**
@@ -2242,15 +2385,21 @@ export function recoveryStage(o: Order): RecoveryStage | null {
  * report period move after the fact, which is a different, more sensitive
  * change than filling in a genuinely missing one.
  */
-export function backfillReceivedDate(s: Workspace, orderId: string, date: string) {
-  const o = getOrder(s, orderId);
-  if (o.receivedAt)
-    throw new Error(
-      "This file already has a receipt date — backfill is only for one that's missing.",
-    );
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today())
-    throw new Error("Enter a valid, non-future receipt date.");
-  o.receivedAt = date;
+export function backfillReceivedDate(
+  s: Workspace,
+  orderId: string,
+  date: string,
+) {
+  return traceMutation(s, "backfillReceivedDate", [orderId, date], () => {
+    const o = getOrder(s, orderId);
+    if (o.receivedAt)
+      throw new Error(
+        "This file already has a receipt date — backfill is only for one that's missing.",
+      );
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today())
+      throw new Error("Enter a valid, non-future receipt date.");
+    o.receivedAt = date;
+  });
 }
 /**
  * Saves (or, matched case-insensitively by name, replaces) a reusable
@@ -2264,23 +2413,27 @@ export function saveImportTemplate(
   name: string,
   columnMap: Record<string, ImportTargetField>,
 ) {
-  const trimmed = name.trim();
-  if (!trimmed) throw new Error("Name this mapping before saving it.");
-  if (!Object.keys(columnMap).length)
-    throw new Error("Map at least one column before saving.");
-  s.importTemplates ??= [];
-  const existing = s.importTemplates.find(
-    (t) => t.name.toLowerCase() === trimmed.toLowerCase(),
-  );
-  if (existing) existing.columnMap = columnMap;
-  else
-    s.importTemplates.push({
-      id: uid("import"),
-      name: trimmed,
-      createdAt: today(),
-      columnMap,
-    });
+  return traceMutation(s, "saveImportTemplate", [name, columnMap], () => {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error("Name this mapping before saving it.");
+    if (!Object.keys(columnMap).length)
+      throw new Error("Map at least one column before saving.");
+    s.importTemplates ??= [];
+    const existing = s.importTemplates.find(
+      (t) => t.name.toLowerCase() === trimmed.toLowerCase(),
+    );
+    if (existing) existing.columnMap = columnMap;
+    else
+      s.importTemplates.push({
+        id: uid("import"),
+        name: trimmed,
+        createdAt: today(),
+        columnMap,
+      });
+  });
 }
 export function deleteImportTemplate(s: Workspace, id: string) {
-  s.importTemplates = (s.importTemplates || []).filter((t) => t.id !== id);
+  return traceMutation(s, "deleteImportTemplate", [id], () => {
+    s.importTemplates = (s.importTemplates || []).filter((t) => t.id !== id);
+  });
 }

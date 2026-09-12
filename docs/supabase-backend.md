@@ -1,0 +1,63 @@
+# Shared Supabase backend
+
+Implemented September 12, 2026 for the existing Ballantyne Title application and its recorded-call workflows. The active project is **Title Software**, `yhneskzvmtcmbsknidlt`, in **us-east-2 (Ohio)**. The frontend remains local. No SoftPro, Missive, DocuSign, accounting, underwriter, AI or payment account is connected by this change.
+
+## What is implemented
+
+- Supabase Auth sign-in, account confirmation, password recovery UI, explicit owner bootstrap and prepared staff/partner access invitations.
+- Owner, organization administrator, operations, onboarding, finance, viewer and partner roles. Membership is checked from the current database on every request. Company assignments and restricted-document access are independent grants.
+- Shared persistence for existing company/onboarding, order, source capture, commitment, policy/CPL, correction, revision, follow-up, task/rule, materials/publication, accounting import, close and statement-delivery workflows.
+- Immutable private uploads, scoped downloads, document-version history and server recovery points. An owner restore checks referenced files, preserves audit history and saves the pre-restore state atomically.
+- Server-owned audit and request receipts; expected-revision writes and request deduplication prevent silent overwrites and duplicate execution after a network retry.
+- A separate local sample mode preserves existing localStorage/IndexedDB work. Enabling shared mode never uploads that browser state automatically.
+
+## Architecture and trust boundary
+
+`supabase/functions/title-api/index.ts` authenticates the bearer token with Supabase Auth, loads the current membership and invokes `web/lib/backend/workspace.ts`. The browser sends named domain actions or narrowly allowed draft-field edits. The server independently replays the actions against its canonical state, binds the actor, validates workflow transitions, enforces company scope and protects issued/reviewed history. It never accepts an arbitrary replacement workspace from the browser.
+
+The current application model is persisted as one versioned JSONB snapshot per workspace. Relational tables separately store membership, invitations, audit, command receipts, immutable asset metadata, recovery points and future integration/job state. This preserves the already-tested business model while making each save atomic. Workspace-wide serialization is a deliberate initial capacity limit: unrelated simultaneous edits can conflict and require refresh; it is not yet a high-volume normalized transaction store.
+
+The public tables have RLS enabled and no browser grants or policies. This is intentional default-deny: neither anonymous clients nor signed-in users can read/write snapshots or execute privileged RPCs through the Data API. Only the authenticated, authorized Edge API uses the service role. The service key is never bundled into the frontend. The security advisor's informational “RLS Enabled No Policy” entries describe this design; they are not missing browser permissions. [Supabase RLS documentation](https://supabase.com/docs/guides/database/postgres/row-level-security)
+
+Private bucket: `title-documents`. Downloads are authorized at request time and proxied through the Edge API; no public file URLs are used. Restricted source documents also withhold dependent orders/evidence snapshots from accounts lacking that grant. Partners receive only specifically published documents and their assigned allocations, with internal fingerprints and other members' data removed.
+
+## Local setup
+
+From `web/`, copy `.env.example` to the ignored `.env.local` and fill the project URL and publishable key, then run `npm ci` and `npm run dev`. The Mac's main checkout is configured for the verified project. Both values are browser-safe; private credentials do not belong in these variables.
+
+Without these settings the app opens its existing local sample mode. With them it starts at sign-in; “Open local sample workspace” is still available.
+
+Auth Site URL is `http://localhost:5173`, with explicit redirects for ports 5173 and 5174. Password minimum length is 12, leaked-password protection and secure password change are enabled, and secure email change remains enabled. Add the final HTTPS application URL when hosting is selected.
+
+## First administrator and staff
+
+The owner's email is still required from Aaron. A server administrator inserts that exact email into `title_bootstrap` once. After that person verifies their account and signs in, the one-time claim creates an empty Ballantyne workspace and its owner membership. Signing in first does not make an arbitrary account an owner. Never include an owner's email or credentials in a public migration.
+
+The owner can prepare access under Settings → Shared workspace. These invitations create access records; **they do not send email**. A verified account with the same email claims the prepared scope on sign-in. Revocation blocks subsequent API and file requests even with an existing token. Preparing a new invitation can reactivate that account with revised permissions.
+
+Supabase's default test email service only reaches approved project-team addresses. Configure the business's custom SMTP sender before onboarding ordinary staff or partners; outgoing confirmation/recovery delivery was not tested with a real recipient. [Supabase SMTP setup](https://supabase.com/docs/guides/auth/auth-smtp)
+
+## Migrations and function deployment
+
+Apply the checked-in migrations in chronological order. They include explicit follow-up fixes discovered on the actual project. `npm run backend:build` bundles the Edge entrypoint and existing domain modules into the ignored `supabase/functions/title-api/bundle.js`. Deploy that generated bundle as `title-api` with JWT verification enabled. The project currently runs function version 3.
+
+Application conflicts use the PostgREST `PT409` code. A PostgreSQL serialization code caused the gateway to keep retrying a deliberate stale-write rejection during the live race test; the explicit HTTP conflict code fixed that behavior. Do not replace it with `40001` for application-level conflicts.
+
+## Verification
+
+On the final backend implementation:
+
+- **109 domain tests + 15 backend tests**, repeated **five times**: all 620 test cases passed.
+- **Five cloud integration rounds**: each passed verified sign-in, unauthorized/direct database denials, role/company isolation, valid commands, invalid issuance rejection, identical-request replay, changed-request rejection, concurrent saves, private upload/download, restricted file denial, snapshot recovery, membership revocation and re-invitation.
+- Owner bootstrap: outsider could not claim; intended verified test owner received an empty workspace; repeated claim did not create another.
+- Browser: sign-in; create company and onboarding task; full reload preserves the company; all sixteen connected routes rendered without errors after a clean reload, both populated and empty. A transient development hot-reload context error during source edits was cleared by the clean reload before this pass.
+- TypeScript check and production build passed. Build retains the existing large-chunk warning; no build failure.
+- Supabase security advisor: no warning/error findings. Intentional default-deny RLS entries are informational. Performance advisor only reports informational items for the singleton bootstrap, new unused indexes and current Auth connection allocation.
+
+Run `npm test`, `npm run test:backend`, or `node scripts/backend/verify-five.mjs` from `web/`. The live suite requires explicit `TITLE_TEST_SUPABASE_URL`, `TITLE_TEST_PUBLIC_KEY`, `TITLE_TEST_KEY_FILE` and ignored `TITLE_TEST_ARTIFACT_DIR` values. It uses synthetic confirmed test accounts, never sends emails, and records exact fixture IDs for targeted cleanup. It must not be pointed at a project without authorization to create test fixtures.
+
+All 13 temporary QA workspaces, 10 uploaded test files and five test accounts were removed after verification. The project is empty and ready for the real owner claim. Local verification manifests remain under ignored `.local/backend-test/`; copied privileged keys and temporary account credentials were removed.
+
+## Remaining external dependencies
+
+See [integration-setup.md](integration-setup.md). This implementation supplies the shared application backend; it does not replace vendor entitlement, existing templates, approved underwriting/rate rules or actual third-party credentials. Integration/job tables are a foundation, not functioning mailbox polling or signature/accounting workers. Policy and delivery records remain reviewed internal records with manual external references until those vendors are connected. Server snapshots retain immutable file references; they are not an independent off-site copy of the storage bucket. Configure separate disaster-recovery retention before live rollout.

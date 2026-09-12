@@ -62,10 +62,10 @@ export function CloseWorkspace() {
           />
         </div>
         <Button
-          onClick={() => {
+          onClick={async () => {
             let id = "";
             if (
-              update(
+              await update(
                 (d) => {
                   id = newClose(d, company, month).id;
                 },
@@ -175,8 +175,8 @@ function CloseEditor({ period }: { period: ClosePeriod }) {
             {editable && (
               <Button
                 variant="link"
-                onClick={() =>
-                  update(
+                onClick={async () =>
+                  await update(
                     (d) => refreshClose(d, period.id),
                     "Close sources refreshed",
                     period.month,
@@ -310,8 +310,8 @@ function CloseEditor({ period }: { period: ClosePeriod }) {
           {editable && (
             <Button
               variant="outline"
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => saveCloseDraft(d, p),
                   "Close draft saved",
                   period.month,
@@ -324,8 +324,8 @@ function CloseEditor({ period }: { period: ClosePeriod }) {
           {editable && (
             <Button
               disabled={!checks.every(Boolean) || changed}
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => reviewClose(d, p),
                   "Company close reviewed",
                   `${period.companyName} · ${period.month}`,
@@ -339,8 +339,8 @@ function CloseEditor({ period }: { period: ClosePeriod }) {
           {period.status === "Reviewed" && (
             <Button
               disabled={changed}
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => publishClose(d, period.id),
                   "Statement published in local partner view",
                   period.companyName,
@@ -405,8 +405,8 @@ function CloseEditor({ period }: { period: ClosePeriod }) {
           <Button
             variant="outline"
             disabled={!cancelNote.trim()}
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) => {
                   const p = d.business!.closes.find((p) => p.id === period.id)!;
                   if (p.status !== "Published")
@@ -427,7 +427,8 @@ function CloseEditor({ period }: { period: ClosePeriod }) {
   );
 }
 export function PartnerStatements({ companyId }: { companyId: string }) {
-  const { s } = useWorkspace();
+  const { s, connection } = useWorkspace();
+  const isPartner = connection?.access.role === "partner";
   const [member, setMember] = useState(""),
     [selected, setSelected] = useState("");
   const periods = business(s)
@@ -464,8 +465,9 @@ export function PartnerStatements({ companyId }: { companyId: string }) {
         />
       </div>
       <p className="inline-note">
-        Administrator preview: choose a member to see that member's statement.
-        Production access will enforce the signed-in member's identity.
+        {isPartner
+          ? "Your published member statements."
+          : "Administrator preview: choose a member to see their statement."}
       </p>
       <Picker
         value={allocation?.name || ""}
@@ -483,28 +485,30 @@ export function PartnerStatements({ companyId }: { companyId: string }) {
             <p>Interest at close: {allocation.share}%</p>
             <div className="statement-amount">{money(allocation.amount)}</div>
             <p>Approved illustrative allocation · Revision {period.revision}</p>
-            <dl>
-              <div>
-                <dt>Company retained revenue</dt>
-                <dd>{money(period.totals.retained)}</dd>
-              </div>
-              <div>
-                <dt>Operating expenses</dt>
-                <dd>{money(period.expenses)}</dd>
-              </div>
-              <div>
-                <dt>Adjustments</dt>
-                <dd>{money(period.adjustment)}</dd>
-              </div>
-              <div>
-                <dt>Reserve withheld</dt>
-                <dd>{money(period.reserve)}</dd>
-              </div>
-              <div>
-                <dt>Company amount available</dt>
-                <dd>{money(period.totals.available)}</dd>
-              </div>
-            </dl>
+            {!isPartner && (
+              <dl>
+                <div>
+                  <dt>Company retained revenue</dt>
+                  <dd>{money(period.totals.retained)}</dd>
+                </div>
+                <div>
+                  <dt>Operating expenses</dt>
+                  <dd>{money(period.expenses)}</dd>
+                </div>
+                <div>
+                  <dt>Adjustments</dt>
+                  <dd>{money(period.adjustment)}</dd>
+                </div>
+                <div>
+                  <dt>Reserve withheld</dt>
+                  <dd>{money(period.reserve)}</dd>
+                </div>
+                <div>
+                  <dt>Company amount available</dt>
+                  <dd>{money(period.totals.available)}</dd>
+                </div>
+              </dl>
+            )}
             <p className="form-note">
               Not a payment instruction. Published{" "}
               {period.publishedAt.slice(0, 10)} from the approved period

@@ -1,0 +1,1157 @@
+import type { Workspace, Company, Order, VaultDoc } from "../title/model";
+import { createSeed } from "../title/model";
+import * as B from "../title/business";
+import * as P from "../title/production";
+import * as M from "../title/materials";
+import * as F from "../title/followups";
+import * as S from "../title/statement-delivery";
+import { executeRules } from "../title/engine";
+import {
+  withCommandIds,
+  type DraftEdit,
+  type WorkspaceCommand,
+} from "../title/command-log";
+
+export type Role =
+  | "owner"
+  | "admin"
+  | "operations"
+  | "onboarding"
+  | "finance"
+  | "viewer"
+  | "partner";
+export type Access = {
+  userId: string;
+  email: string;
+  role: Role;
+  companyIds: string[];
+  allCompanies: boolean;
+  restricted: boolean;
+  version: number;
+  partnerMembers: { id: string; companyId: string; memberName: string }[];
+};
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status = 400,
+  ) {
+    super(message);
+  }
+}
+function fail(message: string, status = 400): never {
+  throw new ApiError(message, status);
+}
+const eq = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const object = (v: unknown): Record<string, any> => {
+  if (!v || typeof v !== "object" || Array.isArray(v))
+    fail("Expected an object.");
+  return v as Record<string, any>;
+};
+const has = (o: object, k: string) =>
+  Object.prototype.hasOwnProperty.call(o, k);
+const keys = (v: object, allowed: string[]) => {
+  for (const k of Object.keys(v))
+    if (!allowed.includes(k)) fail(`Unsupported field: ${k}.`);
+};
+const nonempty = (v: unknown, label: string) => {
+  if (typeof v !== "string" || !v.trim() || v.length > 20000)
+    fail(`Enter ${label}.`);
+  return v as string;
+};
+const cash = (v: unknown) => {
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1e12)
+    fail("Enter a valid amount.");
+};
+const admin = (a: Access) => ["owner", "admin"].includes(a.role);
+export const canCompany = (a: Access, id: string) =>
+  a.allCompanies || a.companyIds.includes(id);
+function permit(a: Access, group: string) {
+  if (admin(a)) return;
+  const allowed: Record<string, string[]> = {
+    production: ["operations"],
+    company: ["onboarding"],
+    finance: ["finance"],
+    publication: ["onboarding", "finance"],
+    tasks: ["operations", "onboarding", "finance"],
+  };
+  if (!(allowed[group] || []).includes(a.role))
+    fail("Your account cannot perform this action.", 403);
+}
+export function safePayload(v: unknown, depth = 0) {
+  if (depth > 28) fail("Request is too deeply nested.");
+  if (typeof v === "number" && !Number.isFinite(v)) fail("Invalid number.");
+  if (typeof v === "string" && v.length > 2_000_000) fail("Text is too large.");
+  if (Array.isArray(v) && v.length > 10000) fail("Too many records.");
+  if (v && typeof v === "object")
+    for (const [k, value] of Object.entries(v)) {
+      if (["__proto__", "prototype", "constructor"].includes(k))
+        fail("Invalid property.");
+      safePayload(value, depth + 1);
+    }
+}
+export function emptyWorkspace(actor = ""): Workspace {
+  return {
+    version: 1,
+    user: actor,
+    companies: [],
+    orders: [],
+    documents: [],
+    tasks: [],
+    inbox: [],
+    activity: [],
+    rules: createSeed().rules,
+    revisions: [],
+    fieldRevisions: [],
+    replyDrafts: [],
+    importTemplates: [],
+    expenses: {},
+    approvedReports: [],
+    expansionStates: [],
+    statementDeliveries: [],
+    materials: { version: 1, items: [], publications: [] },
+    business: {
+      policies: [],
+      commitments: [],
+      cpls: [],
+      onboarding: [],
+      credentials: [],
+      closes: [],
+      handoffs: [],
+      corrections: [],
+      followups: [],
+    },
+  };
+}
+function collection(s: Workspace, table: string): any[] {
+  const value = table.split(".").reduce<any>((v, key) => v?.[key], s);
+  if (!Array.isArray(value)) fail("Unknown record collection.");
+  return value;
+}
+function companyOf(s: Workspace, table: string, r: any): string {
+  if (!r) return "";
+  if (table === "companies") return r.id;
+  if (r.companyId) return r.companyId;
+  if (r.orderId)
+    return s.orders.find((o) => o.id === r.orderId)?.companyId || "";
+  if (r.policyId)
+    return companyOf(
+      s,
+      "business.policies",
+      B.business(s).policies.find((p) => p.id === r.policyId),
+    );
+  return "";
+}
+const recordTables = [
+  "companies",
+  "orders",
+  "documents",
+  "tasks",
+  "inbox",
+  "revisions",
+  "fieldRevisions",
+  "replyDrafts",
+  "statementDeliveries",
+  "business.policies",
+  "business.commitments",
+  "business.cpls",
+  "business.onboarding",
+  "business.credentials",
+  "business.closes",
+  "business.handoffs",
+  "business.corrections",
+  "business.followups",
+  "materials.items",
+  "materials.publications",
+];
+const rowId = (r: any) => r.id || r.companyId || r.orderId;
+function checkScope(before: Workspace, after: Workspace, a: Access) {
+  for (const table of recordTables) {
+    const old = collection(before, table),
+      next = collection(after, table);
+    for (const r of [...old, ...next]) {
+      const id = rowId(r),
+        x = old.find((o) => rowId(o) === id),
+        y = next.find((o) => rowId(o) === id);
+      if (eq(x, y)) continue;
+      for (const [state, row] of [
+        [before, x],
+        [after, y],
+      ] as const) {
+        if (!row) continue;
+        const company = companyOf(state, table, row);
+        if ((!company && !admin(a)) || (company && !canCompany(a, company)))
+          fail("This record is outside your company access.", 403);
+      }
+    }
+  }
+}
+function ensureShape(s: Workspace) {
+  for (const table of recordTables) {
+    const list = collection(s, table),
+      ids = new Set<string>();
+    for (const row of list) {
+      const id = rowId(row);
+      if (
+        typeof id !== "string" ||
+        !/^[\w .:@-]{1,180}$/.test(id) ||
+        ids.has(id)
+      )
+        fail("Invalid or duplicate record identity.");
+      ids.add(id);
+      const company = companyOf(s, table, row);
+      if (company && !s.companies.some((c) => c.id === company))
+        fail("A record names a missing company.");
+      if (
+        row.orderId &&
+        !s.orders.some(
+          (o) =>
+            o.id === row.orderId &&
+            (!row.companyId || o.companyId === row.companyId),
+        )
+      )
+        fail("A record names a different or missing file.");
+    }
+  }
+  for (const doc of s.documents) {
+    if (
+      !Number.isInteger(doc.version) ||
+      doc.version < 1 ||
+      !["Internal", "Restricted", "Partner"].includes(doc.visibility)
+    )
+      fail("Invalid document version or access class.");
+    for (const [key, list] of [
+      ["policyId", B.business(s).policies],
+      ["cplId", B.business(s).cpls],
+      ["correctionId", B.business(s).corrections],
+    ] as const) {
+      const id = doc[key];
+      if (
+        id &&
+        !(list as any[]).some((r) => r.id === id && r.orderId === doc.orderId)
+      )
+        fail("Document output belongs to another file.");
+    }
+  }
+  for (const mail of s.inbox)
+    for (const id of mail.documentIds || [])
+      if (
+        !s.documents.some(
+          (d) =>
+            d.id === id &&
+            d.companyId === mail.companyId &&
+            (d.orderId || "") === (mail.orderId || ""),
+        )
+      )
+        fail("Message attachment routing does not match.");
+  if (!S.isValidStatementDeliveryWorkspace(s))
+    fail("Invalid statement delivery data.");
+}
+function immutableHistory(before: Workspace, after: Workspace) {
+  for (const doc of before.documents) {
+    const next = after.documents.find((d) => d.id === doc.id);
+    if (!next) fail("Document history cannot be deleted.");
+    for (const k of [
+      "id",
+      "companyId",
+      "orderId",
+      "assetId",
+      "text",
+      "version",
+      "name",
+      "policyId",
+      "cplId",
+      "correctionId",
+      "policyVersion",
+      "cplVersion",
+      "productionVersion",
+      "commitmentVersion",
+      "preparationFingerprint",
+    ] as const)
+      if (!eq(doc[k], next[k]))
+        fail(
+          "Document content and output bindings are immutable. Upload a new version.",
+        );
+  }
+  for (const p of B.business(before).policies.filter((p) =>
+    ["Issued", "Delivered"].includes(p.status),
+  )) {
+    const n = B.business(after).policies.find((x) => x.id === p.id);
+    if (!n) fail("Issued policy history cannot be deleted.");
+    if (
+      !["Issued", "Delivered"].includes(n.status) ||
+      (p.status === "Delivered" && n.status !== "Delivered")
+    )
+      fail("An issued policy cannot return to a draft.");
+    for (const k of Object.keys(p).filter(
+      (k) =>
+        ![
+          "status",
+          "deliveryTo",
+          "deliveryReference",
+          "deliveredAt",
+          "remittanceReference",
+        ].includes(k),
+    ))
+      if (!eq((p as any)[k], (n as any)[k]))
+        fail("Issued policy evidence cannot be changed.");
+    if (
+      p.status === "Delivered" &&
+      !eq({ ...p, remittanceReference: "" }, { ...n, remittanceReference: "" })
+    )
+      fail("Recorded delivery is immutable.");
+  }
+  for (const p of B.business(before).closes.filter(
+    (p) => p.status !== "Draft",
+  )) {
+    const n = B.business(after).closes.find((x) => x.id === p.id);
+    if (!n) fail("Reviewed financial history cannot be deleted.");
+    for (const k of Object.keys(p).filter(
+      (k) => !["status", "publishedAt", "note"].includes(k),
+    ))
+      if (!eq((p as any)[k], (n as any)[k]))
+        fail("Reviewed financial snapshots are immutable.");
+    if (p.publishedAt && p.publishedAt !== n.publishedAt)
+      fail("Publication history cannot be rewritten.");
+  }
+}
+function validateMembers(members: any) {
+  if (
+    !Array.isArray(members) ||
+    members.some(
+      (m) =>
+        typeof m.name !== "string" ||
+        !m.name.trim() ||
+        !Number.isFinite(m.share) ||
+        m.share <= 0,
+    ) ||
+    new Set(members.map((m) => m.name.trim().toLowerCase())).size !==
+      members.length ||
+    (members.length &&
+      Math.abs(members.reduce((n, m) => n + m.share, 0) - 100) > 0.000001)
+  )
+    fail(
+      "Ownership must have unique members and positive shares totaling 100%.",
+    );
+}
+function applyEdit(
+  s: Workspace,
+  edit: DraftEdit,
+  a: Access,
+  baseline: Workspace,
+) {
+  object(edit);
+  const v = object(edit.value);
+  if (has(v, "id") && v.id !== edit.id) fail("Record identity cannot change.");
+  if (edit.table === "user")
+    fail("Signed-in identity is controlled by authentication.", 403);
+  if (edit.table === "expenses") {
+    permit(a, "finance");
+    const values = object(v.value);
+    for (const [key, value] of Object.entries(values)) {
+      if (eq(s.expenses[key], value)) continue;
+      if (
+        !/^\d{4}-\d{2}:/.test(key) ||
+        !s.companies.some((c) => c.id === key.slice(8)) ||
+        !canCompany(a, key.slice(8))
+      )
+        fail("Invalid expense company or period.");
+      cash(value);
+      s.expenses[key] = value;
+    }
+    return;
+  }
+  if (edit.table === "expansionStates") {
+    permit(a, "admin");
+    if (
+      !Array.isArray(v.value) ||
+      v.value.some((x: any) => typeof x !== "string" || !/^[A-Z]{2}$/.test(x))
+    )
+      fail("Invalid state list.");
+    s.expansionStates = [...new Set(v.value)] as string[];
+    return;
+  }
+  if (edit.table === "approvedReports") {
+    permit(a, "finance");
+    if (
+      !Array.isArray(v.value) ||
+      v.value.some((x: any) => typeof x !== "string")
+    )
+      fail("Invalid review references.");
+    s.approvedReports = [...new Set([...s.approvedReports, ...v.value])];
+    return;
+  }
+  const list = collection(s, edit.table),
+    current = list.find((r) => rowId(r) === edit.id);
+  if (edit.insert && current) fail("Record already exists.", 409);
+  if (!edit.insert && !current) fail("Record no longer exists.", 409);
+  if (edit.table === "companies") {
+    permit(a, "company");
+    if (edit.insert) {
+      if (!a.allCompanies)
+        fail(
+          "Only an organization-wide company manager may create companies.",
+          403,
+        );
+      nonempty(v.name, "company name");
+      nonempty(v.contact, "contact");
+      if (!B.emailValid(v.email)) fail("Enter a valid company email.");
+      if (!/^[A-Z]{2}$/.test(v.jurisdiction))
+        fail("Choose an operating state.");
+      list.unshift({
+        id: edit.id,
+        name: v.name,
+        initials: String(v.initials || v.name.slice(0, 2)),
+        color: ["teal", "blue", "violet", "amber", "rose"].includes(v.color)
+          ? v.color
+          : "blue",
+        contact: v.contact,
+        email: v.email,
+        location: String(v.location || ""),
+        jurisdiction: v.jurisdiction,
+        stage: "Onboarding",
+        steps: Array(7).fill(false),
+        members: [],
+      });
+    } else {
+      keys(v, [
+        "formationState",
+        "operatingStates",
+        "members",
+        "name",
+        "contact",
+        "email",
+        "location",
+      ]);
+      if (has(v, "members")) validateMembers(v.members);
+      if (
+        v.operatingStates &&
+        (!Array.isArray(v.operatingStates) ||
+          !v.operatingStates.length ||
+          v.operatingStates.some(
+            (x: any) => typeof x !== "string" || !/^[A-Z]{2}$/.test(x),
+          ) ||
+          s.orders.some(
+            (o) =>
+              o.companyId === edit.id &&
+              !v.operatingStates.includes(o.jurisdiction),
+          ))
+      )
+        fail("Keep operating states used by existing files.");
+      if (has(v, "email") && !B.emailValid(v.email))
+        fail("Enter a valid email.");
+      Object.assign(current, v);
+    }
+    return;
+  }
+  if (edit.table === "tasks") {
+    permit(a, "tasks");
+    keys(v, ["id", "title", "companyId", "owner", "due", "done", "priority"]);
+    const n = { ...current, ...v };
+    nonempty(n.title, "task title");
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(n.due) ||
+      typeof n.done !== "boolean" ||
+      !["High", "Normal"].includes(n.priority)
+    )
+      fail("Invalid task.");
+    if (current && v.companyId && v.companyId !== current.companyId)
+      fail("Task routing cannot change.");
+    if (edit.insert) list.unshift(n);
+    else Object.assign(current, v);
+    return;
+  }
+  if (edit.table === "rules") {
+    permit(a, "admin");
+    if (edit.insert) fail("Unknown automation rule.");
+    keys(v, ["enabled"]);
+    if (typeof v.enabled !== "boolean") fail("Invalid rule state.");
+    current.enabled = v.enabled;
+    return;
+  }
+  if (edit.table === "orders") {
+    permit(
+      a,
+      !edit.insert && Object.keys(v).every((k) => k === "remitted")
+        ? "finance"
+        : "production",
+    );
+    if (edit.insert) {
+      cash(v.premium);
+      nonempty(v.address, "property address");
+      nonempty(v.client, "client");
+      const c = s.companies.find((c) => c.id === v.companyId);
+      if (
+        !c ||
+        !(c.operatingStates || [c.jurisdiction]).includes(v.jurisdiction)
+      )
+        fail("Choose a company's operating state.");
+      const o: Order = {
+        id: edit.id,
+        companyId: c.id,
+        address: v.address,
+        client: v.client,
+        type: String(v.type || "Purchase"),
+        underwriter: String(v.underwriter || ""),
+        owner: String(v.owner || a.email),
+        jurisdiction: v.jurisdiction,
+        delivered: false,
+        remitted: false,
+        status: "New",
+        due: String(v.due || B.today()),
+        premium: v.premium,
+        rate: 0.4,
+        month: String(v.due || B.today()).slice(0, 7),
+        fields: [],
+        notes: String(v.notes || ""),
+        exception: "",
+        receivedAt: B.today(),
+      };
+      list.unshift(o);
+      return;
+    }
+    keys(v, [
+      "owner",
+      "notes",
+      "exception",
+      "production",
+      "fields",
+      "status",
+      "delivered",
+      "remitted",
+    ]);
+    if (has(v, "remitted")) {
+      permit(a, "finance");
+      if (v.remitted !== true || current.status !== "Issued")
+        fail("Only issued records can be reconciled.");
+    }
+    const locked = P.productionLocked(s, current);
+    if (locked && (has(v, "production") || has(v, "fields")))
+      fail("Issued production sources cannot be edited.");
+    if (v.production) {
+      const prior = P.titleFile(current),
+        n = { ...prior, ...object(v.production) };
+      keys(n, [
+        "securityInstrument",
+        "version",
+        "financing",
+        "loanAmount",
+        "purchasePrice",
+        "county",
+        "attorney",
+        "attorneyEmail",
+        "lender",
+        "seller",
+        "legalDescription",
+        "commitmentReference",
+        "cplDecision",
+        "cplReference",
+        "priorPolicyReference",
+        "requirements",
+        "commitmentReview",
+      ]);
+      cash(n.loanAmount);
+      cash(n.purchasePrice);
+      if (
+        !["Cash", "Financed"].includes(n.financing) ||
+        !["Review required", "Requested", "Not requested"].includes(
+          n.cplDecision,
+        )
+      )
+        fail("Invalid production inputs.");
+      if (n.commitmentReview && !eq(n.commitmentReview, prior.commitmentReview))
+        fail("Commitment approval requires its review action.");
+      if (
+        !Array.isArray(n.requirements) ||
+        n.requirements.some(
+          (r: any) =>
+            !["Requirement", "Exception"].includes(r.kind) ||
+            !["Open", "Satisfied", "Retained", "Excluded"].includes(r.status) ||
+            typeof r.text !== "string" ||
+            (r.status === "Satisfied" && !r.evidence?.trim()) ||
+            (r.kind === "Exception" && r.status !== "Open" && !r.note?.trim()),
+        )
+      )
+        fail("Record requirement disposition evidence and note.");
+      current.production = {
+        ...n,
+        version: prior.version + 1,
+        commitmentReview: undefined,
+      };
+    }
+    if (v.fields) {
+      if (!Array.isArray(v.fields) || v.fields.length !== current.fields.length)
+        fail("Capture source fields through the source action.");
+      for (const field of v.fields) {
+        const old = current.fields.find((f: any) => f.id === field.id);
+        if (!old) fail("Unknown source field.");
+        for (const k of Object.keys(field))
+          if (
+            !["proposed", "reviewed", "current"].includes(k) &&
+            !eq(old[k], field[k])
+          )
+            fail("Source identity must remain intact.");
+        if (
+          typeof field.proposed !== "string" ||
+          typeof field.reviewed !== "boolean"
+        )
+          fail("Invalid field review.");
+        if (field.current !== old.current && field.current !== field.proposed)
+          fail("Applied field differs from reviewed value.");
+        if (
+          field.reviewed &&
+          (!field.proposed.trim() ||
+            !field.documentId ||
+            !s.documents.some(
+              (d) => d.id === field.documentId && d.orderId === current.id,
+            ))
+        )
+          fail("Review a captured source value.");
+      }
+      current.fields = structuredClone(v.fields);
+    }
+    if (has(v, "status")) {
+      if (v.status === "Ready for jacket") {
+        const ready = P.finalReadiness(s, current);
+        if (!ready.ready)
+          fail(
+            "Complete source, field and requirement review before preparation.",
+          );
+      } else if (v.status === "Issued") {
+        if (
+          current.status !== "Ready for jacket" ||
+          B.products(s, current.id).length ||
+          !P.finalReadiness(s, current).ready
+        )
+          fail("Use product-specific issuance after final review.");
+      } else if (
+        !["New", "In progress", "Needs review"].includes(v.status) ||
+        ["Issued", "Rejected"].includes(current.status)
+      )
+        fail("Use the supported status action.");
+      current.status = v.status;
+    }
+    if (has(v, "delivered")) {
+      if (
+        v.delivered !== true ||
+        current.status !== "Issued" ||
+        B.products(s, current.id).some((p) => p.status !== "Delivered")
+      )
+        fail("Record delivery for issued products.");
+      current.delivered = true;
+    }
+    for (const k of ["owner", "notes", "exception", "remitted"])
+      if (has(v, k)) current[k] = v[k];
+    return;
+  }
+  if (edit.table === "inbox") {
+    permit(a, "production");
+    if (edit.insert) {
+      keys(v, [
+        "id",
+        "sourceReference",
+        "kind",
+        "companyId",
+        "documentIds",
+        "from",
+        "email",
+        "subject",
+        "body",
+        "time",
+        "orderId",
+        "status",
+        "attachments",
+      ]);
+      if (!B.emailValid(v.email)) fail("Enter sender email.");
+      nonempty(v.from, "sender");
+      nonempty(v.subject, "subject");
+      nonempty(v.body, "message");
+      if (
+        v.sourceReference &&
+        s.inbox.some((m) => m.sourceReference === v.sourceReference)
+      )
+        fail("This source message was already captured.");
+      list.unshift({ ...v, status: "New" });
+    } else {
+      keys(v, [
+        "companyId",
+        "orderId",
+        "kind",
+        "documentIds",
+        "attachments",
+        "status",
+      ]);
+      if (v.status && !["New", "Queued", "Archived"].includes(v.status))
+        fail("Invalid message status.");
+      Object.assign(current, v);
+    }
+    const m = list.find((r) => r.id === edit.id);
+    m.attachments = (m.documentIds || []).map((id: string) => {
+      const d = s.documents.find((d) => d.id === id);
+      if (!d) fail("Missing attachment.");
+      return d.name;
+    });
+    return;
+  }
+  if (edit.table === "documents") {
+    permit(a, a.role === "onboarding" ? "company" : "production");
+    if (edit.insert) {
+      nonempty(v.name, "document name");
+      if (!["Internal", "Restricted"].includes(v.visibility))
+        fail("Use reviewed publication to share documents.");
+      if (v.visibility === "Restricted" && !a.restricted)
+        fail("Restricted document access is required.", 403);
+      const c = s.companies.find((c) => c.id === v.companyId);
+      if (!c) fail("Choose a company.");
+      const existing = s.documents.filter(
+        (d) =>
+          d.companyId === v.companyId &&
+          d.orderId === v.orderId &&
+          d.name === v.name,
+      );
+      const version = Math.max(0, ...existing.map((d) => d.version)) + 1;
+      const n = { ...v, id: edit.id, version, date: B.today() } as VaultDoc;
+      if (n.orderId) {
+        const o = s.orders.find(
+          (o) => o.id === n.orderId && o.companyId === n.companyId,
+        );
+        if (!o) fail("Document routing is invalid.");
+        const output = [
+          "Commitment output",
+          "Revised commitment",
+          "Final policy",
+          "CPL",
+          "Correction output",
+        ].includes(n.sourceRole || "");
+        if (P.productionLocked(s, o) && !output)
+          fail("Add corrections separately from issued sources.");
+        if (n.sourceRole === "Final policy") {
+          const p = B.business(s).policies.find(
+            (p) =>
+              p.id === n.policyId &&
+              p.orderId === o.id &&
+              p.status === "Prepared",
+          );
+          if (!p) fail("Prepare this product before adding returned output.");
+          n.policyVersion = p.version;
+          n.preparationFingerprint = p.preparedSnapshot;
+        }
+        if (n.sourceRole === "Commitment output") {
+          const c = B.getCommitment(s, o);
+          if (c.status !== "Prepared") fail("Prepare the commitment first.");
+          n.commitmentVersion = c.version;
+          n.preparationFingerprint = c.snapshot;
+        }
+        if (n.sourceRole === "CPL") {
+          const c = B.business(s).cpls.find(
+            (c) =>
+              c.id === n.cplId && c.orderId === o.id && c.status === "Prepared",
+          );
+          if (!c) fail("Prepare the CPL first.");
+          n.cplVersion = c.version;
+          n.preparationFingerprint = c.snapshot;
+        }
+        if (n.sourceRole === "Correction output") {
+          const c = B.business(s).corrections.find(
+            (c) =>
+              c.id === n.correctionId &&
+              c.orderId === o.id &&
+              c.status === "Reviewed",
+          );
+          if (!c) fail("Review the correction first.");
+          n.preparationFingerprint = c.reviewSnapshot;
+        }
+        if (output) n.productionVersion = P.titleFile(o).version;
+      }
+      list.unshift(n);
+    } else {
+      keys(v, ["visibility", "sourceRole"]);
+      if (v.visibility && !["Internal", "Restricted"].includes(v.visibility))
+        fail("Use reviewed publication to share documents.");
+      if (
+        (current.visibility === "Restricted" ||
+          v.visibility === "Restricted") &&
+        !a.restricted
+      )
+        fail("Restricted document access is required.", 403);
+      if (v.sourceRole) {
+        const o = s.orders.find((o) => o.id === current.orderId);
+        if (
+          !o ||
+          P.productionLocked(s, o) ||
+          !P.sourceRoles.includes(v.sourceRole)
+        )
+          fail("This source cannot be reclassified.");
+        const oldOrder = baseline.orders.find((x) => x.id === o.id);
+        o.production = {
+          ...P.titleFile(o),
+          version:
+            P.titleFile(o).version +
+            (oldOrder &&
+            P.titleFile(oldOrder).version === P.titleFile(o).version
+              ? 1
+              : 0),
+          commitmentReview: undefined,
+        };
+        o.fields = o.fields.map((f) =>
+          f.documentId === current.id ? { ...f, reviewed: false } : f,
+        );
+      }
+      Object.assign(current, v);
+    }
+    return;
+  }
+  if (["revisions", "fieldRevisions"].includes(edit.table)) {
+    permit(a, "production");
+    if (edit.insert) fail("Capture a revision with its source action.");
+    keys(v, ["note", "status"]);
+    if (current.status === "Applied" || v.status !== "Needs information")
+      fail("Applied revision history cannot be changed.");
+    nonempty(v.note, "hold reason");
+    Object.assign(current, v);
+    return;
+  }
+  if (edit.table === "replyDrafts") {
+    permit(a, "production");
+    if (edit.insert) fail("Prepare the associated revision first.");
+    keys(v, ["to", "subject", "body", "attachmentId", "status"]);
+    for (const k of ["to", "subject", "body", "attachmentId"])
+      if (has(v, k)) current[k] = v[k];
+    if (
+      typeof current.to !== "string" ||
+      typeof current.body !== "string" ||
+      typeof current.subject !== "string"
+    )
+      fail("Enter draft text.");
+    if (
+      current.attachmentId &&
+      !s.documents.some(
+        (d) => d.id === current.attachmentId && d.orderId === current.orderId,
+      )
+    )
+      fail("Choose this file's attachment.");
+    current.status = current.attachmentId
+      ? "Ready for review"
+      : "Awaiting document";
+    return;
+  }
+  if (edit.table === "business.closes") {
+    permit(a, "finance");
+    if (edit.insert) fail("Create a close through its action.");
+    keys(v, ["status", "note"]);
+    if (
+      current.status !== "Published" ||
+      v.status !== "Withdrawn" ||
+      !String(v.note || "").startsWith(
+        current.note + "\nPublication withdrawn: ",
+      ) ||
+      !String(v.note)
+        .slice(current.note.length + 24)
+        .trim()
+    )
+      fail("Record a withdrawal reason for the published close.");
+    Object.assign(current, v);
+    return;
+  }
+  if (edit.table === "business.policies") {
+    permit(a, "finance");
+    if (edit.insert) fail("Create policy products through their action.");
+    keys(v, ["remittanceReference"]);
+    if (!["Issued", "Delivered"].includes(current.status))
+      fail("Only issued policies may be reconciled.");
+    nonempty(v.remittanceReference, "remittance review reference");
+    current.remittanceReference = v.remittanceReference;
+    return;
+  }
+  fail("This field requires its supported workflow action.");
+}
+
+const productionNames =
+  "saveCommitment prepareCommitment addPolicy savePolicy preparePolicy issuePolicy deliverPolicy requestCorrection reviewCorrectionRequest recordCorrection cancelCorrection saveCPL recordCommitmentReturn recordHandoff voidDraftPolicy prepareCPL returnCPL deliverCPL recordOrderOutcome backfillReceivedDate reviewCommitment replaceSourceFields createRevision applyRevision recheckRevision createFieldRevision applyFieldRevision recheckFieldRevision approveReplyDraft createFollowup recordFollowupSent resolveFollowupItem cancelFollowupItem".split(
+    " ",
+  );
+const companyNames =
+  "saveApplication recordOnboardingEvidence saveCredential createMaterial setupMaterials updateMaterial approveMaterial".split(
+    " ",
+  );
+const financeNames =
+  "newClose reviewClose refreshClose publishClose saveCloseDraft saveImportTemplate deleteImportTemplate prepareStatementDelivery recordStatementDelivery cancelStatementDelivery".split(
+    " ",
+  );
+const publicationNames =
+  "createPublication reviewPublication publishDocument withdrawPublication".split(
+    " ",
+  );
+const handlers = { ...B, ...P, ...M, ...F, ...S, executeRules } as Record<
+  string,
+  any
+>;
+function referencesHidden(value: unknown, hidden: Set<string>): boolean {
+  if (typeof value === "string")
+    return [...hidden].some(
+      (id) =>
+        value === id ||
+        value.includes('"' + id + '"') ||
+        value.includes('\\"' + id + '\\"'),
+    );
+  if (value && typeof value === "object")
+    return Object.values(value).some((v) => referencesHidden(v, hidden));
+  return false;
+}
+function requireReadableReferences(
+  s: Workspace,
+  cmd: WorkspaceCommand,
+  a: Access,
+) {
+  if(!a.restricted && ["saveApplication","recordOnboardingEvidence","addHandoff"].includes(cmd.name)) fail("Restricted onboarding access is required.",403);
+  const visible = projectWorkspace(s, a),
+    hidden = new Set<string>();
+  for (const table of recordTables) {
+    const ids = new Set(collection(visible, table).map(rowId));
+    for (const row of collection(s, table))
+      if (row.id && !ids.has(rowId(row))) hidden.add(row.id);
+  }
+  if (referencesHidden(cmd.args, hidden))
+    fail("This action references a record outside your access.", 403);
+}
+
+export function executeCommands(
+  before: Workspace,
+  commands: WorkspaceCommand[],
+  a: Access,
+): Workspace {
+  if (!Array.isArray(commands) || !commands.length || commands.length > 100)
+    fail("Submit between 1 and 100 actions.");
+  safePayload(commands);
+  const next = structuredClone(before);
+  next.user = a.email;
+  for (const cmd of commands) {
+    if (
+      typeof cmd.id !== "string" ||
+      !/^[a-f\d-]{36}$/i.test(cmd.id) ||
+      typeof cmd.name !== "string" ||
+      !Array.isArray(cmd.args)
+    )
+      fail("Invalid command.");
+    requireReadableReferences(next, cmd, a);
+    const prior = structuredClone(next);
+    withCommandIds(cmd.id, () => {
+      if (cmd.name === "editDraft") {
+        if (!Array.isArray(cmd.args[0])) fail("Invalid draft edits.");
+        for (const edit of cmd.args[0] as DraftEdit[])
+          applyEdit(next, edit, a, prior);
+      } else if (cmd.name === "loadDemoScenario") {
+        permit(a, "admin");
+        B.loadDemoScenario(next);
+      } else if (cmd.name === "addHandoff") {
+        permit(a, "company");
+        const v = object(cmd.args[0]);
+        if (
+          v.kind !== "Application packet" ||
+          v.orderId ||
+          v.sourceId !== v.companyId
+        )
+          fail("Unsupported handoff creation.");
+        const c = next.companies.find((c) => c.id === v.companyId);
+        if (!c) fail("Choose a company.");
+        const app = B.getOnboarding(next, c);
+        if (app.applicationStatus === "Not started")
+          fail("Prepare the application first.");
+        B.addHandoff(next, {
+          kind: "Application packet",
+          subject: `Application packet · ${c.name}`,
+          companyId: c.id,
+          orderId: "",
+          sourceId: c.id,
+          fingerprint: B.applicationFingerprint(next, c),
+        });
+      } else {
+        const group = productionNames.includes(cmd.name)
+          ? "production"
+          : companyNames.includes(cmd.name)
+            ? "company"
+            : financeNames.includes(cmd.name)
+              ? "finance"
+              : publicationNames.includes(cmd.name)
+                ? "publication"
+                : cmd.name === "executeRules"
+                  ? "admin"
+                  : "";
+        if (!group) fail("Unknown action.");
+        permit(a, group);
+        const args = structuredClone(cmd.args);
+        if (cmd.name === "reviewCommitment") {
+          const o = next.orders.find((o) => o.id === object(args[0]).id);
+          if (!o) fail("File not found.");
+          args[0] = o;
+        }
+        if (cmd.name === "saveCredential") {
+          const v = object(args[0]);
+          v.reviewer = a.email;
+        }
+        handlers[cmd.name](next, ...args);
+      }
+      B.validateBusinessMutation(prior, next);
+      immutableHistory(prior, next);
+      ensureShape(next);
+      checkScope(prior, next, a);
+    });
+  }
+  next.user = a.email;
+  return next;
+}
+
+export function projectWorkspace(source: Workspace, a: Access): Workspace {
+  const s = structuredClone(source);
+  s.user = a.email;
+  s.activity = [];
+  if (a.role === "partner") {
+    const result = emptyWorkspace(a.email);
+    result.rules = [];
+    for (const grant of a.partnerMembers) {
+      const c = s.companies.find((c) => c.id === grant.companyId);
+      if (
+        !c ||
+        !canCompany(a, c.id) ||
+        !c.members.some((m) => m.name === grant.memberName)
+      )
+        continue;
+      const existingCompany = result.companies.find((x) => x.id === c.id);
+      if (existingCompany) {
+        if (!existingCompany.members.some((m) => m.name === grant.memberName))
+          existingCompany.members.push(
+            ...c.members.filter((m) => m.name === grant.memberName),
+          );
+      } else
+        result.companies.push({
+          ...c,
+          contact: "",
+          email: "",
+          authorizations: [],
+          members: c.members.filter((m) => m.name === grant.memberName),
+          steps: [],
+        });
+      const pubs = M.partnerPublications(s, c.id, grant.memberName);
+      for (const p of pubs)
+        if (!result.materials!.publications.some((x) => x.id === p.id)) {
+          result.materials!.publications.push({
+            ...p,
+            reviewNote: "",
+            reviewedBy: "",
+            reviewSnapshot: "",
+            history: [],
+            memberNames: [grant.memberName],
+          });
+          const doc = s.documents.find((d) => d.id === p.documentId)!;
+          if (!result.documents.some((d) => d.id === doc.id))
+            result.documents.push({
+              id: doc.id,
+              name: doc.name,
+              category: doc.category,
+              size: doc.size,
+              mime: doc.mime,
+              companyId: doc.companyId,
+              date: doc.date,
+              version: doc.version,
+              visibility: doc.visibility,
+              assetId: doc.assetId,
+            });
+        }
+      for (const p of B.business(s).closes.filter(
+        (p) => p.companyId === c.id && p.status === "Published",
+      )) {
+        const allocation = p.allocations.find(
+          (x) => x.name === grant.memberName,
+        );
+        if (!allocation) continue;
+        const existingClose = result.business!.closes.find(
+          (x) => x.id === p.id,
+        );
+        if (existingClose) {
+          if (
+            !existingClose.allocations.some((x) => x.name === allocation.name)
+          ) {
+            existingClose.allocations.push(allocation);
+            existingClose.members.push(
+              ...p.members.filter((m) => m.name === grant.memberName),
+            );
+          }
+          continue;
+        }
+        result.business!.closes.push({
+          ...p,
+          rows: [],
+          members: p.members.filter((m) => m.name === grant.memberName),
+          allocations: [allocation],
+          expenses: 0,
+          adjustment: 0,
+          reserve: 0,
+          externalPremium: 0,
+          externalRemittance: 0,
+          booksReference: "",
+          agreementReference: "",
+          sourceHash: "",
+          note: "",
+          reviewedBy: "",
+          totals: {
+            premium: 0,
+            remittance: 0,
+            retained: 0,
+            profit: 0,
+            available: 0,
+          },
+        });
+      }
+    }
+    return result;
+  }
+  for (const table of recordTables) {
+    const parts = table.split("."),
+      parent = parts.length === 1 ? s : (s as any)[parts[0]],
+      key = parts.at(-1)!;
+    parent[key] = collection(s, table).filter((r) => {
+      const id = companyOf(source, table, r);
+      return id ? canCompany(a, id) : admin(a);
+    });
+  }
+  if (!a.restricted) {
+    const hidden = new Set(
+      source.documents
+        .filter((d) => d.visibility === "Restricted")
+        .flatMap((d) => [d.id, ...(d.orderId ? [d.orderId] : [])]),
+    );
+    s.documents = s.documents.filter((d) => !hidden.has(d.id));
+    s.business!.onboarding = [];
+    s.business!.handoffs=s.business!.handoffs.filter(h=>h.kind!=="Application packet");
+    // Evidence snapshots contain source text. Withhold the dependent record as well.
+    for (let pass = 0; pass < recordTables.length; pass++)
+      for (const table of recordTables.filter((t) => t !== "companies")) {
+        const parts = table.split("."),
+          parent = parts.length === 1 ? s : (s as any)[parts[0]],
+          key = parts.at(-1)!;
+        parent[key] = collection(s, table).filter((r) => {
+          if (referencesHidden(r, hidden)) {
+            hidden.add(rowId(r));
+            return false;
+          }
+          return true;
+        });
+      }
+  }
+  if (!admin(a) && a.role !== "finance") {
+    s.business!.closes = [];
+    s.expenses = {};
+    s.approvedReports = [];
+    s.statementDeliveries = [];
+    s.importTemplates = [];
+  } else
+    s.expenses = Object.fromEntries(
+      Object.entries(s.expenses).filter(([key]) => canCompany(a, key.slice(8))),
+    );
+  if (!admin(a)) s.rules = [];
+  return s;
+}
+export function allowedAsset(source: Workspace, a: Access, assetId: string) {
+  return projectWorkspace(source, a).documents.find(
+    (d) => d.assetId === assetId,
+  );
+}

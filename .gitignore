@@ -1,3 +1,6 @@
 # Local source material and machine-generated transcripts
 /.local/
 .DS_Store
+
+/supabase/functions/title-api/bundle.js
+/supabase/.temp/

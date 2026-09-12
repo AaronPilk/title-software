@@ -118,8 +118,8 @@ export function PublicationManager({
             )}
             <Button
               variant="outline"
-              onClick={() =>
-                update(
+              onClick={async () =>
+                await update(
                   (d) => {
                     createPublication(d, {
                       documentId,
@@ -202,8 +202,8 @@ function PublicationCard({
           </label>
           <Button
             disabled={!checked || !note.trim()}
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) => reviewPublication(d, p.id, note),
                 "Publication review recorded",
                 p.title,
@@ -244,8 +244,8 @@ function PublicationCard({
           )}
           <Button
             disabled={prior.length > 0 && !replace}
-            onClick={() =>
-              update(
+            onClick={async () =>
+              await update(
                 (d) =>
                   publishDocument(
                     d,
@@ -294,8 +294,8 @@ function PublicationCard({
               <Button
                 variant="outline"
                 disabled={!reason.trim()}
-                onClick={() =>
-                  update(
+                onClick={async () =>
+                  await update(
                     (d) => withdrawPublication(d, p.id, reason),
                     "Publication withdrawn",
                     p.title,
