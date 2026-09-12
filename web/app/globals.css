@@ -520,6 +520,52 @@ strong {
   flex-wrap: wrap;
   gap: 6px;
 }
+.import-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 17px 17px 0;
+}
+.file-drop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px dashed #c7cedb;
+  border-radius: 8px;
+  padding: 9px 14px;
+  font-size: 13px;
+  color: #414b5b;
+  cursor: pointer;
+}
+.file-drop input {
+  display: none;
+}
+.import-column-map {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+  padding: 4px 17px 17px;
+}
+.muted-cell {
+  color: #b0b8c4;
+}
+.template-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 17px;
+  border-top: 1px solid #eef1f5;
+}
+.template-row:first-child {
+  border-top: none;
+}
+.template-row small {
+  display: block;
+  color: #8893a2;
+  margin-top: 2px;
+}
 .attention-row > svg,
 .company-line > svg {
   color: #b6bfca;

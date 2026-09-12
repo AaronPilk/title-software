@@ -1,4 +1,11 @@
-import type { Workspace, Order, Company, OrderOutcomeKind } from "./model";
+import type {
+  Workspace,
+  Order,
+  Company,
+  OrderOutcomeKind,
+  ImportTargetField,
+} from "./model";
+import { uid } from "./model";
 import { enrichMaterials, validateMaterialsMutation } from "./materials";
 import {
   titleFile,
@@ -2131,4 +2138,36 @@ export function backfillReceivedDate(s: Workspace, orderId: string, date: string
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today())
     throw new Error("Enter a valid, non-future receipt date.");
   o.receivedAt = date;
+}
+/**
+ * Saves (or, matched case-insensitively by name, replaces) a reusable
+ * column-mapping template for the accounting CSV import scaffold — see
+ * `components/title/accounting-import.tsx`. This only remembers "column X
+ * in a file shaped like this means Y" for next time; it never touches a
+ * close, ledger or remittance record.
+ */
+export function saveImportTemplate(
+  s: Workspace,
+  name: string,
+  columnMap: Record<string, ImportTargetField>,
+) {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Name this mapping before saving it.");
+  if (!Object.keys(columnMap).length)
+    throw new Error("Map at least one column before saving.");
+  s.importTemplates ??= [];
+  const existing = s.importTemplates.find(
+    (t) => t.name.toLowerCase() === trimmed.toLowerCase(),
+  );
+  if (existing) existing.columnMap = columnMap;
+  else
+    s.importTemplates.push({
+      id: uid("import"),
+      name: trimmed,
+      createdAt: today(),
+      columnMap,
+    });
+}
+export function deleteImportTemplate(s: Workspace, id: string) {
+  s.importTemplates = (s.importTemplates || []).filter((t) => t.id !== id);
 }

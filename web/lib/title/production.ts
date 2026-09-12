@@ -573,6 +573,7 @@ export function enrichWorkspace(s: Workspace): Workspace {
   s.replyDrafts ??= [];
   s.expenses ??= {};
   s.expansionStates ??= [];
+  s.importTemplates ??= [];
   for (const o of s.orders) {
     if (o.production) continue;
     const sample = [

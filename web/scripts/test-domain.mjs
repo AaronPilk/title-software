@@ -7,6 +7,7 @@ try {
       "node_modules/typescript/bin/tsc",
       "lib/title/model.ts",
       "lib/title/engine.ts",
+      "lib/title/csv.ts",
       "--module",
       "esnext",
       "--target",

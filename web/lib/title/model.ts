@@ -167,11 +167,33 @@ export type Rule = {
   runs: number;
   lastRun: string;
 };
+/**
+ * Column targets for the accounting CSV import scaffold (J06-J07). This is
+ * deliberately a preview/mapping tool only — see AccountingImport — until
+ * John's actual books and accounting vendor are confirmed; nothing here
+ * posts to a close, ledger or remittance.
+ */
+export const importTargetFields = [
+  "Date",
+  "Description",
+  "Amount",
+  "Category",
+  "Ignore",
+] as const;
+export type ImportTargetField = (typeof importTargetFields)[number];
+export type ImportTemplate = {
+  id: string;
+  name: string;
+  createdAt: string;
+  /** CSV header text (as it appeared in that file) -> target field. */
+  columnMap: Record<string, ImportTargetField>;
+};
 export type Workspace = {
   materials?: import("./materials").MaterialsState;
   business?: BusinessState;
   revisions: RevisionRequest[];
   replyDrafts: ReplyDraft[];
+  importTemplates: ImportTemplate[];
   version: 1;
   companies: Company[];
   orders: Order[];
@@ -599,6 +621,7 @@ export function createSeed(): Workspace {
     enrichWorkspace({
       revisions: [],
       replyDrafts: [],
+      importTemplates: [],
       version: 1,
       companies,
       orders,

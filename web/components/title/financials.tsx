@@ -1,6 +1,7 @@
 "use client";
 import { ledgerLines } from "@/lib/title/business";
 import { CloseWorkspace } from "./close-suite";
+import { AccountingImport } from "./accounting-import";
 import { useState } from "react";
 import {
   Download,
@@ -140,11 +141,13 @@ export function Financials() {
             "Company closes",
             "Underwriter remittance",
             "Ownership estimates",
+            "Accounting import",
           ]}
         />
         <span className="subtle-pill">Illustrative demo figures</span>
       </div>
       {tab === "Company closes" && <CloseWorkspace />}
+      {tab === "Accounting import" && <AccountingImport />}
       {tab === "Overview" && (
         <>
           <section className="panel">

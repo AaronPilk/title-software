@@ -617,6 +617,62 @@ test("receipt date can be backfilled once but not overwritten or set to the futu
     /valid, non-future/,
   );
 });
+import {
+  saveImportTemplate,
+  deleteImportTemplate,
+} from "../.local-test/business.js";
+import { parseCsv, previewCsv } from "../.local-test/csv.js";
+test("a CSV column-mapping template can be saved, reused by name, and deleted", () => {
+  const s = createSeed();
+  assert.throws(
+    () => saveImportTemplate(s, "  ", { Date: "Date" }),
+    /Name this mapping/,
+  );
+  assert.throws(
+    () => saveImportTemplate(s, "Chase export", {}),
+    /Map at least one column/,
+  );
+  saveImportTemplate(s, "Chase export", {
+    Date: "Date",
+    Memo: "Description",
+  });
+  assert.equal(s.importTemplates.length, 1);
+  const id = s.importTemplates[0].id;
+  // Saving again under the same name, any case, replaces it in place
+  // instead of creating a duplicate.
+  saveImportTemplate(s, "chase export", {
+    Date: "Date",
+    Memo: "Description",
+    Amt: "Amount",
+  });
+  assert.equal(s.importTemplates.length, 1);
+  assert.equal(s.importTemplates[0].id, id);
+  assert.equal(s.importTemplates[0].columnMap.Amt, "Amount");
+  saveImportTemplate(s, "Wells Fargo export", { Date: "Date" });
+  assert.equal(s.importTemplates.length, 2);
+  deleteImportTemplate(s, id);
+  assert.equal(s.importTemplates.length, 1);
+  assert.equal(s.importTemplates[0].name, "Wells Fargo export");
+});
+test("the CSV preview parser handles quoted fields, embedded commas/quotes and trailing newlines", () => {
+  const csv =
+    "Date,Description,Amount\n" +
+    '2026-09-01,"Smith, John",100.00\n' +
+    '2026-09-02,"Said ""hello""",-25.50\n';
+  assert.deepEqual(parseCsv(csv), [
+    ["Date", "Description", "Amount"],
+    ["2026-09-01", "Smith, John", "100.00"],
+    ["2026-09-02", 'Said "hello"', "-25.50"],
+  ]);
+  // A trailing newline must not produce a phantom blank final row, but a
+  // genuinely blank row in the middle of a file is preserved as one.
+  assert.equal(parseCsv("a,b\n").length, 1);
+  assert.deepEqual(parseCsv("a,b\n\nc,d\n"), [["a", "b"], [""], ["c", "d"]]);
+  const preview = previewCsv(csv, 1);
+  assert.deepEqual(preview.headers, ["Date", "Description", "Amount"]);
+  assert.equal(preview.rows.length, 1);
+  assert.equal(preview.totalDataRows, 2);
+});
 
 test("renewal reminders use recorded dates and do not duplicate work", () => {
   const s = createSeed();
