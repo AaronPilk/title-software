@@ -1031,7 +1031,7 @@ test("a field revision changes exactly one commitment field, advances the file v
   assert.equal(after.version, before.version + 1);
   assert.deepEqual(
     { ...after, lender: before.lender, version: before.version },
-    before,
+    { ...before, commitmentReview: undefined },
   );
   assert.deepEqual(products(s, o.id).find((x) => x.id === loan.id), loanSnapshot);
   assert.ok(o.fields.every((f) => f.reviewed));

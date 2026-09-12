@@ -507,9 +507,16 @@ export function applyRevision(s: Workspace, id: string, confirmed: boolean) {
   // every version-bound attachment, reply draft and handoff must go stale.
   const mirrorsFile = loans.length <= 1;
   const nextVersion = p.version + 1;
+  // A version bump alone does not invalidate the final-review snapshot for
+  // product-only revisions, so every applied revision reopens that approval.
   o.production = mirrorsFile
-    ? { ...p, loanAmount: r.proposed, version: nextVersion }
-    : { ...p, version: nextVersion };
+    ? {
+        ...p,
+        loanAmount: r.proposed,
+        version: nextVersion,
+        commitmentReview: undefined,
+      }
+    : { ...p, version: nextVersion, commitmentReview: undefined };
   if (target) {
     target.loanAmount = r.proposed;
     target.version++;
@@ -603,6 +610,8 @@ function fieldRevisionOrder(s: Workspace, r: FieldRevision) {
       "This file is no longer available for a commitment revision.",
     );
   assertRevisionContext(s, o, r.messageId);
+  if (r.field === "lender" && titleFile(o).financing === "Cash")
+    throw new Error("A cash file has no lender to revise.");
   return o;
 }
 export function createFieldRevision(
@@ -669,9 +678,10 @@ export function createFieldRevision(
 /**
  * Applies a reviewed field revision to the local title file only: sets that
  * one field, bumps the file version (so every version-bound preparation,
- * output and reply draft goes stale through the existing checks) and sends a
- * Ready-for-jacket file back to review. Captured source-document field
- * reviews are left alone — a lender or seller name change doesn't invalidate
+ * output and reply draft goes stale through the existing checks), clears the
+ * previous commitment approval and sends a Ready-for-jacket file back to
+ * review. Captured source-document field reviews are left alone — a lender
+ * or seller name change doesn't invalidate
  * what was read off a recorded deed. Prepares the same reply-draft handoff
  * the loan-amount flow does; nothing external is changed.
  */
@@ -685,7 +695,11 @@ export function applyFieldRevision(s: Workspace, id: string, confirmed: boolean)
     throw new Error(
       "This file changed after the request was captured. Recheck the current values and create a new request.",
     );
-  const next: TitleFile = { ...p, version: p.version + 1 };
+  const next: TitleFile = {
+    ...p,
+    version: p.version + 1,
+    commitmentReview: undefined,
+  };
   next[r.field] = r.proposed;
   o.production = next;
   if (o.status === "Ready for jacket") o.status = "Needs review";
