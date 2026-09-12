@@ -996,6 +996,101 @@ export function credentialCurrent(r: CredentialRecord, date = today()) {
     (!r.reviewOn || r.reviewOn >= date)
   );
 }
+/**
+ * Duplicate-company warnings (S01). A pure, explainable comparison of a
+ * draft company against the ones already on file — it only ever returns
+ * matches with the reason each one matched, so the operator can review them
+ * and still create a genuinely distinct JV. Nothing here merges records or
+ * blocks creation; that stays a human decision in the create dialog.
+ */
+export type CompanyMatch = {
+  company: Company;
+  strength: "exact" | "likely";
+  reasons: string[];
+};
+// Words that appear in nearly every title-company name and so say nothing
+// about whether two names refer to the same business.
+const companyNoise = new Set([
+  "title", "titles", "llc", "inc", "co", "company", "corp", "corporation",
+  "agency", "services", "service", "group", "the", "and", "of", "a", "an",
+  "jv", "joint", "venture", "insurance", "ltd", "closing", "closings",
+]);
+// Email domains shared by unrelated businesses; a match there means nothing.
+const sharedEmailDomains = new Set([
+  "gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com",
+  "aol.com", "example.com", "example.org", "test.com",
+]);
+const words = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(" ")
+    .filter((w) => w.length > 1);
+const cityOf = (location: string) =>
+  location.split(",")[0].trim().toLowerCase();
+export function similarCompanies(
+  s: Workspace,
+  draft: { name: string; contact?: string; email?: string; location?: string },
+  excludeId = "",
+): CompanyMatch[] {
+  const allTokens = words(draft.name);
+  const tokens = allTokens.filter((w) => !companyNoise.has(w));
+  const contact = words(draft.contact || "").join(" ");
+  const email = (draft.email || "").trim().toLowerCase();
+  const domain = email.split("@")[1] || "";
+  const city = cityOf(draft.location || "");
+  const out: CompanyMatch[] = [];
+  for (const c of s.companies) {
+    if (c.id === excludeId) continue;
+    const reasons: string[] = [];
+    let strength: CompanyMatch["strength"] = "likely";
+    const theirAll = words(c.name);
+    const theirs = theirAll.filter((w) => !companyNoise.has(w));
+    let nameMatch: "exact" | "similar" | null = null;
+    if (tokens.length && theirs.length) {
+      const a = new Set(tokens), b = new Set(theirs);
+      const shared = [...a].filter((w) => b.has(w)).length;
+      const dice = (2 * shared) / (a.size + b.size);
+      if (dice === 1) nameMatch = "exact";
+      else if (
+        dice >= 0.5 ||
+        (shared > 0 && (shared === a.size || shared === b.size))
+      )
+        nameMatch = "similar";
+    } else if (allTokens.length && allTokens.join(" ") === theirAll.join(" "))
+      // Names made only of generic words ("Title Company") match only when
+      // they are the same words in the same order.
+      nameMatch = "exact";
+    if (nameMatch === "exact") {
+      reasons.push(
+        c.name.trim().toLowerCase() === draft.name.trim().toLowerCase()
+          ? "Same name"
+          : `Same name once generic words are ignored ("${c.name}")`,
+      );
+      strength = "exact";
+    } else if (nameMatch === "similar")
+      reasons.push(`Similar name ("${c.name}")`);
+    if (email && c.email.trim().toLowerCase() === email) {
+      reasons.push(`Same contact email (${c.email})`);
+      strength = "exact";
+    } else if (
+      domain &&
+      !sharedEmailDomains.has(domain) &&
+      c.email.trim().toLowerCase().endsWith("@" + domain)
+    )
+      reasons.push(`Same email domain (@${domain})`);
+    if (contact && words(c.contact).join(" ") === contact)
+      reasons.push(`Same primary contact (${c.contact})`);
+    // Same city on its own is not evidence — plenty of distinct JVs share
+    // one — but alongside a name or contact match it strengthens the case.
+    if (reasons.length && city && cityOf(c.location) === city)
+      reasons.push(`Same city (${c.location})`);
+    if (reasons.length) out.push({ company: c, strength, reasons });
+  }
+  return out.sort((a, b) =>
+    a.strength === b.strength ? 0 : a.strength === "exact" ? -1 : 1,
+  );
+}
 export function companyProblems(s: Workspace, c: Company, date = today()) {
   const oc = getOnboarding(s, c),
     errors: string[] = [];

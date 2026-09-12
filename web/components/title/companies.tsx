@@ -12,6 +12,7 @@ import {
   MapPin,
   FolderClosed,
   UsersRound,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { useWorkspace } from "@/lib/title/store";
+import { similarCompanies } from "@/lib/title/business";
 import {
   onboardingSteps,
   onboardingOwner,
@@ -151,24 +153,45 @@ export function NewCompany({
   open: boolean;
   onClose: () => void;
 }) {
-  const { update } = useWorkspace();
+  const { s, update } = useWorkspace();
   const [state, setState] = useState("NC");
+  const [name, setName] = useState("");
+  const [contact, setContact] = useState("");
+  const [email, setEmail] = useState("");
+  const [city, setCity] = useState("");
+  const [reviewed, setReviewed] = useState(false);
+  // Live, explainable duplicate check against the companies already on file.
+  // A warning only: the operator sees which records matched and why, and can
+  // still create a distinct JV (an exact-name match asks for an explicit
+  // acknowledgement first; nothing is ever merged or blocked outright).
+  const matches = name.trim()
+    ? similarCompanies(s, { name, contact, email, location: city })
+    : [];
+  const needsAck = matches.some((m) => m.strength === "exact");
   function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    const name = String(f.get("name")).trim(),
-      contact = String(f.get("contact")).trim();
-    if (!name || !contact) {
+    const trimmedName = name.trim(),
+      trimmedContact = contact.trim();
+    if (!trimmedName || !trimmedContact) {
       toast.error("Enter a company name and contact.");
       return;
     }
+    if (needsAck && !reviewed) {
+      toast.error(
+        "Review the matching companies and confirm this is a different one.",
+      );
+      return;
+    }
+    const acknowledged = matches.length
+      ? ` · created after reviewing ${matches.length} similar record${matches.length === 1 ? "" : "s"}: ${matches.map((m) => m.company.name).join(", ")}`
+      : "";
     update(
       (d) => {
         const id = uid("company");
         d.companies.unshift({
           id,
-          name,
-          initials: name
+          name: trimmedName,
+          initials: trimmedName
             .split(" ")
             .slice(0, 2)
             .map((x) => x[0])
@@ -177,9 +200,9 @@ export function NewCompany({
           color: ["teal", "blue", "violet", "amber", "rose"][
             d.companies.length % 5
           ],
-          contact,
-          email: String(f.get("email")),
-          location: String(f.get("city")),
+          contact: trimmedContact,
+          email: email.trim(),
+          location: city.trim(),
           jurisdiction: state,
           stage: "Onboarding",
           steps: Array(7).fill(false),
@@ -196,7 +219,7 @@ export function NewCompany({
         });
       },
       "Company added",
-      `${name} · onboarding started`,
+      `${trimmedName} · onboarding started${acknowledged}`,
     );
     onClose();
   }
@@ -216,6 +239,11 @@ export function NewCompany({
               required
               maxLength={100}
               placeholder="e.g. Magnolia Title"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setReviewed(false);
+              }}
             />
           </FieldLabel>
           <div className="form-grid">
@@ -225,6 +253,8 @@ export function NewCompany({
                 required
                 maxLength={100}
                 placeholder="Full name"
+                value={contact}
+                onChange={(e) => setContact(e.target.value)}
               />
             </FieldLabel>
             <FieldLabel label="Contact email">
@@ -233,6 +263,11 @@ export function NewCompany({
                 type="email"
                 required
                 placeholder="name@example.com"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setReviewed(false);
+                }}
               />
             </FieldLabel>
             <FieldLabel label="City">
@@ -241,6 +276,8 @@ export function NewCompany({
                 required
                 placeholder="e.g. Raleigh"
                 maxLength={100}
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
               />
             </FieldLabel>
             <FieldLabel label="Initial operating state">
@@ -256,11 +293,54 @@ export function NewCompany({
             This starts an internal checklist. It does not create an LLC, obtain
             an EIN, or submit a license application.
           </p>
+          {matches.length > 0 && (
+            <div className="notice warning duplicate-warning" role="alert">
+              <AlertTriangle size={18} />
+              <div>
+                <strong>
+                  {matches.length === 1
+                    ? "A similar company is already on file"
+                    : `${matches.length} similar companies are already on file`}
+                </strong>
+                <ul className="duplicate-matches">
+                  {matches.map((m) => (
+                    <li key={m.company.id}>
+                      <span>
+                        <b>{m.company.name}</b> · {m.company.location} ·{" "}
+                        {m.company.contact} · {m.company.stage}
+                      </span>
+                      <small>{m.reasons.join(" · ")}</small>
+                    </li>
+                  ))}
+                </ul>
+                <p>
+                  Nothing is merged automatically. If this is genuinely a
+                  different joint venture, you can still create it
+                  {needsAck ? " after confirming below" : ""}.
+                </p>
+                {needsAck && (
+                  <label className="duplicate-ack">
+                    <Checkbox
+                      checked={reviewed}
+                      onCheckedChange={(v) => setReviewed(v === true)}
+                      aria-label="I reviewed the matching companies and this is a different company"
+                    />
+                    <span>
+                      I reviewed the matching companies and this is a different
+                      company.
+                    </span>
+                  </label>
+                )}
+              </div>
+            </div>
+          )}
           <div className="form-actions">
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit">Create workspace</Button>
+            <Button type="submit" disabled={needsAck && !reviewed}>
+              {matches.length ? "Create anyway" : "Create workspace"}
+            </Button>
           </div>
         </form>
       </DialogContent>

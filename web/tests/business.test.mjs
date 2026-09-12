@@ -648,8 +648,69 @@ test("receipt date can be backfilled once but not overwritten or set to the futu
 import {
   saveImportTemplate,
   deleteImportTemplate,
+  similarCompanies,
 } from "../.local-test/business.js";
 import { parseCsv, previewCsv } from "../.local-test/csv.js";
+test("duplicate-company warnings explain every match and ignore noise words, shared email domains and city alone", () => {
+  const s = createSeed();
+  const names = (m) => m.map((x) => x.company.name);
+  // Exact once generic words are ignored, in either direction.
+  let m = similarCompanies(s, { name: "Evergreen Title, LLC" });
+  assert.deepEqual(names(m), ["Evergreen Title"]);
+  assert.equal(m[0].strength, "exact");
+  assert.match(m[0].reasons[0], /Same name/);
+  m = similarCompanies(s, { name: "evergreen title" });
+  assert.equal(m[0].reasons[0], "Same name");
+  // Generic words never make two names differ: this is the same distinctive
+  // name as "Oak & Stone Title" and is reported as an exact match.
+  m = similarCompanies(s, { name: "Oak Stone Closing Services" });
+  assert.deepEqual(names(m), ["Oak & Stone Title"]);
+  assert.equal(m[0].strength, "exact");
+  // Similar name: the distinctive words overlap only partly.
+  m = similarCompanies(s, { name: "Stone Title Services" });
+  assert.deepEqual(names(m), ["Oak & Stone Title"]);
+  assert.equal(m[0].strength, "likely");
+  assert.match(m[0].reasons[0], /Similar name/);
+  // A name made only of generic words never matches a different generic name.
+  assert.deepEqual(similarCompanies(s, { name: "Title Company" }), []);
+  // Unrelated name, same city, shared public email domain: no match at all.
+  assert.deepEqual(
+    similarCompanies(s, {
+      name: "Magnolia Title",
+      email: "someone@example.com",
+      location: "Charlotte, NC",
+    }),
+    [],
+  );
+  // Same contact email is an exact-strength match even with a different name.
+  m = similarCompanies(s, { name: "Magnolia Title", email: "EMMA@example.com" });
+  assert.deepEqual(names(m), ["Evergreen Title"]);
+  assert.equal(m[0].strength, "exact");
+  assert.match(m[0].reasons[0], /Same contact email/);
+  // Same primary contact is reported; city is added only alongside another reason.
+  m = similarCompanies(s, {
+    name: "Magnolia Title",
+    contact: "daniel reed",
+    location: "Charleston",
+  });
+  assert.deepEqual(names(m), ["Harbor Title Group"]);
+  assert.deepEqual(m[0].reasons, [
+    "Same primary contact (Daniel Reed)",
+    "Same city (Charleston, SC)",
+  ]);
+  // A company can be excluded (editing itself) and exact matches sort first.
+  assert.deepEqual(
+    similarCompanies(s, { name: "Evergreen Title" }, s.companies[0].id),
+    [],
+  );
+  m = similarCompanies(s, {
+    name: "Harbor Point Title",
+    email: "emma@example.com",
+  });
+  assert.deepEqual(names(m), ["Evergreen Title", "Harbor Title Group"]);
+  assert.equal(m[0].strength, "exact");
+  assert.equal(m[1].strength, "likely");
+});
 test("a CSV column-mapping template can be saved, reused by name, and deleted", () => {
   const s = createSeed();
   assert.throws(
