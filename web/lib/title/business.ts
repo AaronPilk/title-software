@@ -1530,7 +1530,9 @@ export function validateBusinessMutation(before: Workspace, after: Workspace) {
         );
     }
   }
-  for (const r of before.revisions) {
+  // Field revisions carry the same routing guarantee as loan-amount ones: a
+  // message that produced a revision request keeps its original file routing.
+  for (const r of [...before.revisions, ...(before.fieldRevisions || [])]) {
     const original = before.inbox.find((m) => m.id === r.messageId);
     const current = after.inbox.find((m) => m.id === r.messageId);
     if (

@@ -43,7 +43,14 @@ import {
   createRevision,
   applyRevision,
   recheckRevision,
+  createFieldRevision,
+  applyFieldRevision,
+  recheckFieldRevision,
+  revisableFields,
+  revisableFieldLabel,
   type RevisionRequest,
+  type FieldRevision,
+  type RevisableField,
   type ReplyDraft,
 } from "@/lib/title/production";
 import { UploadDocument, DocumentPreview } from "./documents";
@@ -58,6 +65,25 @@ function revisionLoanLabel(s: Workspace, r: RevisionRequest) {
   const p = s.business?.policies.find((x) => x.id === r.productId);
   return p ? p.loanReference || "Loan" : "";
 }
+/**
+ * Loan-amount and field revisions are separate record types (see
+ * production.ts), but the operator sees one request queue. Newest first
+ * across both kinds.
+ */
+type AnyRequest =
+  | { kind: "amount"; r: RevisionRequest }
+  | { kind: "field"; r: FieldRevision };
+function allRequests(s: Workspace): AnyRequest[] {
+  return [
+    ...s.revisions.map((r) => ({ kind: "amount" as const, r })),
+    ...(s.fieldRevisions || []).map((r) => ({ kind: "field" as const, r })),
+  ].sort((a, b) => b.r.createdAt.localeCompare(a.r.createdAt));
+}
+function requestLabel(s: Workspace, x: AnyRequest) {
+  return x.kind === "amount"
+    ? revisionLoanLabel(s, x.r) || "Loan amount revision"
+    : `${revisableFieldLabel(x.r.field)} revision`;
+}
 
 export function Revisions({
   messageId,
@@ -68,16 +94,19 @@ export function Revisions({
 }) {
   const { s } = useWorkspace();
   const [tab, setTab] = useState("Requests");
+  const requests = allRequests(s);
   const [selected, setSelected] = useState(
-    s.revisions.find((r) => r.messageId === messageId)?.id ||
-      s.revisions[0]?.id ||
+    requests.find((x) => x.r.messageId === messageId)?.r.id ||
+      requests[0]?.r.id ||
       "",
   );
   const [create, setCreate] = useState(
-    !!messageId && !s.revisions.some((r) => r.messageId === messageId),
+    !!messageId && !requests.some((x) => x.r.messageId === messageId),
   );
   const message = s.inbox.find((m) => m.id === messageId);
-  const request = s.revisions.find((r) => r.id === selected) || s.revisions[0];
+  const request = requests.find((x) => x.r.id === selected) || requests[0];
+  const waiting = requests.filter((x) => x.r.status === "Needs review").length;
+  const prepared = requests.filter((x) => x.r.status === "Applied").length;
   return (
     <>
       <Heading
@@ -92,16 +121,12 @@ export function Revisions({
       <div className="metrics revision-metrics">
         <Metric
           label="Waiting for review"
-          value={String(
-            s.revisions.filter((r) => r.status === "Needs review").length,
-          )}
+          value={String(waiting)}
           detail="Company and source confirmation"
         />
         <Metric
           label="Changes prepared"
-          value={String(
-            s.revisions.filter((r) => r.status === "Applied").length,
-          )}
+          value={String(prepared)}
           detail="Applied to local demo records"
         />
         <Metric
@@ -119,26 +144,34 @@ export function Revisions({
         <span className="subtle-pill">SoftPro & Missive disconnected</span>
       </div>
       {tab === "Requests" &&
-        (s.revisions.length ? (
+        (requests.length ? (
           <div className="revision-layout">
             <aside className="panel revision-list">
-              {s.revisions.map((r) => (
+              {requests.map((x) => (
                 <button
-                  key={r.id}
-                  className={r.id === request?.id ? "selected" : ""}
-                  onClick={() => setSelected(r.id)}
+                  key={x.r.id}
+                  className={x.r.id === request?.r.id ? "selected" : ""}
+                  onClick={() => setSelected(x.r.id)}
                 >
-                  <small>{companyById(s, r.companyId).name}</small>
-                  <strong>{r.orderId}</strong>
-                  <span>{revisionLoanLabel(s, r) || "Loan amount revision"}</span>
-                  <Status value={r.status} />
+                  <small>{companyById(s, x.r.companyId).name}</small>
+                  <strong>{x.r.orderId}</strong>
+                  <span>{requestLabel(s, x)}</span>
+                  <Status value={x.r.status} />
                 </button>
               ))}
             </aside>
-            {request && (
+            {request?.kind === "amount" && (
               <RevisionDetail
-                key={request.id + ":" + request.baseVersion}
-                request={request}
+                key={request.r.id + ":" + request.r.baseVersion}
+                request={request.r}
+                onOpen={onOpen}
+                onDraft={() => setTab("Reply drafts")}
+              />
+            )}
+            {request?.kind === "field" && (
+              <FieldRevisionDetail
+                key={request.r.id + ":" + request.r.baseVersion}
+                request={request.r}
                 onOpen={onOpen}
                 onDraft={() => setTab("Reply drafts")}
               />
@@ -147,7 +180,7 @@ export function Revisions({
         ) : (
           <Empty
             title="Start with a revision request"
-            text="Choose the company and file, capture the requested loan amount, then review the change."
+            text="Choose the company and file, capture the requested loan amount or commitment field change, then review it."
             action={
               <Button onClick={() => setCreate(true)}>
                 <Plus />
@@ -172,7 +205,7 @@ export function Revisions({
       {create && (
         <NewRevision
           message={
-            s.revisions.some((r) => r.messageId === messageId)
+            requests.some((x) => x.r.messageId === messageId)
               ? undefined
               : message
           }
@@ -207,28 +240,57 @@ function NewRevision({
     message?.id === "tyler-revision-demo" ? "340000" : "",
   );
   const [productId, setProductId] = useState("none");
+  // "amount" keeps the original loan-amount flow; any other value is one of
+  // the commitment fields a field revision can change (see revisableFields).
+  const [kind, setKind] = useState<"amount" | RevisableField>("amount");
+  const [proposedText, setProposedText] = useState("");
+  const isAmount = kind === "amount";
   const eligible = s.orders.filter(
     (o) =>
       o.companyId === company &&
       !["Issued", "Rejected"].includes(o.status) &&
-      titleFile(o).financing === "Financed",
+      (!isAmount || titleFile(o).financing === "Financed"),
   );
+  const selectedOrder = eligible.find((o) => o.id === order);
   const loans = orderLoans(s, order);
-  const needsLoanChoice = loans.length > 1;
+  const needsLoanChoice = isAmount && loans.length > 1;
+  const kindOptions = [
+    { value: "amount", label: "Loan amount" },
+    ...revisableFields
+      // A cash file has no lender to revise.
+      .filter(
+        (f) =>
+          f.id !== "lender" ||
+          !selectedOrder ||
+          titleFile(selectedOrder).financing === "Financed",
+      )
+      .map((f) => ({ value: f.id, label: f.label })),
+  ];
+  const currentValue =
+    !isAmount && selectedOrder ? titleFile(selectedOrder)[kind] : "";
   function submit(e: React.FormEvent) {
     e.preventDefault();
     let id = "";
     if (
       update(
         (d) => {
-          const r = createRevision(d, {
-            companyId: company,
-            orderId: order,
-            messageId: message?.id || "",
-            text,
-            proposed: Number(amount),
-            productId: needsLoanChoice ? productId : undefined,
-          });
+          const r = isAmount
+            ? createRevision(d, {
+                companyId: company,
+                orderId: order,
+                messageId: message?.id || "",
+                text,
+                proposed: Number(amount),
+                productId: needsLoanChoice ? productId : undefined,
+              })
+            : createFieldRevision(d, {
+                companyId: company,
+                orderId: order,
+                messageId: message?.id || "",
+                text,
+                field: kind,
+                proposed: proposedText,
+              });
           id = r.id;
           if (message)
             d.inbox.find((m) => m.id === message.id)!.status = "Queued";
@@ -279,6 +341,61 @@ function NewRevision({
               ]}
             />
           </FieldLabel>
+          <FieldLabel label="What is changing">
+            <Picker
+              value={kind}
+              label="Revision kind"
+              onChange={(v) => {
+                setKind(v as "amount" | RevisableField);
+                setProposedText("");
+                setProductId("none");
+                // A cash file is eligible for a field change but not a
+                // loan-amount one; drop a selection that no longer qualifies.
+                if (
+                  v === "amount" &&
+                  selectedOrder &&
+                  titleFile(selectedOrder).financing !== "Financed"
+                )
+                  setOrder("none");
+              }}
+              options={kindOptions}
+            />
+          </FieldLabel>
+          {!isAmount && (
+            <>
+              {selectedOrder && (
+                <p className="inline-note">
+                  Currently on file:{" "}
+                  {currentValue ? (
+                    <strong>{currentValue}</strong>
+                  ) : (
+                    "not recorded"
+                  )}
+                </p>
+              )}
+              <FieldLabel label={`Requested ${revisableFieldLabel(kind).toLowerCase()}`}>
+                {kind === "legalDescription" ? (
+                  <Textarea
+                    aria-label="Requested value"
+                    rows={4}
+                    value={proposedText}
+                    onChange={(e) => setProposedText(e.target.value)}
+                    required
+                    maxLength={5000}
+                  />
+                ) : (
+                  <Input
+                    aria-label="Requested value"
+                    type={kind === "attorneyEmail" ? "email" : "text"}
+                    value={proposedText}
+                    onChange={(e) => setProposedText(e.target.value)}
+                    required
+                    maxLength={500}
+                  />
+                )}
+              </FieldLabel>
+            </>
+          )}
           {needsLoanChoice && (
             <FieldLabel label="Which loan">
               <Picker
@@ -295,17 +412,19 @@ function NewRevision({
               />
             </FieldLabel>
           )}
-          <FieldLabel label="Requested loan amount ($)">
-            <Input
-              type="number"
-              min=".01"
-              max="100000000"
-              step=".01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              required
-            />
-          </FieldLabel>
+          {isAmount && (
+            <FieldLabel label="Requested loan amount ($)">
+              <Input
+                type="number"
+                min=".01"
+                max="100000000"
+                step=".01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                required
+              />
+            </FieldLabel>
+          )}
           <FieldLabel label="Original request">
             <Textarea
               rows={6}
@@ -316,12 +435,16 @@ function NewRevision({
             />
           </FieldLabel>
           <p className="form-note">
-            Only a loan-amount revision is supported here. Legal wording,
-            coverage, and other changes require a separate professional review.
+            Loan amount and the listed commitment fields (lender, seller, legal
+            description, county, attorney) can be revised here. Coverage,
+            endorsements and policy-form changes still require a separate
+            professional review.
           </p>
           <Button
             disabled={
-              order === "none" || (needsLoanChoice && productId === "none")
+              order === "none" ||
+              (needsLoanChoice && productId === "none") ||
+              (!isAmount && !proposedText.trim())
             }
             type="submit"
           >
@@ -348,18 +471,25 @@ function RevisionDetail({
   const order = s.orders.find((o) => o.id === r.orderId)!;
   const file = titleFile(order);
   const loans = orderLoans(s, order.id);
-  const multi = loans.length > 1;
-  // A multi-loan file has no single file-level "the loan amount", so staleness
-  // and the current-amount display track the specific loan the request named
-  // instead of the file record — mirroring applyRevision's own branching.
-  const targetLoan = multi ? loans.find((l) => l.id === r.productId) : loans[0];
-  const targetMissing = multi && !targetLoan;
-  const currentAmount =
-    multi && targetLoan ? targetLoan.loanAmount : file.loanAmount;
-  const currentVersion = multi && targetLoan ? targetLoan.version : file.version;
-  const baseline = multi && targetLoan ? r.productVersion : r.baseVersion;
+  // Resolve the loan from the request's own stored productId — never from
+  // how many loans happen to be active right now — mirroring
+  // resolveRevisionTarget in production.ts. A request whose named loan was
+  // voided shows as missing instead of silently pointing at the survivor.
+  const targetLoan = r.productId
+    ? loans.find((l) => l.id === r.productId)
+    : loans.length === 1
+      ? loans[0]
+      : undefined;
+  const targetMissing =
+    (!!r.productId && !targetLoan) || (!r.productId && loans.length > 1);
+  const currentAmount = targetLoan ? targetLoan.loanAmount : file.loanAmount;
+  // Stale if the file's commitment version moved OR the named loan itself
+  // changed since capture — the same two checks applyRevision makes.
   const stale =
-    !targetMissing && currentVersion !== baseline && r.status !== "Applied";
+    !targetMissing &&
+    r.status !== "Applied" &&
+    (file.version !== r.baseVersion ||
+      (!!targetLoan && targetLoan.version !== r.productVersion));
   return (
     <section className="panel revision-review">
       <div className="source-summary">
@@ -395,9 +525,9 @@ function RevisionDetail({
       {targetMissing && r.status === "Needs review" && (
         <div className="notice warning">
           <p>
-            The loan this revision named is no longer active on this file (it
-            may have been voided). Hold this request for clarification or
-            open the file to review the current loans.
+            {r.productId
+              ? "The loan this revision named is no longer active on this file (it may have been voided). Hold this request for clarification and capture a new one for the current loans."
+              : "This file now has more than one active loan, so this older request no longer says which one it applies to. Hold it for clarification and capture a new request naming the loan."}
           </p>
         </div>
       )}
@@ -526,6 +656,187 @@ function RevisionDetail({
       <p className="form-note">
         Applying changes only the demo file, invalidates prior field reviews,
         and prepares a reply draft. No external record or message is changed.
+      </p>
+    </section>
+  );
+}
+function FieldRevisionDetail({
+  request: r,
+  onOpen,
+  onDraft,
+}: {
+  request: FieldRevision;
+  onOpen: (id: string) => void;
+  onDraft: () => void;
+}) {
+  const { s, update } = useWorkspace();
+  const [oCheck, setOCheck] = useState(false);
+  const [sCheck, setSCheck] = useState(false);
+  const [note, setNote] = useState(r.note);
+  const order = s.orders.find((o) => o.id === r.orderId)!;
+  const file = titleFile(order);
+  const label = revisableFieldLabel(r.field);
+  const current = file[r.field] || "";
+  const stale =
+    r.status !== "Applied" &&
+    (file.version !== r.baseVersion || current !== r.before);
+  return (
+    <section className="panel revision-review">
+      <div className="source-summary">
+        <div>
+          <p className="eyebrow">
+            {companyById(s, r.companyId).name} / {r.orderId}
+          </p>
+          <h2>{order.address}</h2>
+        </div>
+        <Status value={r.status} />
+      </div>
+      <p className="inline-note">
+        Destination: {companyById(s, r.companyId).name} → {r.orderId}. File
+        version {file.version}. Field: {label}.
+      </p>
+      <div className="revision-diff text">
+        <div>
+          <small>{label} recorded at capture</small>
+          <strong>{r.before || "Not recorded"}</strong>
+        </div>
+        <ArrowRight />
+        <div>
+          <small>Requested {label.toLowerCase()}</small>
+          <strong>{r.proposed}</strong>
+        </div>
+      </div>
+      <div className="request-original">
+        <h3>Source instruction</h3>
+        <p>{r.text}</p>
+      </div>
+      {stale && (
+        <div className="notice warning">
+          <p>
+            The file changed after this request was captured. Current{" "}
+            {label.toLowerCase()}: {current || "not recorded"}. Recheck the
+            request against the current file.
+          </p>
+          <Button
+            variant="outline"
+            onClick={() =>
+              update(
+                (d) => recheckFieldRevision(d, r.id),
+                "Revision comparison refreshed",
+                r.orderId,
+              )
+            }
+          >
+            <RefreshCw />
+            Refresh comparison
+          </Button>
+        </div>
+      )}
+      {r.status === "Needs review" && (
+        <>
+          <div className="revision-confirmations">
+            <label>
+              <Checkbox
+                checked={oCheck}
+                onCheckedChange={(v) => setOCheck(v === true)}
+              />
+              I confirmed the company, file number, and property.
+            </label>
+            <label>
+              <Checkbox
+                checked={sCheck}
+                onCheckedChange={(v) => setSCheck(v === true)}
+              />
+              I verified this {label.toLowerCase()} instruction against the
+              source.
+            </label>
+          </div>
+          <div className="source-actions">
+            <Button
+              disabled={!oCheck || !sCheck || stale}
+              onClick={() => {
+                if (
+                  update(
+                    (d) => applyFieldRevision(d, r.id, oCheck && sCheck),
+                    "Reviewed revision applied locally",
+                    r.orderId,
+                  )
+                )
+                  onDraft();
+              }}
+            >
+              <CheckCheck />
+              Apply reviewed change
+            </Button>
+            <Button variant="outline" onClick={() => onOpen(order.id)}>
+              Open title file
+            </Button>
+          </div>
+        </>
+      )}
+      {r.status === "Applied" ? (
+        <div className="notice success">
+          <CheckCheck size={18} />
+          <div>
+            <strong>Local change prepared</strong>
+            <p>
+              The official commitment still needs to be regenerated in SoftPro.
+              Attach it to the prepared reply for review.
+            </p>
+            <Button variant="outline" onClick={onDraft}>
+              Open reply drafts
+              <ArrowRight />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="revision-question">
+          <FieldLabel label="Clarification needed">
+            <Textarea
+              rows={2}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Explain a missing instruction or mismatch…"
+            />
+          </FieldLabel>
+          <Button
+            variant="ghost"
+            disabled={!note.trim()}
+            onClick={() =>
+              update(
+                (d) => {
+                  const item = d.fieldRevisions.find((x) => x.id === r.id)!;
+                  item.note = note;
+                  item.status = "Needs information";
+                },
+                "Revision needs information",
+                r.orderId,
+              )
+            }
+          >
+            Hold for clarification
+          </Button>
+          {r.status === "Needs information" && (
+            <Button
+              variant="outline"
+              onClick={() =>
+                update(
+                  (d) => recheckFieldRevision(d, r.id),
+                  "Revision reopened",
+                  r.orderId,
+                )
+              }
+            >
+              Reopen review
+            </Button>
+          )}
+        </div>
+      )}
+      <p className="form-note">
+        Applying changes only the demo title file and prepares a reply draft.
+        Captured deed and deed-of-trust field reviews are kept; the file's
+        commitment version advances so earlier outputs and drafts go stale. No
+        external record or message is changed.
       </p>
     </section>
   );

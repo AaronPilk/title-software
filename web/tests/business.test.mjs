@@ -6,6 +6,10 @@ import {
   createRevision,
   applyRevision,
   recheckRevision,
+  approveReplyDraft,
+  createFieldRevision,
+  applyFieldRevision,
+  recheckFieldRevision,
 } from "../.local-test/production.js";
 import {
   createFollowup,
@@ -773,7 +777,7 @@ test("a revision naming an unknown or voided loan is rejected", () => {
     /Choose which loan/,
   );
 });
-test("a multi-loan revision updates only its chosen loan, leaving the file and the other loan untouched", () => {
+test("a multi-loan revision updates only its chosen loan and the file's commitment version, leaving the other loan and the file-level amount untouched", () => {
   const { s, o } = finalCase();
   const loanA = policy(s, o, "Loan");
   const loanB = policy(s, o, "Loan");
@@ -791,18 +795,22 @@ test("a multi-loan revision updates only its chosen loan, leaving the file and t
     productId: loanB.id,
   });
   assert.equal(r.productId, loanB.id);
-  applyRevision(s, r.id, true);
+  const draft = applyRevision(s, r.id, true);
   const refreshedA = products(s, o.id).find((x) => x.id === loanA.id);
   const refreshedB = products(s, o.id).find((x) => x.id === loanB.id);
   assert.equal(refreshedB.loanAmount, 200000);
   assert.equal(refreshedB.status, "Draft");
   assert.deepEqual(refreshedA, loanASnapshot);
   assert.equal(titleFile(o).loanAmount, fileAmountBefore);
-  assert.equal(titleFile(o).version, fileVersionBefore);
+  // The revised commitment that goes back out is a new version of the file's
+  // output, so the file's commitment version advances even though only one
+  // loan changed — that's what makes earlier attachments and drafts stale.
+  assert.equal(titleFile(o).version, fileVersionBefore + 1);
+  assert.equal(draft.fileVersion, fileVersionBefore + 1);
 });
-test("a multi-loan revision detects staleness scoped to its own loan, not the file", () => {
+test("a multi-loan revision detects staleness of its own loan and of the file's commitment version", () => {
   const { s, o } = finalCase();
-  policy(s, o, "Loan");
+  const loanA = policy(s, o, "Loan");
   const loanB = policy(s, o, "Loan");
   const r = createRevision(s, {
     companyId: o.companyId,
@@ -812,8 +820,26 @@ test("a multi-loan revision detects staleness scoped to its own loan, not the fi
     proposed: 200000,
     productId: loanB.id,
   });
+  // The named loan itself changed since capture (file version untouched).
   loanB.loanAmount = 999999;
   loanB.version++;
+  assert.throws(
+    () => applyRevision(s, r.id, true),
+    /changed after the request/,
+  );
+  recheckRevision(s, r.id);
+  // Now the file's commitment version moves because the OTHER loan's own
+  // revision was applied — the pending request must be rechecked, not applied
+  // against a file that moved underneath it.
+  const rA = createRevision(s, {
+    companyId: o.companyId,
+    orderId: o.id,
+    messageId: "",
+    text: "Change Loan A principal to 310000",
+    proposed: 310000,
+    productId: loanA.id,
+  });
+  applyRevision(s, rA.id, true);
   assert.throws(
     () => applyRevision(s, r.id, true),
     /changed after the request/,
@@ -824,6 +850,229 @@ test("a multi-loan revision detects staleness scoped to its own loan, not the fi
     products(s, o.id).find((x) => x.id === loanB.id).loanAmount,
     200000,
   );
+  assert.equal(
+    products(s, o.id).find((x) => x.id === loanA.id).loanAmount,
+    310000,
+  );
+});
+test("a revision whose named loan was voided is rejected instead of falling through to the surviving loan (Codex repro)", () => {
+  const { s, o } = finalCase();
+  const loanA = policy(s, o, "Loan");
+  const loanB = policy(s, o, "Loan");
+  const r = createRevision(s, {
+    companyId: o.companyId,
+    orderId: o.id,
+    messageId: "",
+    text: "Change Loan B principal to 200000",
+    proposed: 200000,
+    productId: loanB.id,
+  });
+  voidDraftPolicy(s, loanB.id);
+  const loanASnapshot = structuredClone(
+    products(s, o.id).find((x) => x.id === loanA.id),
+  );
+  const fileSnapshot = structuredClone(titleFile(o));
+  assert.throws(() => applyRevision(s, r.id, true), /no longer active/);
+  assert.throws(() => recheckRevision(s, r.id), /no longer active/);
+  assert.deepEqual(
+    products(s, o.id).find((x) => x.id === loanA.id),
+    loanASnapshot,
+  );
+  assert.deepEqual(titleFile(o), fileSnapshot);
+  assert.equal(r.status, "Needs review");
+});
+test("multi-loan reply evidence is bound to the post-change file version (Codex repro)", () => {
+  const { s, o } = finalCase();
+  policy(s, o, "Loan");
+  const loanB = policy(s, o, "Loan");
+  const staleDoc = source(s, o, "Revised commitment", {
+    productionVersion: titleFile(o).version,
+  });
+  const r = createRevision(s, {
+    companyId: o.companyId,
+    orderId: o.id,
+    messageId: "",
+    text: "Change Loan B principal to 200000",
+    proposed: 200000,
+    productId: loanB.id,
+  });
+  const draft = applyRevision(s, r.id, true);
+  draft.to = "closings@example.com";
+  // A revised commitment uploaded before the change must not satisfy the
+  // reply that describes the change.
+  draft.attachmentId = staleDoc.id;
+  assert.throws(() => approveReplyDraft(s, draft.id), /revised commitment/);
+  const freshDoc = source(s, o, "Revised commitment", {
+    productionVersion: draft.fileVersion,
+  });
+  draft.attachmentId = freshDoc.id;
+  approveReplyDraft(s, draft.id);
+  assert.equal(draft.status, "Approved locally");
+  // A later change to the same loan supersedes that reply: it can no longer
+  // be (re)approved against the file as it now stands.
+  const r2 = createRevision(s, {
+    companyId: o.companyId,
+    orderId: o.id,
+    messageId: "",
+    text: "Change Loan B principal to 210000",
+    proposed: 210000,
+    productId: loanB.id,
+  });
+  applyRevision(s, r2.id, true);
+  assert.notEqual(draft.fileVersion, titleFile(o).version);
+  assert.throws(() => approveReplyDraft(s, draft.id), /title file changed/);
+});
+test("a field revision changes exactly one commitment field, advances the file version and prepares a reply", () => {
+  const { s, o } = finalCase();
+  const loan = policy(s, o, "Loan");
+  const loanSnapshot = structuredClone(loan);
+  const before = structuredClone(titleFile(o));
+  const r = createFieldRevision(s, {
+    companyId: o.companyId,
+    orderId: o.id,
+    messageId: "",
+    text: "Lender on this file is actually Cedar Bank, N.A.",
+    field: "lender",
+    proposed: "  Cedar Bank, N.A.  ",
+  });
+  assert.equal(r.before, before.lender);
+  assert.equal(r.proposed, "Cedar Bank, N.A.");
+  assert.equal(r.baseVersion, before.version);
+  assert.equal(r.status, "Needs review");
+  assert.throws(() => applyFieldRevision(s, r.id, false), /confirm/);
+  const draft = applyFieldRevision(s, r.id, true);
+  const after = titleFile(o);
+  assert.equal(after.lender, "Cedar Bank, N.A.");
+  assert.equal(after.version, before.version + 1);
+  assert.deepEqual(
+    { ...after, lender: before.lender, version: before.version },
+    before,
+  );
+  assert.deepEqual(products(s, o.id).find((x) => x.id === loan.id), loanSnapshot);
+  assert.ok(o.fields.every((f) => f.reviewed));
+  assert.equal(r.status, "Applied");
+  assert.equal(draft.fileVersion, after.version);
+  assert.match(draft.body, /lender has been updated to: Cedar Bank, N\.A\./);
+  assert.throws(() => applyFieldRevision(s, r.id, true), /confirm/);
+  assert.throws(() => recheckFieldRevision(s, r.id), /cannot be reopened/);
+});
+test("field revision capture rejects no-op, cash-file lender, bad email, issued file and duplicate-message requests", () => {
+  const { s, o } = finalCase();
+  const base = {
+    companyId: o.companyId,
+    orderId: o.id,
+    messageId: "",
+    text: "Please update",
+  };
+  assert.throws(
+    () =>
+      createFieldRevision(s, {
+        ...base,
+        field: "county",
+        proposed: titleFile(o).county,
+      }),
+    /already matches/,
+  );
+  assert.throws(
+    () =>
+      createFieldRevision(s, {
+        ...base,
+        field: "attorneyEmail",
+        proposed: "not-an-email",
+      }),
+    /valid attorney email/,
+  );
+  assert.throws(
+    () => createFieldRevision(s, { ...base, field: "seller", proposed: "   " }),
+    /requested value/,
+  );
+  const message = s.inbox.find((m) => m.kind === "Revision");
+  message.orderId = o.id;
+  message.companyId = o.companyId;
+  createFieldRevision(s, {
+    ...base,
+    messageId: message.id,
+    field: "seller",
+    proposed: "New Seller LLC",
+  });
+  assert.throws(
+    () =>
+      createFieldRevision(s, {
+        ...base,
+        messageId: message.id,
+        field: "seller",
+        proposed: "Another Seller LLC",
+      }),
+    /already has a request/,
+  );
+  const cash = s.orders[1];
+  cash.production = { ...titleFile(cash), financing: "Cash" };
+  assert.throws(
+    () =>
+      createFieldRevision(s, {
+        ...base,
+        companyId: cash.companyId,
+        orderId: cash.id,
+        field: "lender",
+        proposed: "Some Bank",
+      }),
+    /cash file/,
+  );
+  const issued = s.orders.find((x) => x.status === "Issued") || s.orders[2];
+  issued.status = "Issued";
+  assert.throws(
+    () =>
+      createFieldRevision(s, {
+        ...base,
+        companyId: issued.companyId,
+        orderId: issued.id,
+        field: "county",
+        proposed: "Wake",
+      }),
+    /separate correction workflow|active order/,
+  );
+});
+test("a field revision goes stale when the file moves, and recheck re-baselines it", () => {
+  const { s, o } = finalCase();
+  const r = createFieldRevision(s, {
+    companyId: o.companyId,
+    orderId: o.id,
+    messageId: "",
+    text: "County is Wake, not Mecklenburg",
+    field: "county",
+    proposed: "Wake",
+  });
+  // Someone else changes the file (a different field revision applied).
+  const other = createFieldRevision(s, {
+    companyId: o.companyId,
+    orderId: o.id,
+    messageId: "",
+    text: "Seller changed",
+    field: "seller",
+    proposed: "Replacement Seller LLC",
+  });
+  applyFieldRevision(s, other.id, true);
+  assert.throws(() => applyFieldRevision(s, r.id, true), /changed after/);
+  recheckFieldRevision(s, r.id);
+  assert.equal(r.baseVersion, titleFile(o).version);
+  applyFieldRevision(s, r.id, true);
+  assert.equal(titleFile(o).county, "Wake");
+  assert.equal(titleFile(o).seller, "Replacement Seller LLC");
+  // The routing invariant covers field revisions just like amount ones.
+  const message = s.inbox.find((m) => m.kind === "Revision");
+  message.orderId = o.id;
+  message.companyId = o.companyId;
+  createFieldRevision(s, {
+    companyId: o.companyId,
+    orderId: o.id,
+    messageId: message.id,
+    text: "Attorney changed",
+    field: "attorney",
+    proposed: "Reed & Morgan Law",
+  });
+  const moved = structuredClone(s);
+  moved.inbox.find((m) => m.id === message.id).orderId = s.orders[1].id;
+  assert.throws(() => validateBusinessMutation(s, moved), /linked revision/);
 });
 test("message routing cannot silently redirect an existing revision", () => {
   const s = createSeed(),

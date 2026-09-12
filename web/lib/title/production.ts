@@ -84,6 +84,45 @@ export type RevisionRequest = {
   note: string;
   createdAt: string;
 };
+/**
+ * Commitment-level title-file fields that can be changed through a reviewed
+ * field revision (see FieldRevision). Deliberately a fixed, small list: these
+ * are the plain-text facts a lender/attorney routinely corrects by email.
+ * Coverage, endorsements, policy forms and loan amounts are NOT here — loan
+ * amount has its own numeric RevisionRequest flow, and the rest still need a
+ * separate professional review.
+ */
+export const revisableFields = [
+  { id: "lender", label: "Lender" },
+  { id: "seller", label: "Seller" },
+  { id: "legalDescription", label: "Legal description" },
+  { id: "county", label: "County" },
+  { id: "attorney", label: "Attorney" },
+  { id: "attorneyEmail", label: "Attorney email" },
+] as const;
+export type RevisableField = (typeof revisableFields)[number]["id"];
+export const revisableFieldLabel = (id: RevisableField) =>
+  revisableFields.find((f) => f.id === id)!.label;
+/**
+ * A reviewed change to one text field of the title file — the non-amount
+ * counterpart of RevisionRequest, kept as its own record type (rather than
+ * overloading RevisionRequest's numeric before/proposed) so the loan-amount
+ * flow and everything that reads it stay exactly as they were.
+ */
+export type FieldRevision = {
+  id: string;
+  companyId: string;
+  orderId: string;
+  messageId: string;
+  text: string;
+  field: RevisableField;
+  before: string;
+  proposed: string;
+  baseVersion: number;
+  status: "Needs review" | "Applied" | "Needs information";
+  note: string;
+  createdAt: string;
+};
 export type ReplyDraft = {
   fileVersion: number;
   id: string;
@@ -445,40 +484,40 @@ export function applyRevision(s: Workspace, id: string, confirmed: boolean) {
   if (p.financing !== "Financed")
     throw new Error("Choose an active financed order.");
   const loans = activeLoans(s, o.id);
-  let fileVersionAfter = p.version;
-  if (loans.length > 1) {
-    // No single "the loan amount" exists at the file level once a second
-    // loan is active, so this path only ever touches the specific product
-    // the request named — never the shared file fields or the other loan.
-    const target = loans.find((l) => l.id === r.productId);
-    if (!target)
-      throw new Error(
-        "The targeted loan is no longer active on this file. Recheck the request.",
-      );
-    if (target.version !== r.productVersion || target.loanAmount !== r.before)
-      throw new Error(
-        "This file changed after the request was captured. Recheck the current values and create a new request.",
-      );
+  const target = resolveRevisionTarget(loans, r);
+  // The file's commitment version must be the one the request was captured
+  // against, whatever the loan situation — and the named loan itself must be
+  // unchanged too. Checking both (rather than one or the other depending on
+  // how many loans happen to be active right now) is what keeps a request
+  // from being applied against a file that moved underneath it.
+  const stale =
+    p.version !== r.baseVersion ||
+    (target
+      ? target.version !== r.productVersion || target.loanAmount !== r.before
+      : p.loanAmount !== r.before);
+  if (stale)
+    throw new Error(
+      "This file changed after the request was captured. Recheck the current values and create a new request.",
+    );
+  // The file-level loanAmount/fields mirror "the" loan only while the file has
+  // at most one active loan. With two or more, there is no single file-level
+  // amount to update, so only the named product changes — but the file's
+  // commitment version still advances either way, because the revised
+  // commitment that goes back out is a new version of the file's output and
+  // every version-bound attachment, reply draft and handoff must go stale.
+  const mirrorsFile = loans.length <= 1;
+  const nextVersion = p.version + 1;
+  o.production = mirrorsFile
+    ? { ...p, loanAmount: r.proposed, version: nextVersion }
+    : { ...p, version: nextVersion };
+  if (target) {
     target.loanAmount = r.proposed;
     target.version++;
     target.status = "Draft";
     target.preparedSnapshot = "";
     target.loanReviewNote = "";
-  } else {
-    if (p.version !== r.baseVersion || p.loanAmount !== r.before)
-      throw new Error(
-        "This file changed after the request was captured. Recheck the current values and create a new request.",
-      );
-    o.production = { ...p, loanAmount: r.proposed, version: p.version + 1 };
-    fileVersionAfter = o.production.version;
-    const loan = loans[0];
-    if (loan) {
-      loan.loanAmount = r.proposed;
-      loan.version++;
-      loan.status = "Draft";
-      loan.preparedSnapshot = "";
-      loan.loanReviewNote = "";
-    }
+  }
+  if (mirrorsFile)
     for (const f of o.fields) {
       f.reviewed = false;
       if (f.id === "loanAmount")
@@ -487,11 +526,10 @@ export function applyRevision(s: Workspace, id: string, confirmed: boolean) {
           currency: "USD",
         });
     }
-    if (o.status === "Ready for jacket") o.status = "Needs review";
-  }
+  if (o.status === "Ready for jacket") o.status = "Needs review";
   r.status = "Applied";
   const draft: ReplyDraft = {
-    fileVersion: fileVersionAfter,
+    fileVersion: nextVersion,
     id: `draft-${r.id}`,
     orderId: o.id,
     revisionId: r.id,
@@ -522,20 +560,160 @@ export function recheckRevision(s: Workspace, id: string) {
   // file, for a no-specific-loan request) — it never retargets a request to
   // a different loan. That would be a materially different instruction and
   // should go through a new request instead.
-  const loans = activeLoans(s, o.id);
-  if (loans.length > 1) {
+  const target = resolveRevisionTarget(activeLoans(s, o.id), r);
+  r.before = target ? target.loanAmount : titleFile(o).loanAmount;
+  r.productVersion = target ? target.version : 0;
+  r.baseVersion = titleFile(o).version;
+  r.status = "Needs review";
+}
+/**
+ * The loan a revision request is about, resolved from the request's own
+ * stored productId — never from however many loans happen to be active at
+ * the moment. A request that named a loan which has since been voided is
+ * rejected outright rather than silently falling through to whichever loan
+ * survived; a legacy request that named no loan is rejected once a choice
+ * would be needed (two or more active loans) and otherwise resolves to the
+ * sole active loan, if any.
+ */
+function resolveRevisionTarget(
+  loans: ReturnType<typeof activeLoans>,
+  r: Pick<RevisionRequest, "productId">,
+) {
+  if (r.productId) {
     const target = loans.find((l) => l.id === r.productId);
     if (!target)
       throw new Error(
-        "The targeted loan is no longer active on this file. Recheck the request.",
+        "The loan this request named is no longer active on this file. Capture a new request for the current loans.",
       );
-    r.before = target.loanAmount;
-    r.productVersion = target.version;
-  } else {
-    r.before = titleFile(o).loanAmount;
-    if (loans[0]) r.productVersion = loans[0].version;
+    return target;
   }
-  r.baseVersion = titleFile(o).version;
+  if (loans.length > 1)
+    throw new Error(
+      "Multiple loans are now active on this file. Capture a new request naming which loan this applies to.",
+    );
+  return loans[0];
+}
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function fieldRevisionOrder(s: Workspace, r: FieldRevision) {
+  const o = s.orders.find(
+    (o) => o.id === r.orderId && o.companyId === r.companyId,
+  );
+  if (!o || ["Issued", "Rejected"].includes(o.status))
+    throw new Error(
+      "This file is no longer available for a commitment revision.",
+    );
+  assertRevisionContext(s, o, r.messageId);
+  return o;
+}
+export function createFieldRevision(
+  s: Workspace,
+  input: {
+    companyId: string;
+    orderId: string;
+    messageId: string;
+    text: string;
+    field: RevisableField;
+    proposed: string;
+  },
+): FieldRevision {
+  const o = s.orders.find(
+    (o) => o.id === input.orderId && o.companyId === input.companyId,
+  );
+  if (!o) throw new Error("Confirm the company and matching file.");
+  assertRevisionContext(s, o, input.messageId);
+  if (["Issued", "Rejected"].includes(o.status))
+    throw new Error("Choose an active order.");
+  if (!revisableFields.some((f) => f.id === input.field))
+    throw new Error("Choose which commitment field is changing.");
+  const p = titleFile(o);
+  if (input.field === "lender" && p.financing === "Cash")
+    throw new Error("A cash file has no lender to revise.");
+  const proposed = input.proposed.trim();
+  if (!input.text.trim() || !proposed)
+    throw new Error("Enter the source request and the requested value.");
+  if (input.field === "attorneyEmail" && !EMAIL.test(proposed))
+    throw new Error("Enter a valid attorney email address.");
+  const before = p[input.field] || "";
+  if (proposed === before)
+    throw new Error(
+      "The requested value already matches the file — nothing to revise.",
+    );
+  if (
+    input.messageId &&
+    (s.fieldRevisions || []).some(
+      (r) =>
+        r.messageId === input.messageId &&
+        r.field === input.field &&
+        r.status !== "Needs information",
+    )
+  )
+    throw new Error("This message already has a request for that field.");
+  const request: FieldRevision = {
+    id: `field-revision-${crypto.randomUUID()}`,
+    companyId: o.companyId,
+    orderId: o.id,
+    messageId: input.messageId,
+    text: input.text,
+    field: input.field,
+    before,
+    proposed,
+    baseVersion: p.version,
+    status: "Needs review",
+    note: "",
+    createdAt: new Date().toISOString(),
+  };
+  s.fieldRevisions ??= [];
+  s.fieldRevisions.unshift(request);
+  return request;
+}
+/**
+ * Applies a reviewed field revision to the local title file only: sets that
+ * one field, bumps the file version (so every version-bound preparation,
+ * output and reply draft goes stale through the existing checks) and sends a
+ * Ready-for-jacket file back to review. Captured source-document field
+ * reviews are left alone — a lender or seller name change doesn't invalidate
+ * what was read off a recorded deed. Prepares the same reply-draft handoff
+ * the loan-amount flow does; nothing external is changed.
+ */
+export function applyFieldRevision(s: Workspace, id: string, confirmed: boolean) {
+  const r = (s.fieldRevisions || []).find((r) => r.id === id);
+  if (!r || r.status !== "Needs review" || !confirmed)
+    throw new Error("Review and confirm the request first.");
+  const o = fieldRevisionOrder(s, r);
+  const p = titleFile(o);
+  if (p.version !== r.baseVersion || (p[r.field] || "") !== r.before)
+    throw new Error(
+      "This file changed after the request was captured. Recheck the current values and create a new request.",
+    );
+  const next: TitleFile = { ...p, version: p.version + 1 };
+  next[r.field] = r.proposed;
+  o.production = next;
+  if (o.status === "Ready for jacket") o.status = "Needs review";
+  r.status = "Applied";
+  const label = revisableFieldLabel(r.field).toLowerCase();
+  const draft: ReplyDraft = {
+    fileVersion: o.production.version,
+    id: `draft-${r.id}`,
+    orderId: o.id,
+    revisionId: r.id,
+    to: o.production.attorneyEmail,
+    subject: `Re: ${o.id} · revised commitment`,
+    body: `Good afternoon,\n\nPlease find the revised commitment for ${o.address} attached. The ${label} has been updated to: ${r.proposed}\n\nThank you,\n${s.user}`,
+    attachmentId: "",
+    status: "Awaiting document",
+    createdAt: new Date().toISOString(),
+  };
+  s.replyDrafts.unshift(draft);
+  return draft;
+}
+export function recheckFieldRevision(s: Workspace, id: string) {
+  const r = (s.fieldRevisions || []).find((x) => x.id === id);
+  if (!r || r.status === "Applied")
+    throw new Error("This request cannot be reopened.");
+  const o = fieldRevisionOrder(s, r);
+  const p = titleFile(o);
+  r.before = p[r.field] || "";
+  r.baseVersion = p.version;
   r.status = "Needs review";
 }
 function activeLoans(s: Workspace, orderId: string) {
@@ -571,6 +749,7 @@ export function enrichWorkspace(s: Workspace): Workspace {
     r.productVersion ??= 0;
   }
   s.replyDrafts ??= [];
+  s.fieldRevisions ??= [];
   s.expenses ??= {};
   s.expansionStates ??= [];
   s.importTemplates ??= [];

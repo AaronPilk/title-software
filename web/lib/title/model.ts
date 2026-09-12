@@ -2,6 +2,7 @@ import {
   enrichWorkspace,
   type TitleFile,
   type RevisionRequest,
+  type FieldRevision,
   type ReplyDraft,
   type SourceRole,
 } from "./production";
@@ -192,6 +193,7 @@ export type Workspace = {
   materials?: import("./materials").MaterialsState;
   business?: BusinessState;
   revisions: RevisionRequest[];
+  fieldRevisions: FieldRevision[];
   replyDrafts: ReplyDraft[];
   importTemplates: ImportTemplate[];
   version: 1;
@@ -620,6 +622,7 @@ export function createSeed(): Workspace {
   return enrichBusiness(
     enrichWorkspace({
       revisions: [],
+      fieldRevisions: [],
       replyDrafts: [],
       importTemplates: [],
       version: 1,

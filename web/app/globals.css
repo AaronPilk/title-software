@@ -3556,6 +3556,12 @@ body {
   color: #7a8aa0;
   margin-bottom: 10px;
 }
+.revision-diff.text strong {
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .revision-diff strong {
   font-size: 24px;
   font-weight: 500;
