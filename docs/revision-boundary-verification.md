@@ -18,4 +18,6 @@ An independent read-only review also checked that final policy preparation and i
 
 Verification on the revision branch based on `4bfeb3e`: 99/99 domain tests, TypeScript checking and production build passed. This record covers domain and build verification; no new browser pass was performed for this patch.
 
+After rebasing onto Claude's duplicate-company warnings (`91c0208`), the combined tree passed 100/100 domain tests, TypeScript checking and production build. The revision fix was fast-forwarded into local `main` as `066137c`.
+
 The fixes affect local MVP state only. No external title, underwriter, email or accounting systems are called.
