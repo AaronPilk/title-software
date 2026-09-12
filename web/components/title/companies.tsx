@@ -159,7 +159,12 @@ export function NewCompany({
   const [contact, setContact] = useState("");
   const [email, setEmail] = useState("");
   const [city, setCity] = useState("");
-  const [reviewed, setReviewed] = useState(false);
+  // The acknowledgement is stored as the signature of the exact matches it
+  // was given for, and only counts while the displayed matches still produce
+  // that signature. Any edit to any field that adds, removes or re-reasons a
+  // match (a contact edit surfacing a second company, say) therefore
+  // invalidates it automatically — no per-field reset logic to forget.
+  const [reviewedSignature, setReviewedSignature] = useState("");
   // Live, explainable duplicate check against the companies already on file.
   // A warning only: the operator sees which records matched and why, and can
   // still create a distinct JV (an exact-name match asks for an explicit
@@ -168,6 +173,10 @@ export function NewCompany({
     ? similarCompanies(s, { name, contact, email, location: city })
     : [];
   const needsAck = matches.some((m) => m.strength === "exact");
+  const signature = matches
+    .map((m) => `${m.company.id}=${m.strength}:${m.reasons.join("|")}`)
+    .join(";");
+  const reviewed = !!signature && reviewedSignature === signature;
   function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const trimmedName = name.trim(),
@@ -240,10 +249,7 @@ export function NewCompany({
               maxLength={100}
               placeholder="e.g. Magnolia Title"
               value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                setReviewed(false);
-              }}
+              onChange={(e) => setName(e.target.value)}
             />
           </FieldLabel>
           <div className="form-grid">
@@ -264,10 +270,7 @@ export function NewCompany({
                 required
                 placeholder="name@example.com"
                 value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  setReviewed(false);
-                }}
+                onChange={(e) => setEmail(e.target.value)}
               />
             </FieldLabel>
             <FieldLabel label="City">
@@ -322,7 +325,9 @@ export function NewCompany({
                   <label className="duplicate-ack">
                     <Checkbox
                       checked={reviewed}
-                      onCheckedChange={(v) => setReviewed(v === true)}
+                      onCheckedChange={(v) =>
+                        setReviewedSignature(v === true ? signature : "")
+                      }
                       aria-label="I reviewed the matching companies and this is a different company"
                     />
                     <span>
