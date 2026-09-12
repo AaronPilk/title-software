@@ -44,6 +44,7 @@ try {
       "tests/materials.test.mjs",
       "tests/csv.test.mjs",
       "tests/revision-boundaries.test.mjs",
+      "tests/statement-delivery.test.mjs",
     ],
     {
       stdio: "inherit",

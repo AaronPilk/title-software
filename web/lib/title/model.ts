@@ -190,6 +190,7 @@ export type ImportTemplate = {
   columnMap: Record<string, ImportTargetField>;
 };
 export type Workspace = {
+  statementDeliveries?: import("./statement-delivery").StatementDelivery[];
   materials?: import("./materials").MaterialsState;
   business?: BusinessState;
   revisions: RevisionRequest[];

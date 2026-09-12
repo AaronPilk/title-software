@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { createSeed, uid, type Workspace } from "./model";
 import { enrichWorkspace } from "./production";
 import { enrichBusiness, validateBusinessMutation } from "./business";
+import { isValidStatementDeliveryWorkspace } from "./statement-delivery";
 const KEY = "titleos.workspace.v1";
 const WORKSPACE_ARRAY_KEYS = [
   "companies",
@@ -48,7 +49,8 @@ function isWorkspaceShape(data: unknown): data is Workspace {
     WORKSPACE_ARRAY_KEYS.every((k) =>
       Array.isArray((data as Record<string, unknown>)[k]),
     ) &&
-    isValidOptionalMaterials((data as { materials?: unknown }).materials)
+    isValidOptionalMaterials((data as { materials?: unknown }).materials) &&
+    isValidStatementDeliveryWorkspace(data)
   );
 }
 type Store = {
@@ -168,6 +170,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     });
   }
   function restore(w: Workspace) {
+    if (!isWorkspaceShape(w)) throw new Error("This backup contains invalid workspace records.");
     const previous = latest.current;
     const next = enrichBusiness(enrichWorkspace(structuredClone(w)));
     latest.current = next;

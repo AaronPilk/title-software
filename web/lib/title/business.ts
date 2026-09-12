@@ -7,6 +7,7 @@ import type {
 } from "./model";
 import { uid } from "./model";
 import { enrichMaterials, validateMaterialsMutation } from "./materials";
+import { validateStatementDeliveryMutation } from "./statement-delivery";
 import {
   titleFile,
   orderSources,
@@ -1606,6 +1607,7 @@ export function applicationFingerprint(s: Workspace, c: Company) {
   ]);
 }
 export function validateBusinessMutation(before: Workspace, after: Workspace) {
+  validateStatementDeliveryMutation(before, after);
   validateMaterialsMutation(before, after);
   for (const r of business(before).followups || []) {
     for (const messageId of [
