@@ -27,6 +27,7 @@ import {
   type ClosePeriod,
 } from "@/lib/title/business";
 import { Picker, FieldLabel, Status, Empty, DataTable, Metric } from "./shared";
+import { StatementDeliveries } from "./statement-deliveries";
 
 export function CloseWorkspace() {
   const { s, update } = useWorkspace();
@@ -384,6 +385,10 @@ function CloseEditor({ period }: { period: ClosePeriod }) {
           </p>
         )}
       </section>
+      {/* Manual delivery register for this revision's published member
+          statements (J05). Rendered for every revision status so the records
+          prepared against a withdrawn or superseded revision stay visible. */}
+      <StatementDeliveries period={period} />
       {period.status === "Published" && (
         <section className="panel business-panel">
           <h3>Withdraw publication</h3>

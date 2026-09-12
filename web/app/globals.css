@@ -606,6 +606,70 @@ strong {
   font-size: 12px;
   cursor: pointer;
 }
+.delivery-register > p {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: #7186a6;
+}
+.delivery-prepare,
+.delivery-record {
+  padding: 16px;
+  border: 1px solid #e5e8ee;
+  border-radius: 10px;
+  background: #f9fafc;
+  margin-bottom: 14px;
+}
+.delivery-prepare h3,
+.delivery-record h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #414b5b;
+}
+.delivery-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #414b5b;
+  cursor: pointer;
+}
+.delivery-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.delivery-card {
+  border: 1px solid #e5e8ee;
+  border-radius: 12px;
+  padding: 16px;
+  background: #ffffff;
+}
+.delivery-card[data-state="Recorded"] {
+  border-color: #dcece1;
+}
+.delivery-card[data-state="Source changed"] {
+  border-color: #eee3c9;
+}
+.delivery-card[data-state="Cancelled"] {
+  opacity: 0.72;
+}
+.delivery-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.delivery-head small {
+  display: block;
+  color: #8893a2;
+  font-size: 12px;
+  margin-top: 2px;
+}
+.delivery-cancel {
+  margin-top: 10px;
+}
 .attention-row > svg,
 .company-line > svg {
   color: #b6bfca;
