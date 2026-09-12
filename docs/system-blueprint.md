@@ -1,6 +1,6 @@
 # TitleOS system blueprint
 
-Updated September 11, 2026; policy-correction workflow, full backup/restore, multi-loan revisions and the rejected-file recovery pipeline added September 12, 2026 by Claude. This describes the current local implementation. The [54-row transcript matrix](discovery/all-transcript-traceability.md) preserves discovery evidence and pre-expansion gaps; [implementation coverage](implementation-coverage.md) reconciles that baseline with this build.
+Updated September 11, 2026; policy-correction workflow, full backup/restore, multi-loan revisions, the rejected-file recovery pipeline and the accounting CSV import scaffold added September 12, 2026 by Claude. This describes the current local implementation. The [54-row transcript matrix](discovery/all-transcript-traceability.md) preserves discovery evidence and pre-expansion gaps; [implementation coverage](implementation-coverage.md) reconciles that baseline with this build.
 
 ## Product and operating model
 
@@ -22,7 +22,7 @@ This is a working local MVP with fictional records, persistent state, reviewed p
 | Revisions | Correct-company matching, before/after loan amount, stale checks scoped to the specific loan on a multiple-loan file, an explicit loan choice when a file has more than one active loan, local apply that touches only the named loan (or the file-level amount when at most one loan is active), revised commitment attachment, editable reply and local approval/export; complex non-amount changes still require separate review |
 | Companies and onboarding | Application/signature references, seven evidence stages, multiple required underwriters, formation/operating states, member interests, authority/renewal records and evidence-based launch |
 | Documents | Company/order/category/audience filtering, upload/preview, manual classification, source/output version families, downloads and explicit partner visibility |
-| Financials | Per-policy issued totals, illustrative premium/remittance terms, expenses, remittance review, close revisions with captured rows/ownership, books/agreement references, adjustments/reserves and cent-balanced allocations |
+| Financials | Per-policy issued totals, illustrative premium/remittance terms, expenses, remittance review, close revisions with captured rows/ownership, books/agreement references, adjustments/reserves, cent-balanced allocations, and a local CSV upload/preview/column-mapping scaffold with reusable named mapping templates (preview only — no posting to any close, ledger or remittance) |
 | Partner portal | Company/document preview; dated receipt, rejection, recovery and closing counts; issuance counts; published close statements filtered to a selected member |
 | Handoffs | Version-bound SoftPro commitment/final/CPL, Missive reply and application preparations; stale work goes on hold; export and operator-reported completion references |
 | Tasks and automations | Manual assignment/completion; repeatable intake, onboarding and rejection rules; deduplicated authority-review tasks from recorded dates within 30 days |
