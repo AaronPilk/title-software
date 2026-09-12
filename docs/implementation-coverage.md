@@ -1,6 +1,6 @@
 # Implementation coverage and verification
 
-September 11, 2026. Read alongside the [54-item evidence matrix](discovery/all-transcript-traceability.md), [current blueprint](system-blueprint.md), [policy-production research](research/full-policy-production.md) and [company-operations research](research/full-company-operations.md).
+September 11, 2026; policy-correction row and verification record updated September 12, 2026 by Claude. Read alongside the [54-item evidence matrix](discovery/all-transcript-traceability.md), [current blueprint](system-blueprint.md), [policy-production research](research/full-policy-production.md) and [company-operations research](research/full-company-operations.md).
 
 “Implemented” below means a local, fictional-data workflow. It does not mean a live provider, authenticated review, certified accounting or legal approval. Both complete machine transcripts were analyzed: Stephenie’s 27:50 recording and Tyler’s 75:03 recording. Private transcript paths and timestamp ranges are documented in the evidence matrix. Three research/review agents covered policy production, company operations and cross-call requirements; their final reviews also identified and helped close lifecycle defects.
 
@@ -22,7 +22,7 @@ September 11, 2026. Read alongside the [54-item evidence matrix](discovery/all-t
 | F01–F03 | Finals queue, source readiness, requirement clearance, separate/combined documents and persistent attorney follow-up | Automatic triage/extraction, SLA calendar and external queue events |
 | F04–F05 | Independent exact source wording, reviewed proposals, vesting/trustee fields, distinct instrument dates and recording fields, mortgage/DOT choice | Professional interpretation, OCR accuracy validation and normalized multiple-instrument recording data |
 | F06 | Durable draft/owner/original message, individual outstanding items, manual send reference, waiting state, response/document receipt and reopening source review | Provider thread continuity, automated reminders and message sending |
-| F07–F08 | Per-product preparation, current output attachment, simulated issuance reference/month, recipient-specific delivery record, partial-issuance locks | Actual jacket/final generation, approved forms, provider receipts, corrections after issuance |
+| F07–F08 | Per-product preparation, current output attachment, simulated issuance reference/month, recipient-specific delivery record, partial-issuance locks, post-issuance correction request/review/record/cancel without mutating the issued product | Actual jacket/final generation, approved forms, provider receipts, real ALTA endorsement codes |
 | R01–R02 | Single-loan revision, original routing guard, before/after/version confirmation, product principal invalidation, current revised commitment and reviewed reply handoff | Loan selection on multiple-loan files, actual SoftPro regeneration and Missive draft API |
 | R03–R04 | Needs-information state and note; stale/ambiguous/multiple-loan changes are blocked | Full complex-revision case workflow, external file locks, cancellation/supersession and supported desktop sessions |
 | J01–J02 | Separate issued-product ledger rows, explicit new-product issuance month, illustrative terms and remittance review/export | Full premium components, effective rate agreements, immutable remittance batches and actual statement import |
@@ -71,6 +71,13 @@ Built-in and guided records are fictional. Use redacted/synthetic attachments. T
 - WebMCP: both registered tool schemas/annotations inspected; valid search and navigation to Policy products, Handoffs and Commitments succeeded; invalid query/page inputs rejected; focused navigation readback confirmed the new pages. No record mutation was performed by these tools.
 - Earlier broad browser checks cover the original MVP only. The expansion has domain/type/build validation and focused navigation/tool checks; it has not had a full user-interaction browser acceptance pass.
 - No real API, multi-user access, provider issuance, legal decision, document extraction or financial system has been certified.
+
+### September 12, 2026 update (Claude): post-issuance policy correction workflow
+
+- Domain suite: **50 passing tests** (47 above plus 3 new correction-workflow tests). TypeScript checking: passed. Production build: passed.
+- Added `PolicyCorrection` (request → review → record, or cancel) in `lib/title/business.ts`. It never mutates the original issued `PolicyProduct` — insured, amount, policy number and status are asserted unchanged after a correction is recorded. A `validateBusinessMutation` invariant freezes a reviewed correction's request evidence.
+- **A real defect was found only by driving the running app, not by the domain suite**: uploading a "Correction output" document through the actual upload UI tripped the pre-existing issued-policy-immutability guard, because `finalProductFingerprint`'s source-document exclusion list did not yet know about the new document role. The domain tests write documents directly into state and never exercise that guard's real interaction with a new role, so they passed while the live app did not. Fixed by adding "Correction output" to the exclusion list.
+- Full user-interaction pass performed this time (not just focused WebMCP navigation): a scripted scenario (two issued policies, one correction already Reviewed, one still Requested) was loaded into a running instance via its own `localStorage` key, then driven through the real UI end to end — reviewed the Requested correction, uploaded a real file through the correction card, selected it from the document picker, and recorded the correction — confirming the toasts, state transitions and untouched issued-policy fields, with zero console errors at every step. This is the verification standard going forward for any change that touches documents, uploads or other cross-cutting state: the domain suite plus a real pass through `WorkspaceProvider.update()`, not domain functions called in isolation.
 
 ## Next implementation boundary
 
