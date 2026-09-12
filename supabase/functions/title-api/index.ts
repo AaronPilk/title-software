@@ -1,5 +1,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { missiveSetup, checkMissiveConnection } from "../../../web/lib/backend/missive.ts";
+import { listMissiveConversations, listMissiveMessages, readMissiveMessage, previewMissiveMessage,
+  importMissiveText, existingMissiveImport, requireMissiveDestination, providerId,
+  type MissiveMapping } from "../../../web/lib/backend/missive-import.ts";
 import {
   ApiError,
   emptyWorkspace,
@@ -526,17 +529,64 @@ Deno.serve(async (req) => {
       );
       return response({ revoked: true });
     }
-    if (pathname === "/integrations/missive" && req.method === "GET") {
-      return response(missiveSetup({
-        token: Deno.env.get("MISSIVE_API_TOKEN"),
-        workspaceId: Deno.env.get("MISSIVE_WORKSPACE_ID"),
-      }, wid, a));
-    }
-    if (pathname === "/integrations/missive/check" && req.method === "POST") {
-      return response(await checkMissiveConnection({
-        token: Deno.env.get("MISSIVE_API_TOKEN"),
-        workspaceId: Deno.env.get("MISSIVE_WORKSPACE_ID"),
-      }, wid, a));
+    if (pathname.startsWith("/integrations/missive")) {
+      administrator(a);
+      // The single explicitly bootstrapped workspace is the default token owner.
+      // A server override can bind a different workspace during a reviewed move.
+      const bootstrap = checked(await service.from("title_bootstrap").select("workspace_id").eq("singleton", true).maybeSingle());
+      const config = { token: Deno.env.get("MISSIVE_API_TOKEN"), workspaceId: Deno.env.get("MISSIVE_WORKSPACE_ID") || bootstrap?.workspace_id };
+      const integration = checked(await service.from("title_integrations").select("config,status").eq("workspace_id", wid).eq("provider", "missive").maybeSingle());
+      const mapping = integration?.config?.mapping as MissiveMapping | undefined;
+      const setup = missiveSetup(config, wid, a);
+      if (pathname === "/integrations/missive" && req.method === "GET") return response({ ...setup, mapping: mapping || null });
+      if (pathname === "/integrations/missive/check" && req.method === "POST") return response(await checkMissiveConnection(config, wid, a));
+      if (pathname === "/integrations/missive/mapping" && req.method === "POST") {
+        if (!Number.isSafeInteger(input.expectedMappingVersion) || input.expectedMappingVersion < 0) error("Invalid mapping version.");
+        const companyId = ident(input.companyId), teamId = providerId(input.teamId);
+        const discovery = await checkMissiveConnection(config, wid, a);
+        const team = discovery.teamInboxes.find(t => t.id === teamId);
+        if (!team || !discovery.organizations.some(o => o.id === team.organizationId)) error("Choose a verified team inbox.", 409);
+        const saved = checked(await service.rpc("title_save_missive_mapping", {
+          p_workspace: wid, p_actor: user.id, p_email: user.email, p_access_version: a.version,
+          p_expected: input.expectedMappingVersion, p_mapping: { companyId, teamId, teamName: team.name, organizationId: team.organizationId },
+        }));
+        return response({ mapping: saved });
+      }
+      if (!mapping || integration.status === "disabled") error("Review an inbox-to-company mapping first.", 409);
+      if (mapping.version !== input.expectedMappingVersion) error("Inbox mapping changed. Refresh and review it again.", 409);
+      const w = await workspace(wid);
+      requireMissiveDestination(w.state, mapping);
+      if (pathname === "/integrations/missive/conversations" && req.method === "POST")
+        return response(await listMissiveConversations(config, wid, a, mapping, input.until));
+      if (pathname === "/integrations/missive/messages" && req.method === "POST")
+        return response(await listMissiveMessages(config, wid, a, mapping, input.conversationId, input.until));
+      if (pathname === "/integrations/missive/preview" && req.method === "POST")
+        return response(await previewMissiveMessage(await readMissiveMessage(config, wid, a, mapping, input.messageId)));
+      if (pathname === "/integrations/missive/import" && req.method === "POST") {
+        const requestId = uuid(input.requestId), messageId = providerId(input.messageId), orderId = ident(input.orderId);
+        const hash = await digest(new TextEncoder().encode(JSON.stringify({
+          action: "importMissiveText", messageId, orderId, kind: input.kind, fingerprint: input.fingerprint,
+          expectedRevision: input.expectedRevision, expectedMappingVersion: input.expectedMappingVersion,
+        })));
+        const receipt = checked(await service.from("title_command_receipts").select("actor_id,payload_hash").eq("workspace_id", wid).eq("request_id", requestId).maybeSingle());
+        if (receipt) {
+          if (receipt.actor_id !== user.id || receipt.payload_hash !== hash) error("This request ID already represents a different change.", 409);
+          return response({ ...(await stateResponse(wid, a)), replayed: true });
+        }
+        const existing = existingMissiveImport(w.state, mapping.organizationId, messageId, mapping.companyId, orderId);
+        if (existing) return response({ ...(await stateResponse(wid, a)), alreadyImported: true });
+        if (w.revision !== input.expectedRevision) error("Someone saved a newer version. Refresh and review before importing.", 409);
+        requireMissiveDestination(w.state, mapping, orderId);
+        const message = await readMissiveMessage(config, wid, a, mapping, messageId);
+        const next = await importMissiveText(w.state, a, mapping, message, orderId, input.kind, input.fingerprint, requestId);
+        await checkAssets(next, wid);
+        checked(await service.rpc("title_import_missive", {
+          p_workspace: wid, p_actor: user.id, p_email: user.email, p_access_version: a.version,
+          p_expected: input.expectedRevision, p_request: requestId, p_hash: hash, p_state: next,
+          p_mapping_version: mapping.version, p_company: mapping.companyId,
+        }));
+        return response({ ...(await stateResponse(wid, a)), imported: true });
+      }
     }
     if (pathname === "/integrations" && req.method === "GET") {
       administrator(a);

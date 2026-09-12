@@ -3,12 +3,12 @@ import { ApiError, type Access } from "./workspace";
 export type MissiveConfig = { token?: string; workspaceId?: string };
 export type MissiveSetup = {
   status: "workspace_required" | "token_required" | "ready";
-  importEnabled: false;
+  importEnabled: boolean;
 };
 export type MissiveCheck = {
   status: "verified";
   checkedAt: string;
-  importEnabled: false;
+  importEnabled: boolean;
   organizations: { id: string; name: string }[];
   teamInboxes: { id: string; name: string; organizationId: string }[];
   moreOrganizations: boolean;
@@ -23,7 +23,7 @@ export function missiveSetup(config: MissiveConfig, workspaceId: string, access:
   if (!config.workspaceId || config.workspaceId !== workspaceId)
     return { status: "workspace_required", importEnabled: false };
   if (!config.token?.trim()) return { status: "token_required", importEnabled: false };
-  return { status: "ready", importEnabled: false };
+  return { status: "ready", importEnabled: true };
 }
 
 const LIMIT = 200;
@@ -40,12 +40,12 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export async function checkMissiveConnection(
+export function missiveReader(
   config: MissiveConfig,
   workspaceId: string,
   access: Access,
   fetcher: typeof fetch = fetch,
-): Promise<MissiveCheck> {
+) {
   const setup = missiveSetup(config, workspaceId, access);
   if (setup.status !== "ready")
     throw new ApiError(setup.status === "workspace_required"
@@ -56,10 +56,11 @@ export async function checkMissiveConnection(
     throw new ApiError("The saved Missive token has an invalid format. Replace it in the server's secret settings.", 409);
   const signal = AbortSignal.timeout(20_000);
 
-  async function get(collection: "organizations" | "teams") {
+  return async (path: string) => {
+    if (!/^\/v1\/[a-zA-Z0-9_/?=&.-]+$/.test(path)) throw new ApiError("Invalid Missive request.");
     let result: Response;
     try {
-      result = await fetcher(`https://public.missiveapp.com/v1/${collection}?limit=${LIMIT}&offset=0`, {
+      result = await fetcher(`https://public.missiveapp.com${path}`, {
         method: "GET",
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
         redirect: "error",
@@ -104,18 +105,24 @@ export async function checkMissiveConnection(
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
     let payload: unknown;
     try { payload = JSON.parse(new TextDecoder().decode(bytes)); } catch { invalidResponse(); }
-    const rows = record(payload)[collection];
+    return record(payload);
+  };
+}
+
+export async function checkMissiveConnection(config: MissiveConfig, workspaceId: string, access: Access, fetcher: typeof fetch = fetch): Promise<MissiveCheck> {
+  const read = missiveReader(config, workspaceId, access, fetcher);
+  async function get(collection: "organizations" | "teams") {
+    const rows = (await read(`/v1/${collection}?limit=${LIMIT}&offset=0`))[collection];
     if (!Array.isArray(rows) || rows.length > LIMIT) invalidResponse();
     return rows.map(record);
   }
-
   // Two fixed GET requests. No message bodies, contacts, drafts or mutations.
   const organizations = await get("organizations");
   const teams = await get("teams");
   const result: MissiveCheck = {
     status: "verified",
     checkedAt: new Date().toISOString(),
-    importEnabled: false,
+    importEnabled: true,
     organizations: organizations.map(row => ({ id: text(row.id, 100), name: text(row.name, 500) })),
     teamInboxes: teams.map(row => {
       if (typeof row.team_inbox_enabled !== "boolean") invalidResponse();

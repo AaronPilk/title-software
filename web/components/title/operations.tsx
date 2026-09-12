@@ -59,7 +59,7 @@ export function InboxView({
   onRevision: (id: string) => void;
   onCommitment: (id: string) => void;
 }) {
-  const { s, update } = useWorkspace();
+  const { s, update, connection } = useWorkspace();
   const [capture, setCapture] = useState(false);
   const [routing, setRouting] = useState(false);
   const [uploadFile, setUploadFile] = useState(false);
@@ -129,7 +129,7 @@ export function InboxView({
         </Button>
         <span className="subtle-pill">
           <Mail size={14} />
-          Demo mailbox
+          Request inbox
         </span>
       </Heading>
       <div className="toolbar">
@@ -199,6 +199,7 @@ export function InboxView({
                   variant="outline"
                   size="sm"
                   onClick={() => setRouting(true)}
+                  disabled={!!m.missive}
                 >
                   Route / link attachments
                 </Button>
@@ -212,6 +213,12 @@ export function InboxView({
                   </Button>
                 )}
               </div>
+              {m.missive && <div className="form-note">
+                <p>Imported from Missive · {new Date(m.missive.importedAt).toLocaleString()}. Company and file routing are preserved with the original source.</p>
+                <Button variant="outline" onClick={() => setPreviewDoc(m.missive!.sourceDocumentId)}>View original message snapshot</Button>
+                {m.missive.attachments.length > 0 && <p>Message text saved. {m.missive.attachments.length} Missive attachments have not been downloaded. Upload originals to this file for review.</p>}
+                {m.missive.attachments.map(a => <p key={a.id}>{a.name} · {a.bytes.toLocaleString()} bytes · Not downloaded</p>)}
+              </div>}
               <pre className="message-text">{m.body}</pre>
               {m.documentIds?.map((id) => {
                 const doc = s.documents.find((d) => d.id === id);
@@ -232,7 +239,7 @@ export function InboxView({
                     <FileText size={20} />
                     <span>
                       <strong>{name}</strong>
-                      <small>Demonstration attachment</small>
+                      <small>{m.documentIds?.length ? "Saved document" : "Attachment reference"}</small>
                     </span>
                   </div>
                 ))}
@@ -259,8 +266,7 @@ export function InboxView({
               {m.orderId ? (
                 <>
                   <p className="inline-note">
-                    Destination: {linked?.id} · {linked?.address}. Use “Route /
-                    link attachments” to change it.
+                    Destination: {linked?.id} · {linked?.address}. {m.missive ? "Routing is preserved with the imported source." : "Use Route / link attachments to change it."}
                   </p>
                   <div className="message-actions">
                     <Button
@@ -351,8 +357,7 @@ export function InboxView({
                 </>
               )}
               <p className="inline-note">
-                Messages and attachments are fictional. Email sending and live
-                mailbox sync are not connected.
+                {m.missive ? "Message text imported from Missive. Attachment download and email sending are not enabled." : connection ? "Captured correspondence. Email sending and scheduled mailbox sync are not enabled." : "Sample messages and attachments are fictional. Email sending and live mailbox sync are not connected."}
               </p>
             </>
           ) : (

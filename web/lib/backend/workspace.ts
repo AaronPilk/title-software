@@ -247,6 +247,11 @@ function ensureShape(s: Workspace) {
     fail("Invalid statement delivery data.");
 }
 function immutableHistory(before: Workspace, after: Workspace) {
+  for (const mail of before.inbox.filter(m => m.missive)) {
+    const next = after.inbox.find(m => m.id === mail.id);
+    if (!next || !eq(mail.missive, next.missive) || mail.companyId !== next.companyId || mail.orderId !== next.orderId)
+      fail("Imported message source and destination cannot change. Capture a separate request if routing needs correction.");
+  }
   for (const doc of before.documents) {
     const next = after.documents.find((d) => d.id === doc.id);
     if (!next) fail("Document history cannot be deleted.");
@@ -340,6 +345,8 @@ function applyEdit(
   baseline: Workspace,
 ) {
   object(edit);
+  if (edit.insert && typeof edit.id === "string" && edit.id.startsWith("missive:"))
+    fail("Missive records can only be created by the reviewed importer.");
   const v = object(edit.value);
   if (has(v, "id") && v.id !== edit.id) fail("Record identity cannot change.");
   if (edit.table === "user")
@@ -773,6 +780,8 @@ function applyEdit(
         !a.restricted
       )
         fail("Restricted document access is required.", 403);
+      if (current.id.startsWith("missive:") && v.sourceRole && v.sourceRole !== current.sourceRole)
+        fail("Email source snapshots cannot be reclassified as title evidence.");
       if (v.sourceRole) {
         const o = s.orders.find((o) => o.id === current.orderId);
         if (

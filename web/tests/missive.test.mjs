@@ -40,7 +40,7 @@ test("valid check uses fixed GET destinations with redirects disabled and return
   assert.deepEqual(calls, ["https://public.missiveapp.com/v1/organizations?limit=200&offset=0", "https://public.missiveapp.com/v1/teams?limit=200&offset=0"]);
   assert.deepEqual(check.teamInboxes, [{id: "team-1", name: "Finals", organizationId: "org-1"}]);
   assert.deepEqual(check.organizations, [organization]);
-  assert.equal(check.importEnabled, false); assert.equal(check.status, "verified");
+  assert.equal(check.importEnabled, true); assert.equal(check.status, "verified");
   assert.ok(!JSON.stringify(check).includes("HIDDEN")); assert.ok(!JSON.stringify(check).includes(config.token));
 });
 test("empty successful directory is valid and complete; full page is explicitly incomplete", async () => {

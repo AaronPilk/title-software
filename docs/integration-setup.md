@@ -4,7 +4,7 @@ Updated September 12, 2026. The dedicated **Title Software** Supabase project is
 
 ## First action for Aaron
 
-Provide the email that should own the first application administrator account. We will bind the one-time owner claim to that verified address. Configure a business SMTP sender for staff confirmation and password-recovery email; the default Supabase test sender is restricted to project-team addresses. Do not paste private keys or passwords into chat.
+The seven requested accounts and owner workspace are created. Assign staff to their companies, save a working Missive token, and approve the first inbox/company mapping. The supplied token returned HTTP401. Configure a business SMTP sender for future confirmation and password-recovery email; the initial accounts were provisioned directly without sending email.
 
 ## Access and decisions to gather
 
@@ -22,7 +22,7 @@ Provide the email that should own the first application administrator account. W
 
 Missive uses a personal bearer token that reaches the accounts available to that user, including shared accounts. It is not a mailbox-scoped read-only credential. The initial adapter must keep the token on the server, enforce an inbox allowlist and use read operations; later draft creation must omit sending/scheduling flags. Webhook rules require an owner/admin. [Missive REST API](https://missiveapp.com/docs/developers/rest-api), [webhooks](https://missiveapp.com/docs/developers/webhooks), [plans](https://missiveapp.com/pricing)
 
-The administrator-only Missive connection check is now implemented. Save `MISSIVE_API_TOKEN` in Supabase Edge Function Secrets; after owner bootstrap, bind `MISSIVE_WORKSPACE_ID` to the real workspace. The check discovers organization/team metadata only. Inbox selection, message import and outgoing drafts are still pending. See [Missive connection setup](missive-connection.md).
+The administrator-only Missive mapping and reviewed message-text importer are implemented. Save `MISSIVE_API_TOKEN` in Supabase Edge Function Secrets; the server binds it to the actual owner workspace. Review one team/company mapping and select each title file before import. Attachment downloads, polling and outgoing drafts are still pending. See [Missive import setup and verification](missive-connection.md).
 
 Supabase's built-in email sender is limited to authorized project-team addresses and is intended for testing. Configure a suitable custom SMTP service before inviting ordinary staff or partners. [Supabase SMTP](https://supabase.com/docs/guides/auth/auth-smtp)
 
@@ -72,4 +72,4 @@ Frontend code uses the project URL and publishable key. Privileged Supabase keys
 
 ## Current boundary
 
-Supabase schema, Auth settings and the `title-api` Edge Function are deployed in the user-created project. The frontend remains on localhost. The owner email and custom SMTP are still outstanding. Vendor credentials and approved test environments in the table above are still needed; no messages, signatures, underwriting actions or payments are being sent automatically. See the backend document for completed tests and current limits.
+Supabase schema, Auth settings and the `title-api` Edge Function are deployed in the user-created project. The frontend remains on localhost. The seven initial accounts are created; company assignments and custom SMTP are still outstanding. Vendor credentials and approved test environments in the table above are still needed; no messages, signatures, underwriting actions or payments are being sent automatically. See the backend document for completed tests and current limits.

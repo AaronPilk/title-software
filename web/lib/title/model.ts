@@ -137,7 +137,15 @@ export type Task = {
   done: boolean;
   priority: "High" | "Normal";
 };
+export type MissiveProvenance = {
+  organizationId: string; teamId: string; conversationId: string; messageId: string;
+  companyId: string; orderId: string; mappingVersion: number;
+  receivedAt: string; importedAt: string; importedBy: string; fingerprint: string;
+  sourceDocumentId: string;
+  attachments: { id: string; name: string; mime: string; bytes: number; status: "not_downloaded" }[];
+};
 export type Mail = {
+  missive?: MissiveProvenance;
   sourceReference?: string;
   kind?: "Revision" | "Finals" | "Company" | "Commitment";
   companyId?: string;

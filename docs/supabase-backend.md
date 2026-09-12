@@ -31,7 +31,7 @@ Auth Site URL is `http://localhost:5173`, with explicit redirects for ports 5173
 
 ## First administrator and staff
 
-The owner's email is still required from Aaron. A server administrator inserts that exact email into `title_bootstrap` once. After that person verifies their account and signs in, the one-time claim creates an empty Ballantyne workspace and its owner membership. Signing in first does not make an arbitrary account an owner. Never include an owner's email or credentials in a public migration.
+The intended owner and six staff accounts are now provisioned. The bootstrap is consumed and bound to the real owner workspace. On a fresh project, a server administrator inserts the intended owner's exact email into `title_bootstrap` once. After that person verifies their account and signs in, the one-time claim creates an empty Ballantyne workspace and its owner membership. Signing in first does not make an arbitrary account an owner. Never include an owner's email or credentials in a public migration.
 
 The owner can prepare access under Settings → Shared workspace. These invitations create access records; **they do not send email**. A verified account with the same email claims the prepared scope on sign-in. Revocation blocks subsequent API and file requests even with an existing token. Preparing a new invitation can reactivate that account with revised permissions.
 
@@ -39,7 +39,7 @@ Supabase's default test email service only reaches approved project-team address
 
 ## Migrations and function deployment
 
-Apply the checked-in migrations in chronological order. They include explicit follow-up fixes discovered on the actual project. `npm run backend:build` bundles the Edge entrypoint and existing domain modules into the ignored `supabase/functions/title-api/bundle.js`. Deploy that generated bundle as `title-api` with JWT verification enabled. The initial backend shipped as function version 3. Version 4 adds the administrator-only Missive connection check described in [missive-connection.md](missive-connection.md).
+Apply the checked-in migrations in chronological order. They include explicit follow-up fixes discovered on the actual project. `npm run backend:build` bundles the Edge entrypoint and existing domain modules into the ignored `supabase/functions/title-api/bundle.js`. Deploy that generated bundle as `title-api` with JWT verification enabled. The initial backend shipped as function version 3. Version 5 adds reviewed Missive inbox/company mapping and message-text import, described in [missive-connection.md](missive-connection.md). Six migrations are applied; the latest includes five rolled-back transaction verification rounds on initialized projects.
 
 Application conflicts use the PostgREST `PT409` code. A PostgreSQL serialization code caused the gateway to keep retrying a deliberate stale-write rejection during the live race test; the explicit HTTP conflict code fixed that behavior. Do not replace it with `40001` for application-level conflicts.
 
@@ -56,8 +56,12 @@ On the final backend implementation:
 
 Run `npm test`, `npm run test:backend`, or `node scripts/backend/verify-five.mjs` from `web/`. The live suite requires explicit `TITLE_TEST_SUPABASE_URL`, `TITLE_TEST_PUBLIC_KEY`, `TITLE_TEST_KEY_FILE` and ignored `TITLE_TEST_ARTIFACT_DIR` values. It uses synthetic confirmed test accounts, never sends emails, and records exact fixture IDs for targeted cleanup. It must not be pointed at a project without authorization to create test fixtures.
 
-All 13 temporary QA workspaces, 10 uploaded test files and five test accounts were removed after verification. The project is empty and ready for the real owner claim. Local verification manifests remain under ignored `.local/backend-test/`; copied privileged keys and temporary account credentials were removed.
+All 13 temporary QA workspaces, 10 uploaded test files and five test accounts were removed after verification. That cleanup was followed by the real owner claim and six staff memberships. The real workspace is empty of business records; staff company assignments remain pending. Local verification manifests remain under ignored `.local/backend-test/`; copied privileged keys and temporary account credentials were removed.
 
 ## Remaining external dependencies
 
 See [integration-setup.md](integration-setup.md). This implementation supplies the shared application backend; it does not replace vendor entitlement, existing templates, approved underwriting/rate rules or actual third-party credentials. Integration/job tables are a foundation, not functioning mailbox polling or signature/accounting workers. Policy and delivery records remain reviewed internal records with manual external references until those vendors are connected. Server snapshots retain immutable file references; they are not an independent off-site copy of the storage bucket. Configure separate disaster-recovery retention before live rollout.
+
+## September 12 account and Missive continuation
+
+Seven requested accounts were created through an expiring, narrowly scoped provisioning function using Auth Admin. Existing accounts/passwords were never overwritten. The temporary function was immediately replaced with an authenticated HTTP410 tombstone and verified. No setup email was sent. The provided initial credentials work; staff roles are operations with no companies pending assignment. Current Missive verification and outstanding dependencies are recorded in [missive-connection.md](missive-connection.md).
