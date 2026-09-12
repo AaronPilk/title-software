@@ -1,6 +1,6 @@
 # TitleOS system blueprint
 
-Updated September 11, 2026; policy-correction workflow, full backup/restore and multi-loan revisions added September 12, 2026 by Claude. This describes the current local implementation. The [54-row transcript matrix](discovery/all-transcript-traceability.md) preserves discovery evidence and pre-expansion gaps; [implementation coverage](implementation-coverage.md) reconciles that baseline with this build.
+Updated September 11, 2026; policy-correction workflow, full backup/restore, multi-loan revisions and the rejected-file recovery pipeline added September 12, 2026 by Claude. This describes the current local implementation. The [54-row transcript matrix](discovery/all-transcript-traceability.md) preserves discovery evidence and pre-expansion gaps; [implementation coverage](implementation-coverage.md) reconciles that baseline with this build.
 
 ## Product and operating model
 
@@ -12,7 +12,7 @@ This is a working local MVP with fictional records, persistent state, reviewed p
 
 | Area | Current local behavior |
 | --- | --- |
-| Overview and orders | Search/filter, assignment, new orders, attention counts, tasks, activity, separate rejection/recovery/closing history and CSV export |
+| Overview and orders | Search/filter, assignment, new orders, attention counts, tasks, activity, separate rejection/recovery/closing history, derived not-yet-contacted/awaiting-response/lost recovery-stage tracking on rejected orders with suggested outcome wording, reviewed receipt-date backfill for legacy orders and CSV export |
 | Inbox and intake | Capture original request/source reference; confirm company; create or match order; attach existing company/file documents; route commitments, finals and revisions; preserve original text |
 | Commitments | PTO-linked preparation, attorney reference, prior-policy/search review, premium basis, owner/loan products, multiple CPL decisions, preparation version and current output-document return reference |
 | Policy workbench | Separate/combined source packages, batch upload, exact-wording manual capture with page references, deed/security dates and recordings, mortgage/DOT choice, cash/refinance rules, requirements/exceptions and attorney review |
@@ -77,7 +77,8 @@ flowchart LR
 - **Launch requires evidence.** Application/signature references, milestones, ownership totaling 100%, agency/producer credentials and each required underwriter authority are checked. Changed inputs invalidate affected review. Expiration is checked during hydration and at day changes. Legacy active demo companies do not have fabricated completed launch cases.
 - **Closes freeze records.** Source changes block new approval/publication without rewriting prior published allocations. New published revisions supersede old ones; older revisions cannot replace newer published revisions. Loss periods allocate zero rather than negative payments.
 - **Money does not double-count.** New products use recorded issuance month. Legacy issued orders without products contribute one labeled legacy total. Terms remain illustrative; the SC commission-limit check is not a complete rating engine.
-- **Event periods are independent.** New orders record receipt date. Rejection, recovery and closing use their event dates; issuance uses product/legacy issuance month. Legacy records with unknown receipt dates are visibly excluded from receipt counts.
+- **Event periods are independent.** New orders record receipt date. Rejection, recovery and closing use their event dates; issuance uses product/legacy issuance month. Legacy records with unknown receipt dates are visibly excluded from receipt counts, and can have one backfilled once it's known — backfill only fills a missing date, it never overwrites one that's already there, so a report period can't silently move after the fact.
+- **Recovery stage is derived, not stored.** A rejected order's "not yet contacted / awaiting response / lost" badge is computed from its `outcomes[]` event log each time it's read, the same way other lifecycle fields are computed from evidence rather than tracked as a separate mutable flag. A "lost" file can still receive a later "Contacted" checkpoint — recovery isn't a one-way door — and the badge disappears once the order is actually recovered.
 - **No fabricated external success.** Preparation, export, local return/issuance/delivery and operator-reported handoff completion are separate states. None verifies a provider response.
 
 ## Remaining engineering work
