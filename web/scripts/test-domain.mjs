@@ -36,7 +36,12 @@ try {
   }
   execFileSync(
     process.execPath,
-    ["--test", "tests/domain.test.mjs", "tests/business.test.mjs"],
+    [
+      "--test",
+      "tests/domain.test.mjs",
+      "tests/business.test.mjs",
+      "tests/materials.test.mjs",
+    ],
     {
       stdio: "inherit",
     },

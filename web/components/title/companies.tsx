@@ -1,5 +1,6 @@
 "use client";
 import { OnboardingCasePanel, CredentialCenter } from "./onboarding-suite";
+import { CompanyMaterials } from "./materials";
 import { useState } from "react";
 import {
   Building2,
@@ -299,6 +300,7 @@ export function CompanyDetail({
             items={[
               "Overview",
               "Onboarding",
+              "Materials",
               "Documents",
               "Members",
               "Jurisdictions",
@@ -400,6 +402,9 @@ export function CompanyDetail({
             </>
           )}
           {tab === "Onboarding" && <OnboardingCasePanel company={c} />}
+          {tab === "Materials" && (
+            <CompanyMaterials companyId={c.id} onDoc={onDoc} />
+          )}
           {tab === "Jurisdictions" && <CompanyJurisdictions id={id} />}{" "}
           {tab === "Members" && <CompanyMembers company={c} />}
         </div>

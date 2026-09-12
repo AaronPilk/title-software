@@ -1,6 +1,6 @@
 "use client";
-import { sameDocumentFamily } from "@/lib/title/production";
 import { PartnerStatements } from "./close-suite";
+import { PartnerDocuments } from "./partner-documents";
 import { partnerPeriod } from "@/lib/title/followups";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -153,14 +153,6 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
   const c = s.companies.find((x) => x.id === company) || s.companies[0];
   const period = partnerPeriod(s, c.id, month);
   const orders = period.orders;
-  const docs = s.documents.filter(
-    (d) =>
-      d.companyId === c.id &&
-      d.visibility === "Partner" &&
-      !s.documents.some(
-        (x) => sameDocumentFamily(x, d) && x.version > d.version,
-      ),
-  );
   return (
     <>
       <Heading
@@ -235,30 +227,7 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
       {tab === "Statements" ? (
         <PartnerStatements key={c.id} companyId={c.id} />
       ) : tab === "Shared documents" ? (
-        <section className="panel partner-panel">
-          {docs.map((d) => (
-            <button
-              key={d.id}
-              className="doc-list-row"
-              onClick={() => onDoc(d)}
-            >
-              <FileText size={22} />
-              <div className="grow">
-                <strong>{d.name}</strong>
-                <small>
-                  {d.category} · Version {d.version}
-                </small>
-              </div>
-              <ChevronRight size={15} />
-            </button>
-          ))}
-          {!docs.length && (
-            <Empty
-              title="No published documents"
-              text="The team will share approved company materials here."
-            />
-          )}
-        </section>
+        <PartnerDocuments key={c.id} companyId={c.id} />
       ) : (
         <section className="panel partner-panel">
           <div className="section-heading">

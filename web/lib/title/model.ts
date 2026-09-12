@@ -94,6 +94,7 @@ export type Order = {
   exception: string;
 };
 export type VaultDoc = {
+  publicationBlocked?: boolean;
   policyId?: string;
   policyVersion?: number;
   commitmentVersion?: number;
@@ -159,6 +160,7 @@ export type Rule = {
   lastRun: string;
 };
 export type Workspace = {
+  materials?: import("./materials").MaterialsState;
   business?: BusinessState;
   revisions: RevisionRequest[];
   replyDrafts: ReplyDraft[];

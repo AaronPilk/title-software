@@ -4059,3 +4059,160 @@ body {
   display: grid;
   gap: 12px;
 }
+
+.company-materials {
+  display: grid;
+  gap: 20px;
+}
+.company-materials .section-heading,
+.publication-manager .section-heading {
+  height: auto;
+  min-height: 44px;
+  padding: 0;
+}
+.company-materials .section-heading > div,
+.publication-manager .section-heading > div {
+  display: block;
+  min-width: 0;
+}
+.company-materials .section-heading .eyebrow,
+.publication-manager .section-heading .eyebrow {
+  margin-bottom: 7px;
+}
+.materials-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 18px;
+  background: #f2f5fa;
+  border: 1px solid #e5eaf2;
+  border-radius: 16px;
+}
+.materials-summary span {
+  font-size: 14px;
+  color: #5f6d80;
+}
+.materials-summary strong {
+  color: #202b3c;
+  font-size: 20px;
+  margin-right: 5px;
+}
+.material-editor {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  border: 1px solid #e3e8f0;
+  border-radius: 18px;
+  background: white;
+}
+.material-editor h3,
+.publication-manager h3 {
+  font-size: 18px;
+  letter-spacing: -0.3px;
+}
+.publication-manager {
+  display: grid;
+  gap: 16px;
+  padding: 20px 0;
+  border-top: 1px solid #e3e8f0;
+}
+.publication-draft,
+.material-approval {
+  padding: 18px;
+  background: #f7f9fc;
+  border-radius: 14px;
+}
+.publication-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid #e0e6ef;
+  border-radius: 14px;
+  background: #fff;
+}
+.publication-attestation,
+.publication-members label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.publication-attestation button,
+.publication-members button {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.publication-members {
+  display: grid;
+  gap: 12px;
+}
+.publication-live {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #eef8f3;
+  color: #266049;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.publication-withdraw {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+}
+.publication-withdraw .form-stack {
+  width: 100%;
+}
+.material-history {
+  border-top: 1px solid #e8ecf2;
+  padding-top: 14px;
+  font-size: 14px;
+}
+.material-history summary {
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #617087;
+}
+.material-history > div {
+  padding: 14px 0 6px 22px;
+  border-left: 2px solid #e4eaf3;
+  margin-left: 6px;
+}
+.material-history span {
+  display: block;
+  font-size: 12px;
+  color: #6c788b;
+  margin: 3px 0;
+}
+.material-history p {
+  color: #526177;
+  line-height: 1.5;
+}
+.document-modal .publication-manager {
+  max-height: 48vh;
+  overflow: auto;
+  padding-right: 5px;
+}
+.company-materials .field-label,
+.company-materials input,
+.company-materials textarea,
+.publication-manager input,
+.publication-manager textarea {
+  font-size: 14px;
+}
+@media (max-width: 650px) {
+  .material-editor {
+    padding: 16px;
+  }
+  .materials-summary {
+    gap: 16px;
+  }
+  .publication-card {
+    padding: 14px;
+  }
+  .company-materials .source-actions {
+    flex-wrap: wrap;
+  }
+}

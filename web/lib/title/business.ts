@@ -1,4 +1,5 @@
 import type { Workspace, Order, Company } from "./model";
+import { enrichMaterials, validateMaterialsMutation } from "./materials";
 import {
   titleFile,
   orderSources,
@@ -222,6 +223,7 @@ export function business(s: Workspace): BusinessState {
   return s.business || blank();
 }
 export function enrichBusiness(s: Workspace) {
+  enrichMaterials(s);
   s.business ??= blank();
   s.business.followups ??= [];
   s.business.corrections ??= [];
@@ -1502,6 +1504,7 @@ export function applicationFingerprint(s: Workspace, c: Company) {
   ]);
 }
 export function validateBusinessMutation(before: Workspace, after: Workspace) {
+  validateMaterialsMutation(before, after);
   for (const r of business(before).followups || []) {
     for (const messageId of [
       r.messageId,

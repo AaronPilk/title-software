@@ -9,7 +9,9 @@ import {
   type SourceRole,
 } from "@/lib/title/production";
 import { getCommitment } from "@/lib/title/business";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { materials, partnerPublications } from "@/lib/title/materials";
+import { PublicationManager } from "./publications";
 import {
   Download,
   Upload,
@@ -120,6 +122,16 @@ export function Documents({
           />
         </div>
       </div>
+      {s.documents.some(
+        (d) =>
+          d.visibility === "Partner" &&
+          !materials(s).publications.some((p) => p.documentId === d.id),
+      ) && (
+        <p className="inline-note">
+          Previously marked Partner documents need an explicit publication
+          review. Open a document to choose its version and audience.
+        </p>
+      )}
       <section className="panel">
         <DataTable
           headers={[
@@ -145,7 +157,17 @@ export function Documents({
               <TableCell>{companyById(s, d.companyId).name}</TableCell>
               <TableCell>{d.category}</TableCell>
               <TableCell>
-                <Status value={d.visibility} />
+                <Status
+                  value={
+                    materials(s).publications.some(
+                      (p) => p.documentId === d.id && p.status === "Published",
+                    )
+                      ? "Published"
+                      : d.visibility === "Partner"
+                        ? "Sharing review needed"
+                        : d.visibility
+                  }
+                />
               </TableCell>
               <TableCell>{d.date}</TableCell>
               <TableCell>v{d.version}</TableCell>
@@ -419,7 +441,10 @@ export function UploadDocument({
             <FieldLabel label="Category">
               <Picker
                 value={category}
-                onChange={setCategory}
+                onChange={(v) => {
+                  setCategory(v);
+                  if (v === "Applications") setVisibility("Restricted");
+                }}
                 label="Document category"
                 options={[
                   "Company records",
@@ -437,7 +462,11 @@ export function UploadDocument({
                 value={visibility}
                 onChange={setVisibility}
                 label="Document visibility"
-                options={["Internal", "Restricted", "Partner"]}
+                options={
+                  category === "Applications"
+                    ? ["Restricted"]
+                    : ["Internal", "Restricted"]
+                }
               />
             </FieldLabel>
           </div>
@@ -467,20 +496,33 @@ export function DocumentPreview({
   doc,
   onClose,
   partner = false,
+  publicationId,
+  partnerMember = "",
 }: {
   doc: VaultDoc;
   onClose: () => void;
   partner?: boolean;
+  publicationId?: string;
+  partnerMember?: string;
 }) {
   const { s, update } = useWorkspace();
   const [url, setUrl] = useState("");
   const [text, setText] = useState(doc.text || "");
   const [error, setError] = useState("");
+  const allowed =
+    !partner ||
+    partnerPublications(s, doc.companyId, partnerMember).some(
+      (p) => p.id === publicationId && p.documentId === doc.id,
+    );
+  const permission = useRef(allowed);
+  permission.current = allowed;
   useEffect(() => {
     let alive = true,
       blobUrl = "";
     setError("");
+    setUrl("");
     setText(doc.text || "");
+    if (!allowed) return;
     if (doc.assetId)
       getAsset(doc.assetId)
         .then(async (blob) => {
@@ -503,17 +545,33 @@ export function DocumentPreview({
       alive = false;
       if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
-  }, [doc]);
+  }, [doc, allowed]);
   async function downloadDoc() {
     try {
-      download(
-        doc.name,
-        doc.assetId ? await getAsset(doc.assetId) : doc.text || "Demo document",
-      );
+      if (!permission.current) throw new Error("Publication unavailable");
+      const content = doc.assetId
+        ? await getAsset(doc.assetId)
+        : doc.text || "Demo document";
+      if (!permission.current) throw new Error("Publication unavailable");
+      download(doc.name, content);
     } catch {
       toast.error("File is not available.");
     }
   }
+  if (!allowed)
+    return (
+      <Dialog open onOpenChange={(v) => !v && onClose()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Publication unavailable</DialogTitle>
+            <DialogDescription>
+              This document is no longer published to the selected audience.
+            </DialogDescription>
+          </DialogHeader>
+          <Button onClick={onClose}>Close</Button>
+        </DialogContent>
+      </Dialog>
+    );
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="document-modal">
@@ -525,7 +583,7 @@ export function DocumentPreview({
           </DialogDescription>
         </DialogHeader>
         <div className="document-modal-tools">
-          <Status value={doc.visibility} />
+          <Status value={partner ? "Published" : doc.visibility} />
           <span>{doc.size}</span>
           <Button variant="outline" size="sm" onClick={downloadDoc}>
             <Download />
@@ -552,9 +610,9 @@ export function DocumentPreview({
               Visibility label
             </span>
             <Picker
-              value={doc.visibility}
+              value={doc.visibility === "Partner" ? "Internal" : doc.visibility}
               label="Change visibility label"
-              options={["Internal", "Restricted", "Partner"]}
+              options={["Internal", "Restricted"]}
               onChange={(v) =>
                 update(
                   (d) => {
@@ -566,9 +624,12 @@ export function DocumentPreview({
                 )
               }
             />
-            <small>Demo labels control the partner preview only.</small>
+            <small>
+              Partner sharing requires the separate publication review below.
+            </small>
           </div>
         )}
+        {!partner && <PublicationManager key={doc.id} documentId={doc.id} />}
       </DialogContent>
     </Dialog>
   );
