@@ -1,5 +1,9 @@
 "use client";
-import { recordOrderOutcome } from "@/lib/title/business";
+import {
+  recordOrderOutcome,
+  recoveryStage,
+  backfillReceivedDate,
+} from "@/lib/title/business";
 import { useState, useEffect } from "react";
 import {
   AlertCircle,
@@ -40,8 +44,10 @@ import {
   companyById,
   money,
   uid,
+  orderOutcomeKinds,
   type Order,
   type OrderStatus,
+  type OrderOutcomeKind,
 } from "@/lib/title/model";
 import {
   Heading,
@@ -963,7 +969,10 @@ export function OrderDetail({
           <SheetTitle>{o.address}</SheetTitle>
         </SheetHeader>
         <div className="sheet-body">
-          <Status value={o.status} />
+          <div className="status-row">
+            <Status value={o.status} />
+            {recoveryStage(o) && <Status value={recoveryStage(o)!} />}
+          </div>
           <div className="detail-grid">
             <div>
               <small>Company</small>
@@ -989,7 +998,12 @@ export function OrderDetail({
               <small>Due date</small>
               <strong>{o.due}</strong>
             </div>
+            <div>
+              <small>Received</small>
+              <strong>{o.receivedAt || "Not recorded"}</strong>
+            </div>
           </div>
+          {!o.receivedAt && <ReceivedDateBackfill order={o} />}
           <FieldLabel label="Assigned owner">
             <Picker
               value={o.owner}
@@ -1032,22 +1046,78 @@ export function OrderDetail({
           {o.status === "Issued" ? (
             <PolicyLifecycle key={o.id} order={o} />
           ) : null}
-          <OrderOutcome key={id} order={o} />
-          <OrderNotes key={id} order={o} />
+          {/* Distinct suffixes so the two components remount (and reset their
+              local state) when the user switches orders, without colliding —
+              a shared `key={id}` here previously made React log a duplicate
+              key warning and, worse, duplicate this section in the DOM once
+              a sibling earlier in the list (the backfill control) toggled
+              off, changing the children array shape mid-session. */}
+          <OrderOutcome key={`${id}:outcome`} order={o} />
+          <OrderNotes key={`${id}:notes`} order={o} />
         </div>
       </SheetContent>
     </Sheet>
   );
 }
 
+function ReceivedDateBackfill({ order }: { order: Order }) {
+  const { update } = useWorkspace();
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  return (
+    <div className="inline-form">
+      <FieldLabel label="Backfill receipt date">
+        <Input
+          type="date"
+          aria-label="Backfill receipt date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          max={new Date().toISOString().slice(0, 10)}
+        />
+      </FieldLabel>
+      <Button
+        variant="outline"
+        onClick={() =>
+          update(
+            (d) => backfillReceivedDate(d, order.id, date),
+            "Receipt date backfilled",
+            order.id,
+          )
+        }
+      >
+        Save receipt date
+      </Button>
+    </div>
+  );
+}
+/**
+ * Suggested wording for the recovery-track outcomes — approved starting
+ * points, not a rigid taxonomy. Clicking one fills the note textarea, which
+ * stays fully editable afterward (see the "approved partner outcome
+ * wording" gap in docs/implementation-coverage.md).
+ */
+const outcomeNoteTemplates: Partial<Record<OrderOutcomeKind, string[]>> = {
+  Contacted: [
+    "Called to check on next steps — left a voicemail.",
+    "Emailed asking whether the client wants to proceed.",
+    "Reached the client — they asked for more time to decide.",
+  ],
+  "Recovery lost": [
+    "Client went with another agency.",
+    "Deal fell through; no policy will be needed.",
+    "No response after repeated attempts to reach the client.",
+  ],
+};
 function OrderOutcome({ order }: { order: Order }) {
   const { update } = useWorkspace();
-  const [kind, setKind] = useState("Closing recorded"),
+  const [kind, setKind] = useState<OrderOutcomeKind>("Closing recorded"),
     [date, setDate] = useState(new Date().toISOString().slice(0, 10)),
     [note, setNote] = useState("");
+  const stage = recoveryStage(order);
+  const templates = outcomeNoteTemplates[kind];
   return (
     <section className="form-stack">
       <h3>Order outcomes</h3>
+      {stage && <p className="inline-note">Recovery status: {stage}.</p>}
       {order.outcomes?.map((e, i) => (
         <p className="inline-note" key={i}>
           {e.date} · {e.kind} · {e.note}
@@ -1056,8 +1126,8 @@ function OrderOutcome({ order }: { order: Order }) {
       <Picker
         value={kind}
         label="Order outcome"
-        options={["Closing recorded", "Rejected", "Recovered"]}
-        onChange={setKind}
+        options={[...orderOutcomeKinds]}
+        onChange={(v) => setKind(v as OrderOutcomeKind)}
       />
       <Input
         type="date"
@@ -1065,6 +1135,21 @@ function OrderOutcome({ order }: { order: Order }) {
         value={date}
         onChange={(e) => setDate(e.target.value)}
       />
+      {templates && (
+        <div className="template-chip-row">
+          {templates.map((t) => (
+            <Button
+              key={t}
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={() => setNote(t)}
+            >
+              {t}
+            </Button>
+          ))}
+        </div>
+      )}
       <Textarea
         aria-label="Order outcome evidence"
         value={note}
@@ -1075,14 +1160,7 @@ function OrderOutcome({ order }: { order: Order }) {
         variant="outline"
         onClick={() =>
           update(
-            (d) =>
-              recordOrderOutcome(
-                d,
-                order.id,
-                kind as "Rejected" | "Recovered" | "Closing recorded",
-                date,
-                note,
-              ),
+            (d) => recordOrderOutcome(d, order.id, kind, date, note),
             "Order outcome recorded",
             order.id,
           )

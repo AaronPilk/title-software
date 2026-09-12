@@ -515,6 +515,8 @@ test("zero-policy loss close persists a draft and allocates no negative payments
 import {
   loadDemoScenario,
   recordOrderOutcome,
+  recoveryStage,
+  backfillReceivedDate,
 } from "../.local-test/business.js";
 test("guided sample is idempotent, isolated from current source values and never preapproves evidence", () => {
   const s = createSeed();
@@ -560,6 +562,60 @@ test("rejected and recovered outcomes are separate from policy issuance", () => 
     "Closing confirmation",
   );
   assert.notEqual(o.status, "Issued");
+});
+test("recovery stage tracks contacted/lost checkpoints on a rejected file, and resets on recovery", () => {
+  const s = createSeed(),
+    o = s.orders[0];
+  assert.equal(recoveryStage(o), null);
+  recordOrderOutcome(s, o.id, "Rejected", "2026-09-01", "Client went quiet");
+  assert.equal(recoveryStage(o), "Not yet contacted");
+  recordOrderOutcome(s, o.id, "Contacted", "2026-09-03", "Left a voicemail");
+  assert.equal(recoveryStage(o), "Awaiting response");
+  recordOrderOutcome(
+    s,
+    o.id,
+    "Recovery lost",
+    "2026-09-20",
+    "No response after three attempts",
+  );
+  assert.equal(recoveryStage(o), "Lost");
+  // A later contact attempt can still resume a recovery marked Lost.
+  recordOrderOutcome(s, o.id, "Contacted", "2026-10-01", "Client called back");
+  assert.equal(recoveryStage(o), "Awaiting response");
+  recordOrderOutcome(s, o.id, "Recovered", "2026-10-02", "Client is proceeding");
+  assert.equal(o.status, "Needs review");
+  assert.equal(recoveryStage(o), null);
+});
+test("contacted/recovery-lost checkpoints require an active rejection", () => {
+  const s = createSeed(),
+    o = s.orders[0];
+  assert.throws(
+    () => recordOrderOutcome(s, o.id, "Contacted", "2026-09-01", "Follow-up"),
+    /active recovery/,
+  );
+  recordOrderOutcome(s, o.id, "Rejected", "2026-09-01", "Provider decision");
+  recordOrderOutcome(s, o.id, "Recovered", "2026-09-05", "Client returned");
+  assert.throws(
+    () => recordOrderOutcome(s, o.id, "Contacted", "2026-09-06", "Follow-up"),
+    /active recovery/,
+  );
+});
+test("receipt date can be backfilled once but not overwritten or set to the future", () => {
+  const s = createSeed(),
+    o = s.orders.find((x) => !x.receivedAt) || s.orders[0];
+  o.receivedAt = "";
+  backfillReceivedDate(s, o.id, "2026-01-15");
+  assert.equal(o.receivedAt, "2026-01-15");
+  assert.throws(
+    () => backfillReceivedDate(s, o.id, "2026-02-01"),
+    /already has a receipt date/,
+  );
+  const other = s.orders[1];
+  other.receivedAt = "";
+  assert.throws(
+    () => backfillReceivedDate(s, other.id, "2999-01-01"),
+    /valid, non-future/,
+  );
 });
 
 test("renewal reminders use recorded dates and do not duplicate work", () => {

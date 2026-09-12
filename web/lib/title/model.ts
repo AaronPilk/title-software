@@ -65,10 +65,18 @@ export type Field = {
   reviewed: boolean;
   confidence: string;
 };
+export const orderOutcomeKinds = [
+  "Rejected",
+  "Contacted",
+  "Recovery lost",
+  "Recovered",
+  "Closing recorded",
+] as const;
+export type OrderOutcomeKind = (typeof orderOutcomeKinds)[number];
 export type Order = {
   receivedAt?: string;
   outcomes?: {
-    kind: "Rejected" | "Recovered" | "Closing recorded";
+    kind: OrderOutcomeKind;
     date: string;
     note: string;
     actor: string;

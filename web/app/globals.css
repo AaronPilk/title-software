@@ -503,6 +503,23 @@ strong {
   white-space: nowrap;
   font-weight: 500;
 }
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.inline-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.template-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .attention-row > svg,
 .company-line > svg {
   color: #b6bfca;

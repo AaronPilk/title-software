@@ -94,9 +94,18 @@ export function Status({ value }: { value: string }) {
     "Delivered",
   ].includes(value)
     ? "green"
-    : ["Needs review", "New", "Queued", "In progress"].includes(value)
+    : [
+          "Needs review",
+          "New",
+          "Queued",
+          "In progress",
+          "Not yet contacted",
+          "Awaiting response",
+        ].includes(value)
       ? "blue"
-      : ["Rejected", "Restricted", "High", "Needs attention"].includes(value)
+      : ["Rejected", "Restricted", "High", "Needs attention", "Lost"].includes(
+            value,
+          )
         ? "amber"
         : ["Onboarding", "Internal", "Pending"].includes(value)
           ? "violet"

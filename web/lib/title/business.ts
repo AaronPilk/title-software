@@ -1,4 +1,4 @@
-import type { Workspace, Order, Company } from "./model";
+import type { Workspace, Order, Company, OrderOutcomeKind } from "./model";
 import { enrichMaterials, validateMaterialsMutation } from "./materials";
 import {
   titleFile,
@@ -2061,7 +2061,7 @@ export function loadDemoScenario(s: Workspace) {
 export function recordOrderOutcome(
   s: Workspace,
   orderId: string,
-  kind: "Rejected" | "Recovered" | "Closing recorded",
+  kind: OrderOutcomeKind,
   date: string,
   note: string,
 ) {
@@ -2083,6 +2083,52 @@ export function recordOrderOutcome(
     o.status = o.fields.length ? "Needs review" : "New";
     o.exception = "";
   }
+  // Contacted/Recovery lost are recovery-pipeline checkpoints, not status
+  // changes — the order stays Rejected either way. A later "Contacted" is
+  // still allowed after a "Recovery lost" (recoveryStage below reads
+  // whichever of the two happened most recently), since a contact that
+  // seemed lost can genuinely resume later.
+  if (
+    (kind === "Contacted" || kind === "Recovery lost") &&
+    o.status !== "Rejected"
+  )
+    throw new Error("Only a rejected file has an active recovery to track.");
   o.outcomes ??= [];
   o.outcomes.push({ kind, date, note: note.trim(), actor: s.user });
+}
+export type RecoveryStage = "Not yet contacted" | "Awaiting response" | "Lost";
+/**
+ * Derived, not stored: scans the outcome log backwards from the most recent
+ * event and returns the stage implied by whichever of Rejected/Contacted/
+ * Recovery lost happened last. Returns null once the order is no longer
+ * Rejected (recovered, or never rejected) — there's no active recovery to
+ * report on.
+ */
+export function recoveryStage(o: Order): RecoveryStage | null {
+  if (o.status !== "Rejected") return null;
+  for (let i = (o.outcomes || []).length - 1; i >= 0; i--) {
+    const k = o.outcomes![i].kind;
+    if (k === "Contacted") return "Awaiting response";
+    if (k === "Recovery lost") return "Lost";
+    if (k === "Rejected") return "Not yet contacted";
+  }
+  return "Not yet contacted";
+}
+/**
+ * Fills in a receipt date for a legacy order that never had one — see
+ * "Legacy records with unknown receipt dates are visibly excluded from
+ * receipt counts" in the blueprint. Deliberately backfill-only (an existing
+ * date is left alone): correcting a wrong-but-present date would let a
+ * report period move after the fact, which is a different, more sensitive
+ * change than filling in a genuinely missing one.
+ */
+export function backfillReceivedDate(s: Workspace, orderId: string, date: string) {
+  const o = getOrder(s, orderId);
+  if (o.receivedAt)
+    throw new Error(
+      "This file already has a receipt date — backfill is only for one that's missing.",
+    );
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today())
+    throw new Error("Enter a valid, non-future receipt date.");
+  o.receivedAt = date;
 }
