@@ -77,7 +77,7 @@ export function Overview({
         <section className="panel attention">
           <div className="section-heading">
             <div>
-              <ScanLine size={19} color="#4389e9" />
+              <ScanLine size={19} color="var(--brand-accent)" />
               <h2>Needs your attention</h2>
             </div>
             <Button

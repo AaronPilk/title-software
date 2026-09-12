@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
-  Layers2,
   LayoutGrid,
   Inbox,
   Files,
@@ -214,7 +213,7 @@ function Workspace() {
       {
         name: "navigate_title_workspace",
         description:
-          "Open a section of the local TitleOS interface. This does not create or submit a record.",
+          "Open a section of the local Ballantyne Title workspace. This does not create or submit a record.",
         inputSchema: {
           type: "object",
           properties: { page: { type: "string", enum: pageNames } },
@@ -354,7 +353,7 @@ function Workspace() {
       content = <Settings />;
   }
   return (
-    <SidebarProvider style={{ "--sidebar-width": "232px" } as CSSProperties}>
+    <SidebarProvider style={{ "--sidebar-width": "248px" } as CSSProperties}>
       <a
         href="#main-content"
         className="skip-link"
@@ -370,18 +369,27 @@ function Workspace() {
           <button
             className="brand"
             onClick={() => navigate("Overview")}
-            aria-label="TitleOS overview"
+            aria-label="Ballantyne Title overview"
           >
-            <span className="brand-mark">
-              <Layers2 size={21} />
+            <img
+              className="brand-logo"
+              src="/brand/ballantyne-title-logo.png"
+              alt=""
+              width={52}
+              height={52}
+            />
+            <span className="brand-wordmark">
+              <span className="brand-name">Ballantyne</span>
+              <span className="brand-company">Title Company</span>
             </span>
-            TitleOS
           </button>
           <div className="workspace-switch">
-            <span className="workspace-symbol">T</span>
+            <span className="workspace-symbol">
+              <Building2 size={17} />
+            </span>
             <div>
-              <strong>Title Group</strong>
-              <small>Operations workspace</small>
+              <strong>Company operations</strong>
+              <small>North &amp; South Carolina</small>
             </div>
           </div>
         </SidebarHeader>
@@ -483,7 +491,8 @@ function Workspace() {
         >
           {content}
           <footer className="page-footer">
-            TitleOS<span>Local preview · September 2026 demo workspace</span>
+            Ballantyne Title Company
+            <span>Local preview · September 2026 demo workspace</span>
           </footer>
         </div>
       </main>

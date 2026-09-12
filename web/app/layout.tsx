@@ -2,15 +2,20 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "TitleOS — Title Operations",
+  title: "Ballantyne Title — Operations",
   description:
-    "A local workspace for title operations, company onboarding, policy preparation, and reporting.",
+    "Ballantyne Title Company's local workspace for title operations, company onboarding, policy preparation, and reporting.",
   other: {
     "codex-preview": "development",
   },
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: {
+      url: "/brand/ballantyne-title-logo.png",
+      type: "image/png",
+      sizes: "500x500",
+    },
+    shortcut: "/brand/ballantyne-title-logo.png",
+    apple: "/brand/ballantyne-title-logo.png",
   },
 };
 

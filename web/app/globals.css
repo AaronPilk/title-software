@@ -1,35 +1,79 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "../vendor/shadcn-tailwind-4.13.0.css";
-:root {
-  --background: #f7f8fa;
-  --foreground: #20242c;
-  --card: #fff;
-  --card-foreground: #20242c;
-  --popover: #fff;
-  --popover-foreground: #20242c;
-  --primary: #1872e9;
-  --primary-foreground: #fff;
-  --secondary: #edf0f4;
-  --secondary-foreground: #303947;
-  --muted: #f1f3f6;
-  --muted-foreground: #727a88;
-  --accent: #ebf1fa;
-  --accent-foreground: #176ad2;
-  --destructive: #cf394a;
-  --border: #e7e9ee;
-  --input: #dfe3e9;
-  --ring: #83b6fc;
-  --radius: 0.7rem;
-  --sidebar: #f0f2f6;
-  --sidebar-foreground: #697281;
-  --sidebar-primary: #1872e9;
-  --sidebar-primary-foreground: #fff;
-  --sidebar-accent: #e2ecfd;
-  --sidebar-accent-foreground: #176bda;
-  --sidebar-border: #e1e4ea;
-  --sidebar-ring: #83b6fc;
+/* Ballantyne Title brand tokens from ballantynetitle.com/styles.css. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/brand/fonts/inter-400-700.woff2") format("woff2");
 }
+@font-face {
+  font-family: "Source Serif Pro";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/brand/fonts/source-serif-pro-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Source Serif Pro";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/brand/fonts/source-serif-pro-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Source Serif Pro";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/brand/fonts/source-serif-pro-700.woff2") format("woff2");
+}
+:root {
+  --brand-primary: #00305b;
+  --brand-primary-700: #002145;
+  --brand-primary-50: #e8eef5;
+  --brand-secondary: #b5cfe6;
+  --brand-secondary-200: #d4e3f1;
+  --brand-accent: #2f6db0;
+  --brand-accent-700: #1f5896;
+  --brand-ink: #1a1a1a;
+  --brand-muted: #5b6b7c;
+  --brand-bg: #fff;
+  --brand-bg-soft: #dde8f3;
+  --brand-bg-tint: #eaf0f7;
+  --brand-border: #c8d6e5;
+  --font-heading: "Source Serif Pro", Georgia, "Times New Roman", serif;
+  --background: var(--brand-bg-tint);
+  --foreground: var(--brand-ink);
+  --card: var(--brand-bg);
+  --card-foreground: var(--brand-ink);
+  --popover: var(--brand-bg);
+  --popover-foreground: var(--brand-ink);
+  --primary: var(--brand-primary);
+  --primary-foreground: #fff;
+  --secondary: var(--brand-primary-50);
+  --secondary-foreground: var(--brand-primary);
+  --muted: var(--brand-bg-tint);
+  --muted-foreground: var(--brand-muted);
+  --accent: var(--brand-primary-50);
+  --accent-foreground: var(--brand-primary);
+  --destructive: #cf394a;
+  --border: var(--brand-border);
+  --input: var(--brand-border);
+  --ring: var(--brand-accent);
+  --radius: 0.7rem;
+  --sidebar: var(--brand-bg);
+  --sidebar-foreground: var(--brand-muted);
+  --sidebar-primary: var(--brand-primary);
+  --sidebar-primary-foreground: #fff;
+  --sidebar-accent: var(--brand-primary-50);
+  --sidebar-accent-foreground: var(--brand-primary);
+  --sidebar-border: var(--brand-border);
+  --sidebar-ring: var(--brand-accent);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -61,7 +105,8 @@
   --radius-md: 0.6rem;
   --radius-lg: 0.8rem;
   --radius-xl: 1rem;
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 * {
   box-sizing: border-box;
@@ -70,7 +115,7 @@ body {
   margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
   letter-spacing: -0.015em;
   -webkit-font-smoothing: antialiased;
@@ -89,7 +134,7 @@ button:disabled {
 }
 button:focus-visible,
 a:focus-visible {
-  outline: 3px solid #86b7fd;
+  outline: 3px solid var(--brand-accent);
   outline-offset: 3px;
 }
 h1,
@@ -363,7 +408,7 @@ strong {
   line-height: 1.25;
 }
 .heading-dot {
-  color: #3588e7;
+  color: var(--brand-accent);
 }
 .page-heading p:not(.eyebrow) {
   font-size: 13px;
@@ -382,8 +427,6 @@ strong {
   height: 35px;
   border-radius: 8px;
   padding: 0 14px;
-  background: #2276e6;
-  box-shadow: 0 2px 4px #2060af20;
 }
 .metrics {
   display: grid;
@@ -1099,7 +1142,7 @@ body {
   left: 250px;
   z-index: 100;
   background: #fff;
-  border: 1px solid #2277e8;
+  border: 1px solid var(--brand-primary);
   padding: 12px;
   border-radius: 8px;
 }
@@ -1504,7 +1547,7 @@ body {
   bottom: 15px;
   width: 3px;
   border-radius: 0 3px 3px 0;
-  background: #4589e8;
+  background: var(--brand-accent);
 }
 .queue-id {
   display: flex;
@@ -2084,7 +2127,7 @@ body {
   place-items: center;
   border-radius: 11px;
   background: #edf4ff;
-  color: #87ace0;
+  color: var(--brand-accent);
   width: 49px;
   height: 44px;
 }
@@ -2119,7 +2162,7 @@ body {
   background: #f0f5fd;
   border: 1px solid #e4ecf8;
   border-radius: 5px;
-  color: #8caade;
+  color: var(--brand-accent);
   flex-shrink: 0;
 }
 .doc-list-row {
@@ -2252,7 +2295,7 @@ body {
 }
 .message-preview.selected {
   background: #edf4ff;
-  box-shadow: inset 3px 0 #6c9be0;
+  box-shadow: inset 3px 0 var(--brand-accent);
 }
 .message-preview > div {
   display: flex;
@@ -2409,7 +2452,7 @@ body {
   display: grid;
   place-items: center;
   background: #f3f7ff;
-  color: #7f9ed0;
+  color: var(--brand-accent);
 }
 .automation-card h2 {
   font-size: 17px;
@@ -2500,7 +2543,7 @@ body {
 .bar-chart-row i {
   height: 100%;
   display: block;
-  background: linear-gradient(90deg, #6795db, #a9c6ed);
+  background: linear-gradient(90deg, var(--brand-accent), #a9c6ed);
   border-radius: 4px;
 }
 .bar-chart-row strong {
@@ -2671,7 +2714,7 @@ body {
   width: 46px;
   height: 46px;
   border-radius: 13px;
-  color: #7a99c7;
+  color: var(--brand-accent);
   background: #edf4ff;
   font-size: 16px;
 }
@@ -2693,7 +2736,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #729bd6;
+  color: var(--brand-accent);
   font-size: 13px;
 }
 .jurisdiction-card > p {
@@ -2784,7 +2827,7 @@ body {
   width: 23px;
   border-radius: 50%;
   background: #edf4ff;
-  color: #7ca0d8;
+  color: var(--brand-accent);
 }
 .command-modal {
   padding: 0 !important;
@@ -4004,7 +4047,7 @@ body {
   gap: 10px;
 }
 .product-title > svg {
-  color: #4776ba;
+  color: var(--brand-accent);
 }
 .policy-list {
   display: flex;
@@ -4072,7 +4115,7 @@ body {
   flex-direction: column;
   gap: 12px;
   font-size: 14px;
-  color: #246cca;
+  color: var(--brand-accent);
 }
 .close-workspace {
   display: flex;
@@ -4388,4 +4431,190 @@ body {
   .company-materials .source-actions {
     flex-wrap: wrap;
   }
+}
+
+/* Ballantyne identity on the existing operations layout. */
+::selection {
+  background: var(--brand-secondary);
+  color: var(--brand-primary-700);
+}
+.app-sidebar [data-slot="sidebar-inner"] {
+  background: linear-gradient(180deg, var(--brand-bg), var(--brand-bg-tint));
+  border-right-color: var(--brand-border);
+}
+.brand {
+  gap: 10px;
+  padding-inline: 5px;
+  color: var(--brand-primary);
+  letter-spacing: normal;
+}
+.brand-logo {
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.brand-wordmark {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.brand-name {
+  font-family: var(--font-heading);
+  font-size: 25px;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+}
+.brand-company {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand-muted);
+}
+.workspace-switch {
+  background: var(--brand-bg);
+  border-color: var(--brand-border);
+}
+.workspace-symbol {
+  color: var(--brand-primary);
+  background: var(--brand-primary-50);
+  flex-shrink: 0;
+}
+.workspace-switch strong,
+.user strong {
+  color: var(--brand-primary);
+}
+.workspace-switch small,
+.nav-caption,
+.user small,
+.local-card {
+  color: var(--brand-muted);
+}
+.nav-button {
+  color: var(--brand-muted) !important;
+}
+.nav-button:hover:not([data-active="true"]) {
+  background: var(--brand-secondary-200) !important;
+  color: var(--brand-primary) !important;
+}
+.nav-button[data-active="true"] {
+  background: var(--brand-primary) !important;
+  color: #fff !important;
+  box-shadow: 0 2px 5px rgb(0 48 91 / 10%);
+}
+.nav-count {
+  background: var(--brand-secondary-200);
+  color: var(--brand-primary);
+}
+.nav-button[data-active="true"] .nav-count {
+  background: rgb(255 255 255 / 16%);
+  color: #fff;
+}
+.app-main {
+  background: linear-gradient(135deg, #f7f9fc, var(--brand-bg-tint));
+}
+.topbar {
+  border-bottom-color: var(--brand-border);
+  background: rgb(255 255 255 / 88%);
+}
+.topbar strong,
+.page-footer {
+  color: var(--brand-primary);
+}
+.page-footer span {
+  color: var(--brand-muted);
+}
+h1,
+h2 {
+  font-family: var(--font-heading);
+}
+.page-heading h1 {
+  color: var(--brand-primary);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+.section-heading h2 {
+  font-size: 19px;
+  color: var(--brand-primary);
+}
+.company-card h2,
+.message-heading h2,
+.automation-card h2,
+.revenue-chart h2,
+.close-card h2,
+.partner-welcome h2,
+.settings-intro h2,
+.demo-settings h2,
+.source-summary h2,
+.business-panel h2 {
+  color: var(--brand-primary);
+  font-weight: 600;
+}
+.metric > strong,
+.distribution-summary strong,
+.statement-amount {
+  color: var(--brand-primary);
+  font-variant-numeric: tabular-nums;
+}
+.page-heading p:not(.eyebrow),
+.partner-welcome p:not(.eyebrow),
+.automation-card > p,
+.settings-intro p,
+.integration-card > p,
+.jurisdiction-card ul,
+.demo-settings > p,
+.connection-checklist li,
+.company-card > p,
+.metric > small {
+  color: var(--brand-muted);
+}
+.eyebrow {
+  color: var(--brand-accent-700);
+}
+.page-heading [data-slot="button"][data-variant="default"] {
+  background: var(--brand-primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 2px 4px rgb(0 48 91 / 12%);
+}
+.page-heading [data-slot="button"][data-variant="default"]:hover {
+  background: var(--brand-primary-700);
+}
+.queue-item.selected,
+.message-preview.selected,
+.revision-list > button.selected,
+.business-queue > button.selected,
+.evidence-steps > button.selected {
+  background: var(--brand-primary-50);
+  border-color: var(--brand-secondary);
+}
+.folder-art,
+.file-icon,
+.automation-icon,
+.state-code,
+.audit-icon {
+  color: var(--brand-accent);
+  background: var(--brand-primary-50);
+}
+.upload-drop,
+.commitment-review {
+  background: var(--brand-bg-tint);
+  border-color: var(--brand-border);
+}
+.bar-chart-row > div {
+  background: var(--brand-secondary-200);
+}
+.bar-chart-row i {
+  background: var(--brand-primary);
+}
+.partner-welcome {
+  background: linear-gradient(
+    115deg,
+    var(--brand-bg),
+    var(--brand-secondary-200)
+  );
+  border-color: var(--brand-border);
 }
