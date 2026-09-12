@@ -22,6 +22,8 @@ Provide the email that should own the first application administrator account. W
 
 Missive uses a personal bearer token that reaches the accounts available to that user, including shared accounts. It is not a mailbox-scoped read-only credential. The initial adapter must keep the token on the server, enforce an inbox allowlist and use read operations; later draft creation must omit sending/scheduling flags. Webhook rules require an owner/admin. [Missive REST API](https://missiveapp.com/docs/developers/rest-api), [webhooks](https://missiveapp.com/docs/developers/webhooks), [plans](https://missiveapp.com/pricing)
 
+The administrator-only Missive connection check is now implemented. Save `MISSIVE_API_TOKEN` in Supabase Edge Function Secrets; after owner bootstrap, bind `MISSIVE_WORKSPACE_ID` to the real workspace. The check discovers organization/team metadata only. Inbox selection, message import and outgoing drafts are still pending. See [Missive connection setup](missive-connection.md).
+
 Supabase's built-in email sender is limited to authorized project-team addresses and is intended for testing. Configure a suitable custom SMTP service before inviting ordinary staff or partners. [Supabase SMTP](https://supabase.com/docs/guides/auth/auth-smtp)
 
 DocuSign provides a developer/demo environment, while production requires API entitlement and go-live. Existing web-app access alone does not establish that entitlement; ask the administrator to check the current agreement before purchasing anything. Its updated go-live process removed the old 20-call prerequisite. [Developer plan FAQ](https://ecom.docusign.com/plans-and-pricing/developer), [November 2025 developer update](https://developers.docusign.com/html/newsletter/202511.html)

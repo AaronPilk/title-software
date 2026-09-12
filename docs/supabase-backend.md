@@ -39,7 +39,7 @@ Supabase's default test email service only reaches approved project-team address
 
 ## Migrations and function deployment
 
-Apply the checked-in migrations in chronological order. They include explicit follow-up fixes discovered on the actual project. `npm run backend:build` bundles the Edge entrypoint and existing domain modules into the ignored `supabase/functions/title-api/bundle.js`. Deploy that generated bundle as `title-api` with JWT verification enabled. The project currently runs function version 3.
+Apply the checked-in migrations in chronological order. They include explicit follow-up fixes discovered on the actual project. `npm run backend:build` bundles the Edge entrypoint and existing domain modules into the ignored `supabase/functions/title-api/bundle.js`. Deploy that generated bundle as `title-api` with JWT verification enabled. The initial backend shipped as function version 3. Version 4 adds the administrator-only Missive connection check described in [missive-connection.md](missive-connection.md).
 
 Application conflicts use the PostgREST `PT409` code. A PostgreSQL serialization code caused the gateway to keep retrying a deliberate stale-write rejection during the live race test; the explicit HTTP conflict code fixed that behavior. Do not replace it with `40001` for application-level conflicts.
 

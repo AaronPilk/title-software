@@ -11,6 +11,7 @@ import {
   supabase,
 } from "@/lib/backend/client";
 import { Picker } from "./shared";
+import { MissiveSettings } from "./missive-settings";
 
 export function BackendSettings() {
   const { s, connection } = useWorkspace();
@@ -85,6 +86,7 @@ export function BackendSettings() {
       </Button>
       {admin && (
         <>
+          <MissiveSettings key={activeWorkspace()} workspaceId={activeWorkspace()} />
           <div className="backend-settings-section">
             <h3>
               <Users size={18} /> Team access

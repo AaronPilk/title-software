@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit",
     "backend:build": "node scripts/backend/build.mjs",
     "test:backend": "node scripts/backend/test.mjs",
-    "test:cloud": "node scripts/backend/test-cloud.mjs"
+    "test:cloud": "node scripts/backend/test-cloud.mjs",
+    "test:missive": "node scripts/backend/test-missive.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

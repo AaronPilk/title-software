@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
+import { missiveSetup, checkMissiveConnection } from "../../../web/lib/backend/missive.ts";
 import {
   ApiError,
   emptyWorkspace,
@@ -524,6 +525,18 @@ Deno.serve(async (req) => {
           }),
       );
       return response({ revoked: true });
+    }
+    if (pathname === "/integrations/missive" && req.method === "GET") {
+      return response(missiveSetup({
+        token: Deno.env.get("MISSIVE_API_TOKEN"),
+        workspaceId: Deno.env.get("MISSIVE_WORKSPACE_ID"),
+      }, wid, a));
+    }
+    if (pathname === "/integrations/missive/check" && req.method === "POST") {
+      return response(await checkMissiveConnection({
+        token: Deno.env.get("MISSIVE_API_TOKEN"),
+        workspaceId: Deno.env.get("MISSIVE_WORKSPACE_ID"),
+      }, wid, a));
     }
     if (pathname === "/integrations" && req.method === "GET") {
       administrator(a);
