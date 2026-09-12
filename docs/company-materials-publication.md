@@ -37,7 +37,7 @@ There is one active release per company/document family or linked material, acro
 - Restricting a reviewed or published source withdraws its release. Reviewed source content and historical approval evidence cannot be overwritten or deleted through ordinary workspace mutations; upload a new version.
 - A private new version does not affect the published version. A closed publication cannot be reactivated. A new release must go through review.
 - Material approval is distinct from company launch approval and transaction-specific disclosure delivery. The app does not generate legal templates or determine their sufficiency.
-- Audience selection remains an administrator preview using recorded member names. Production account IDs, authorization, external sharing, durable audit storage and binary backup remain separate work.
+- Audience selection remains an administrator preview using recorded member names. Production account IDs, authorization, external sharing and durable audit storage remain separate work. Claude's full local backup/restore is included in the combined app.
 
 ## Verification
 
@@ -46,3 +46,7 @@ The full domain suite passes **67 tests**, including all 50 prior tests and 17 m
 Browser verification on isolated local sample data exercised upload, preparation, material approval, publication review, publication, private v2 upload, selected-member replacement, reload persistence and withdrawal. Downloads before and after replacement were compared byte for byte with their v1 and v2 upload fixtures. After withdrawal, no prior release reappeared. Uploading a material preserves the open company sheet and selected material.
 
 The new tests cover legacy migration, idempotent tasks, company scoping, stale review, immutable historical approval evidence, reopening preparation work, audience replacement, privacy restrictions, publication history and independent onboarding state.
+
+The production build also passes. After rebasing onto Claude's `e591577` backup commit, a full backup was restored through the UI into a fresh browser session. Re-export comparison confirmed identical materials, approval snapshots/history, both publication records, document IDs and exact uploaded v1/v2 bytes. Desktop and 390-pixel layouts were inspected visually.
+
+A final browser pass opened all 16 workspace sections with no uncaught or console errors after a clean browser launch. Earlier development-only hot updates required a reload after shared context modules changed; the clean-session verification ran after those edits and the rebase.
