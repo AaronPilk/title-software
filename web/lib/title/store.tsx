@@ -352,8 +352,28 @@ export function parseBackupFile(raw: string): WorkspaceBackup {
     throw new Error(
       "This is not a TitleOS full backup file (use one downloaded from Export full backup).",
     );
-  // missingAssets was added after the first release of this format — default
-  // to empty for a backup file made by that earlier version.
+  // The asset list and the missing-asset manifest are read by the restore
+  // confirmation dialog and by restoreAssets, so a malformed entry has to be
+  // rejected here, up front, not discovered as a crash inside the dialog.
+  // missingAssets was added after the first release of this format — absent
+  // is fine (an older backup) and defaults to empty; present-but-malformed
+  // is not.
+  const stringFields = (x: unknown, keys: string[]) =>
+    !!x &&
+    typeof x === "object" &&
+    keys.every((k) => typeof (x as Record<string, unknown>)[k] === "string");
+  if (!b.assets.every((a) => stringFields(a, ["id", "name", "mime", "data"])))
+    throw new Error(
+      "This backup file's asset list is malformed and cannot be restored safely.",
+    );
+  if (
+    b.missingAssets !== undefined &&
+    (!Array.isArray(b.missingAssets) ||
+      !b.missingAssets.every((m) => stringFields(m, ["id", "name"])))
+  )
+    throw new Error(
+      "This backup file's missing-asset manifest is malformed and cannot be restored safely.",
+    );
   b.missingAssets ??= [];
   return b as WorkspaceBackup;
 }

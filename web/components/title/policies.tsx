@@ -2,6 +2,7 @@
 import {
   recordOrderOutcome,
   recoveryStage,
+  outcomesByDate,
   backfillReceivedDate,
 } from "@/lib/title/business";
 import { useState, useEffect } from "react";
@@ -1118,7 +1119,9 @@ function OrderOutcome({ order }: { order: Order }) {
     <section className="form-stack">
       <h3>Order outcomes</h3>
       {stage && <p className="inline-note">Recovery status: {stage}.</p>}
-      {order.outcomes?.map((e, i) => (
+      {/* Shown in event-date order, matching how recoveryStage reads it — a
+          late-entered earlier event lands where it happened, not at the end. */}
+      {outcomesByDate(order).map((e, i) => (
         <p className="inline-note" key={i}>
           {e.date} · {e.kind} · {e.note}
         </p>

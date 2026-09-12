@@ -2107,16 +2107,30 @@ export function recordOrderOutcome(
 }
 export type RecoveryStage = "Not yet contacted" | "Awaiting response" | "Lost";
 /**
- * Derived, not stored: scans the outcome log backwards from the most recent
- * event and returns the stage implied by whichever of Rejected/Contacted/
- * Recovery lost happened last. Returns null once the order is no longer
- * Rejected (recovered, or never rejected) — there's no active recovery to
- * report on.
+ * The outcome log in event-date order (oldest first), independent of the
+ * order the events were typed in. A call that happened on the 5th can be
+ * entered on the 12th; it still belongs on the 5th. Same-date events keep
+ * their entry order, so the one entered later is treated as the later one —
+ * a stable, predictable tie rule.
+ */
+export function outcomesByDate(o: Order) {
+  return (o.outcomes || [])
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => a.e.date.localeCompare(b.e.date) || a.i - b.i)
+    .map((x) => x.e);
+}
+/**
+ * Derived, not stored: reads the outcome log in event-date order (not entry
+ * order — see outcomesByDate) and returns the stage implied by whichever of
+ * Rejected/Contacted/Recovery lost happened last. Returns null once the
+ * order is no longer Rejected (recovered, or never rejected) — there's no
+ * active recovery to report on.
  */
 export function recoveryStage(o: Order): RecoveryStage | null {
   if (o.status !== "Rejected") return null;
-  for (let i = (o.outcomes || []).length - 1; i >= 0; i--) {
-    const k = o.outcomes![i].kind;
+  const log = outcomesByDate(o);
+  for (let i = log.length - 1; i >= 0; i--) {
+    const k = log[i].kind;
     if (k === "Contacted") return "Awaiting response";
     if (k === "Recovery lost") return "Lost";
     if (k === "Rejected") return "Not yet contacted";

@@ -520,6 +520,7 @@ import {
   loadDemoScenario,
   recordOrderOutcome,
   recoveryStage,
+  outcomesByDate,
   backfillReceivedDate,
 } from "../.local-test/business.js";
 test("guided sample is idempotent, isolated from current source values and never preapproves evidence", () => {
@@ -589,6 +590,29 @@ test("recovery stage tracks contacted/lost checkpoints on a rejected file, and r
   recordOrderOutcome(s, o.id, "Recovered", "2026-10-02", "Client is proceeding");
   assert.equal(o.status, "Needs review");
   assert.equal(recoveryStage(o), null);
+});
+test("recovery stage follows event dates, not entry order, with later-entered winning a same-date tie (Codex repro)", () => {
+  const s = createSeed(),
+    o = s.orders[0];
+  recordOrderOutcome(s, o.id, "Rejected", "2026-09-01", "Client went quiet");
+  recordOrderOutcome(s, o.id, "Recovery lost", "2026-09-10", "No response");
+  assert.equal(recoveryStage(o), "Lost");
+  // A call that happened on the 5th, entered late: it belongs before the
+  // 10th's "lost", so the stage must stay Lost rather than flipping.
+  recordOrderOutcome(s, o.id, "Contacted", "2026-09-05", "Left a voicemail");
+  assert.equal(recoveryStage(o), "Lost");
+  assert.deepEqual(
+    outcomesByDate(o).map((e) => e.date),
+    ["2026-09-01", "2026-09-05", "2026-09-10"],
+  );
+  // A genuinely later contact does resume the recovery.
+  recordOrderOutcome(s, o.id, "Contacted", "2026-09-12", "Client called back");
+  assert.equal(recoveryStage(o), "Awaiting response");
+  // Same-date tie: the event entered later is treated as the later event.
+  recordOrderOutcome(s, o.id, "Recovery lost", "2026-09-12", "Then declined");
+  assert.equal(recoveryStage(o), "Lost");
+  recordOrderOutcome(s, o.id, "Contacted", "2026-09-12", "Reconsidering");
+  assert.equal(recoveryStage(o), "Awaiting response");
 });
 test("contacted/recovery-lost checkpoints require an active rejection", () => {
   const s = createSeed(),
