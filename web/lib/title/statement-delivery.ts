@@ -284,7 +284,8 @@ const filled = (v: unknown): v is string => typeof v === "string" && !!v.trim();
 const timestamp = (v: unknown) =>
   filled(v) &&
   Number.isFinite(Date.parse(v)) &&
-  new Date(v).toISOString() === v;
+  new Date(v).toISOString() === v &&
+  v <= now();
 const recordStrings = [
   "id",
   "companyId",
@@ -390,10 +391,19 @@ export function isValidStatementDeliveryWorkspace(value: unknown): boolean {
   )
     return false;
   if (!value.statementDeliveries?.length) return true;
-  if (!isObject(value.business) || !Array.isArray(value.business.closes))
+  if (
+    !isObject(value.business) ||
+    !Array.isArray(value.business.closes) ||
+    !Array.isArray(value.companies)
+  )
     return false;
   const closes = value.business.closes;
+  const companies = value.companies;
   return value.statementDeliveries.every((r) => {
+    if (
+      companies.filter((c) => isObject(c) && c.id === r.companyId).length !== 1
+    )
+      return false;
     const sources = closes.filter(
       (p) => isObject(p) && p.id === r.closeId && p.companyId === r.companyId,
     );

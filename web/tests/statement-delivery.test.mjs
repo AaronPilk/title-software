@@ -259,6 +259,14 @@ test("restore rejects orphaned, cross-company and altered statement snapshots wh
       x.business.closes = [];
     },
     (x) => {
+      x.companies = x.companies.filter((c) => c.id !== input.companyId);
+    },
+    (x) => {
+      x.statementDeliveries[0].recordedAt = new Date(
+        Date.now() + 60000,
+      ).toISOString();
+    },
+    (x) => {
       x.statementDeliveries[0].snapshot.amount += 0.01;
     },
     (x) => {
