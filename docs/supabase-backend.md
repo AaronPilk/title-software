@@ -1,6 +1,6 @@
 # Shared Supabase backend
 
-Implemented September 12, 2026 for the existing Ballantyne Title application and its recorded-call workflows. The active project is **Title Software**, `yhneskzvmtcmbsknidlt`, in **us-east-2 (Ohio)**. The frontend remains local. No SoftPro, Missive, DocuSign, accounting, underwriter, AI or payment account is connected by this change.
+Implemented September 12, 2026 for the existing Ballantyne Title application and its recorded-call workflows. The active project is **Title Software**, `yhneskzvmtcmbsknidlt`, in **us-east-2 (Ohio)**. The frontend now also runs as a [private Cloudflare pilot](cloudflare-pilot.md), deployed September 13. No SoftPro, Missive, DocuSign, accounting, underwriter, AI or payment account is connected by this change.
 
 ## What is implemented
 
@@ -27,7 +27,7 @@ From `web/`, copy `.env.example` to the ignored `.env.local` and fill the projec
 
 Without these settings the app opens its existing local sample mode. With them it starts at sign-in; “Open local sample workspace” is still available.
 
-Auth Site URL is `http://localhost:5173`, with explicit redirects for ports 5173 and 5174. Password minimum length is 12, leaked-password protection and secure password change are enabled, and secure email change remains enabled. Add the final HTTPS application URL when hosting is selected.
+Auth Site URL is `https://title-software-pilot.aaron-9c3.workers.dev`, with exact redirects for that URL and localhost ports 5173 and 5174. Password minimum length is 12, leaked-password protection and secure password change are enabled, and secure email change remains enabled.
 
 ## First administrator and staff
 
@@ -39,7 +39,7 @@ Supabase's default test email service only reaches approved project-team address
 
 ## Migrations and function deployment
 
-Apply the checked-in migrations in chronological order. They include explicit follow-up fixes discovered on the actual project. `npm run backend:build` bundles the Edge entrypoint and existing domain modules into the ignored `supabase/functions/title-api/bundle.js`. Deploy that generated bundle as `title-api` with JWT verification enabled. The initial backend shipped as function version 3. Version 5 adds reviewed Missive inbox/company mapping and message-text import, described in [missive-connection.md](missive-connection.md). Six migrations are applied; the latest includes five rolled-back transaction verification rounds on initialized projects.
+Apply the checked-in migrations in chronological order. They include explicit follow-up fixes discovered on the actual project. `npm run backend:build` bundles the Edge entrypoint and existing domain modules into the ignored `supabase/functions/title-api/bundle.js`. Deploy that generated bundle as `title-api` with JWT verification enabled. The initial backend shipped as function version 3. Version 5 adds reviewed Missive inbox/company mapping and message-text import, described in [missive-connection.md](missive-connection.md). Nine migrations are applied. Version 7 enforces password setup and live-session TOTP; the September 13 follow-ups verify rotation races and remove completed pilot QA. See the pilot guide for current validation and cleanup evidence.
 
 Application conflicts use the PostgREST `PT409` code. A PostgreSQL serialization code caused the gateway to keep retrying a deliberate stale-write rejection during the live race test; the explicit HTTP conflict code fixed that behavior. Do not replace it with `40001` for application-level conflicts.
 
@@ -64,4 +64,4 @@ See [integration-setup.md](integration-setup.md). This implementation supplies t
 
 ## September 12 account and Missive continuation
 
-Seven requested accounts were created through an expiring, narrowly scoped provisioning function using Auth Admin. Existing accounts/passwords were never overwritten. The temporary function was immediately replaced with an authenticated HTTP410 tombstone and verified. No setup email was sent. The provided initial credentials work; staff roles are operations with no companies pending assignment. Current Missive verification and outstanding dependencies are recorded in [missive-connection.md](missive-connection.md).
+Seven requested accounts were created through an expiring, narrowly scoped provisioning function using Auth Admin. Existing accounts/passwords were never overwritten. The temporary function was immediately replaced with an authenticated HTTP410 tombstone and verified. No setup email was sent. Those original shared initial passwords were superseded on September 13 by distinct temporary passwords (see the pilot guide); staff roles are operations with no companies pending assignment. Current Missive verification and outstanding dependencies are recorded in [missive-connection.md](missive-connection.md).

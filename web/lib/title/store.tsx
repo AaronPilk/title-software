@@ -17,6 +17,7 @@ import { BackendAccess } from "@/components/title/backend-access";
 import {
   supabase,
   backendConfigured,
+  hostedPilot,
   backendRequest,
   activeWorkspace,
   uploadRemoteAsset,
@@ -83,7 +84,9 @@ type Store = {
 };
 const Context = createContext<Store | null>(null);
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const [demo, setDemo] = useState(!backendConfigured);
+  const [demo, setDemo] = useState(!backendConfigured && !hostedPilot);
+  if (hostedPilot && !backendConfigured)
+    return <main className="backend-entry"><section className="backend-login panel"><h1>Workspace unavailable</h1><p>The shared workspace connection has not been configured. Contact your administrator.</p></section></main>;
   if (demo)
     return (
       <LocalWorkspaceProvider>
@@ -99,7 +102,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       </LocalWorkspaceProvider>
     );
   return (
-    <BackendAccess onDemo={() => setDemo(true)}>
+    <BackendAccess onDemo={() => { if (!hostedPilot) setDemo(true); }}>
       {(remote) => (
         <ConnectedWorkspaceProvider initial={remote}>
           {children}

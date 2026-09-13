@@ -1,10 +1,14 @@
 "use client";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { LogIn, ShieldCheck, RefreshCw, Cloud, LogOut } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { AccountSecuritySetup } from "./account-security";
+import type { AccountSecurity } from "@/lib/backend/account-security";
+import { recoveryIntent } from "@/lib/backend/recovery-intent";
 import {
   backendConfigured,
+  hostedPilot,
   backendRequest,
   setActiveWorkspace,
   supabase,
@@ -27,21 +31,41 @@ export function BackendAccess({
     [authenticated, setAuthenticated] = useState(false),
     [loading, setLoading] = useState(true),
     [recovering, setRecovering] = useState(false);
+  const [security, setSecurity] = useState<AccountSecurity | null>(null);
+  const generation = useRef(0);
+  const recovery = useRef(false);
+  function rememberRecoverySession(token?: string | null, mark = false) {
+    const next = recoveryIntent.read(token, mark);
+    recovery.current = next;
+    setRecovering(next);
+  }
   async function connect() {
+    const current = ++generation.current;
     setLoading(true);
     setError("");
     try {
       const { data } = await supabase!.auth.getSession();
+      if (current !== generation.current) return;
       if (!data.session) {
+        rememberRecoverySession(null);
         setRemote(null);
         setAuthenticated(false);
         setActiveWorkspace("");
+        setSecurity(null);
         return;
       }
+      rememberRecoverySession(data.session.access_token);
       setAuthenticated(true);
+      const securityStatus = await backendRequest<AccountSecurity>("/security/status");
+      if (current !== generation.current) return;
+      setSecurity(securityStatus);
+      if (securityStatus.step !== "ready" || recovery.current) {
+        setRemote(null); setActiveWorkspace(""); return;
+      }
       const session = await backendRequest<{
         workspaces: { workspace_id: string }[];
       }>("/session");
+      if (current !== generation.current) return;
       if (!session.workspaces.length) {
         setError(
           "Your email is signed in, but no workspace access has been assigned yet. Ask the owner to prepare your access invitation, then refresh.",
@@ -51,13 +75,15 @@ export function BackendAccess({
         return;
       }
       setActiveWorkspace(session.workspaces[0].workspace_id);
-      setRemote(await backendRequest<RemoteState>("/state"));
+      const next = await backendRequest<RemoteState>("/state");
+      if (current === generation.current && !recovery.current) setRemote(next);
     } catch (e) {
+      if (current !== generation.current) return;
       setError(e instanceof Error ? e.message : "Unable to connect.");
       setRemote(null);
       setActiveWorkspace("");
     } finally {
-      setLoading(false);
+      if (current === generation.current) setLoading(false);
     }
   }
   useEffect(() => {
@@ -65,22 +91,31 @@ export function BackendAccess({
       setLoading(false);
       return;
     }
-    void connect();
     const {
       data: { subscription },
-    } = supabase!.auth.onAuthStateChange((event) => {
+    } = supabase!.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY") {
-        setRecovering(true);
+        rememberRecoverySession(session?.access_token, true);
+        generation.current++;
         setRemote(null);
         setLoading(false);
+        setTimeout(() => void connect(), 0);
       } else if (event === "SIGNED_OUT") {
+        rememberRecoverySession(null);
+        generation.current++;
+        setSecurity(null);
         setRemote(null);
         setAuthenticated(false);
         setActiveWorkspace("");
-      } else if (event === "SIGNED_IN") setTimeout(() => void connect(), 0);
+      } else if (["SIGNED_IN", "TOKEN_REFRESHED", "MFA_CHALLENGE_VERIFIED"].includes(event)) {
+        rememberRecoverySession(session?.access_token);
+        setTimeout(() => void connect(), 0);
+      }
     });
+    void connect();
     return () => {
       subscription.unsubscribe();
+      generation.current++;
       setActiveWorkspace("");
     };
   }, []);
@@ -120,47 +155,17 @@ export function BackendAccess({
       setPending(false);
     }
   }
-  if (recovering)
-    return (
-      <main className="backend-entry">
-        <section className="backend-login panel">
-          <h1>Set a new password</h1>
-          {error && <p role="alert">{error}</p>}
-          <form
-            className="form-stack"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setPending(true);
-              setError("");
-              const result = await supabase!.auth.updateUser({ password });
-              setPending(false);
-              if (result.error) setError(result.error.message);
-              else {
-                setPassword("");
-                setRecovering(false);
-                await connect();
-              }
-            }}
-          >
-            <label>
-              New password
-              <Input
-                aria-label="New password"
-                type="password"
-                autoComplete="new-password"
-                minLength={12}
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </label>
-            <Button disabled={pending} type="submit">
-              Update password
-            </Button>
-          </form>
-        </section>
-      </main>
-    );
+  if (!error && security && (security.step !== "ready" || recovering))
+    return <main className="backend-entry"><AccountSecuritySetup security={security} recovering={recovering}
+      onSignOut={() => void supabase!.auth.signOut()}
+      onComplete={async () => {
+        // A recovery session may first need its existing authenticator challenge.
+        if (security.step !== "challenge") {
+          recoveryIntent.clear();
+          recovery.current = false; setRecovering(false);
+        }
+        await connect();
+      }} /></main>;
   if (remote) return <>{children(remote)}</>;
   return (
     <main className="backend-entry">
@@ -240,14 +245,14 @@ export function BackendAccess({
                   {pending ? "Please wait…" : "Sign in"}
                 </Button>
                 <div className="source-actions">
-                  <Button
+                  {!hostedPilot && <Button
                     type="button"
                     variant="outline"
                     disabled={pending || !email || password.length < 12}
                     onClick={() => void submit("signup")}
                   >
                     Create account
-                  </Button>
+                  </Button>}
                   <Button
                     type="button"
                     variant="ghost"
@@ -263,7 +268,7 @@ export function BackendAccess({
               <ShieldCheck size={15} /> Access is assigned to your account and
               companies.
             </p>
-            <Button
+            {!hostedPilot && <Button
               variant="ghost"
               onClick={() => {
                 setActiveWorkspace("");
@@ -271,7 +276,7 @@ export function BackendAccess({
               }}
             >
               Open local sample workspace
-            </Button>
+            </Button>}
           </>
         )}
       </section>

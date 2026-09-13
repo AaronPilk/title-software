@@ -1,11 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Workspace } from "../title/model";
 import type { Access } from "./workspace";
+import { recoveryIntent } from "./recovery-intent";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
 export const backendConfigured = !!url && !!key;
+export const hostedPilot = process.env.NEXT_PUBLIC_TITLE_HOSTED_PILOT === "true";
 export const supabase = backendConfigured ? createClient(url, key) : null;
+// Redirect events can arrive before React mounts and are not replayed as recovery.
+// Capture the intent synchronously; do not call async Auth methods in this callback.
+if (supabase && typeof window !== "undefined") {
+  supabase.auth.onAuthStateChange((event, session) => {
+    recoveryIntent.observe(event, session?.access_token);
+  });
+}
 export type RemoteState = {
   workspaceId: string;
   name: string;
@@ -45,8 +54,9 @@ export async function backendRequest<T = any>(
   if (!response.ok) {
     const error = new Error(
       result.error || "The server could not complete this request.",
-    ) as Error & { status: number };
+    ) as Error & { status: number; code?: string };
     error.status = response.status;
+    error.code = result.code;
     throw error;
   }
   return result;

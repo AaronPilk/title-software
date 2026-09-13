@@ -48,10 +48,11 @@ npm test
 npm run build
 ```
 
-The suite currently contains 109 domain tests and 15 backend tests. Run `npm run test:backend` for command/permission replay coverage, or `node scripts/backend/verify-five.mjs` to repeat both suites five times. Five live Supabase integration rounds and the connected browser walkthrough are documented in the backend report.
+The suite currently contains 109 domain tests, 30 backend/security/recovery tests and 24 Missive tests. Run `npm run test:backend` for command/permission replay coverage, or `node scripts/backend/verify-five.mjs` to repeat both suites five times. Five live Supabase integration rounds and the connected browser walkthrough are documented in the backend report.
 
 ## Documentation
 
+- [Private Cloudflare pilot and first sign-in](docs/cloudflare-pilot.md)
 - [Shared backend, account setup and verification](docs/supabase-backend.md)
 
 - [Current system blueprint](docs/system-blueprint.md)
@@ -68,6 +69,6 @@ The suite currently contains 109 domain tests and 15 backend tests. Run `npm run
 - [NC and SC requirements](docs/research/carolinas-requirements.md)
 - [Historical discovery analysis](docs/discovery/call-analysis.md)
 
-Project destination: [AaronPilk/title-software](https://github.com/AaronPilk/title-software). This delivery is local; no production application is deployed.
+Project destination: [AaronPilk/title-software](https://github.com/AaronPilk/title-software). A private staff pilot is deployed on Cloudflare; see the deployment guide above.
 
 Recordings remain outside the repository. Both machine transcripts are excluded from version control under `.local/`. No credentials or customer documents are needed to run the prototype.

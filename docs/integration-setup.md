@@ -1,8 +1,10 @@
 # Ballantyne Title: backend and API setup
 
-Updated September 12, 2026. The dedicated **Title Software** Supabase project is now connected: `yhneskzvmtcmbsknidlt`, us-east-2 (Ohio). Shared authentication, records, private files, server-enforced actions, access control, audit and recovery are implemented. See [backend architecture and verification](supabase-backend.md).
+Updated September 13, 2026. The dedicated **Title Software** Supabase project is now connected: `yhneskzvmtcmbsknidlt`, us-east-2 (Ohio). Shared authentication, records, private files, server-enforced actions, access control, audit and recovery are implemented. See [backend architecture and verification](supabase-backend.md).
 
 ## First action for Aaron
+
+The [private Cloudflare pilot](cloudflare-pilot.md) is live. Use the private startup instructions on your Mac, choose a personal password and enroll an authenticator. The SMTP forms are prepared in Chrome; creating the dedicated sending key and saving it to Supabase is the remaining credential handoff.
 
 The seven requested accounts and owner workspace are created. Assign staff to their companies, save a working Missive token, and approve the first inbox/company mapping. The supplied token returned HTTP401. Configure a business SMTP sender for future confirmation and password-recovery email; the initial accounts were provisioned directly without sending email.
 

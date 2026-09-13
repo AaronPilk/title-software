@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
+import { accountSecurity, requireAccountReady } from "../../../web/lib/backend/account-security.ts";
 import { missiveSetup, checkMissiveConnection } from "../../../web/lib/backend/missive.ts";
 import { listMissiveConversations, listMissiveMessages, readMissiveMessage, previewMissiveMessage,
   importMissiveText, existingMissiveImport, requireMissiveDestination, providerId,
@@ -84,7 +85,19 @@ async function actor(req: Request) {
     !data.user.email
   )
     error("Confirm your email before opening company records.", 403);
-  return { id: data.user.id, email: data.user.email! };
+  const claims = await service.auth.getClaims(token);
+  if (claims.error || claims.data?.claims.sub !== data.user.id)
+    error("Your sign-in expired. Sign in again.", 401);
+  const sessionId = claims.data.claims.session_id;
+  if (typeof sessionId !== "string" || !/^[a-f\d-]{36}$/i.test(sessionId))
+    error("Your sign-in expired. Sign in again.", 401);
+  const facts = checked(await service.rpc("title_security_state", {
+    p_user: data.user.id, p_session: sessionId,
+  }));
+  if (!facts) error("Your sign-in expired. Sign in again.", 401);
+  return { id: data.user.id, email: data.user.email!, sessionId,
+    credentialVersion: facts.credential_version ?? null,
+    security: accountSecurity(data.user.email!, claims.data.claims.aal, facts) };
 }
 async function access(
   workspaceId: string,
@@ -182,6 +195,32 @@ Deno.serve(async (req) => {
     const user = await actor(req);
     const pathname =
       new URL(req.url).pathname.replace(/^.*\/title-api/, "") || "/";
+    if (pathname === "/security/status" && req.method === "GET")
+      return response(user.security);
+    if (pathname === "/security/password" && req.method === "POST") {
+      if (user.security.step === "challenge")
+        error("Verify your authenticator before changing your password.", 403);
+      const input = await body(req);
+      if (typeof input.password !== "string" || input.password.length < 12 || input.password.length > 128)
+        error("Use a password between 12 and 128 characters.");
+      const changed = await fetch(`${url}/auth/v1/user`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", apikey: Deno.env.get("SUPABASE_ANON_KEY")!,
+          Authorization: req.headers.get("Authorization")! },
+        body: JSON.stringify({ password: input.password,
+          ...(typeof input.nonce === "string" && input.nonce ? { nonce: input.nonce } : {}) }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const result = await changed.json();
+      if (!changed.ok) return response({ error: result.msg || result.message || "Password change failed.",
+        code: result.error_code || result.code }, changed.status);
+      if (result.id !== user.id) error("Password change could not be verified.", 500);
+      checked(await service.rpc("title_complete_password_change", {
+        p_user: user.id, p_session: user.sessionId, p_expected_rotation: user.credentialVersion,
+      }));
+      return response({ updated: true });
+    }
+    requireAccountReady(user.security);
     if (pathname === "/session" && req.method === "GET") {
       checked(
         await service.rpc("title_claim_access", {
@@ -197,7 +236,7 @@ Deno.serve(async (req) => {
           .eq("user_id", user.id)
           .eq("active", true),
       );
-      return response({ user, workspaces: rows });
+      return response({ user: { id: user.id, email: user.email }, workspaces: rows });
     }
     const input =
       req.method === "GET"
