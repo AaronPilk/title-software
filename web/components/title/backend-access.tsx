@@ -103,6 +103,7 @@ export function BackendAccess({
       } else if (event === "SIGNED_OUT") {
         rememberRecoverySession(null);
         generation.current++;
+        setPassword("");
         setSecurity(null);
         setRemote(null);
         setAuthenticated(false);
@@ -143,6 +144,7 @@ export function BackendAccess({
                 options: { emailRedirectTo: window.location.origin },
               });
         if (result.error) throw result.error;
+        setPassword("");
         if (kind === "signup" && !result.data.session)
           setNotice(
             "Check your email to confirm the account. Workspace access is assigned separately by the owner.",

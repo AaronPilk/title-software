@@ -4,7 +4,7 @@ Deployed September 13, 2026 at **https://title-software-pilot.aaron-9c3.workers.
 
 ## Deployment
 
-- Cloudflare Worker: `title-software-pilot`; current version `9b49c7f8-f5c1-4518-b331-bbae0069290f`.
+- Cloudflare Worker: `title-software-pilot`; current version `0658e1d0-0993-42f4-bc7a-9860c109bc50`.
 - Supabase project: `yhneskzvmtcmbsknidlt`; `title-api` version 7, JWT verification enabled. Nine migrations applied. Local filenames match the remote migration versions.
 - Cloudflare Access protects the hostname and the Worker itself. The sole remaining policy allows the seven explicitly approved staff emails with an eight-hour session. Preview URLs are disabled; there are no extra routes or custom domains.
 - Anonymous requests redirect to Cloudflare Access. Cloudflare's email-code gate is separate from the application's Supabase sign-in and authenticator check.
@@ -91,3 +91,7 @@ Cloudflare runs independently of the Mac. This deployment used Wrangler directly
 Finish SMTP and each person's authenticator enrollment, then assign staff company access. A fresh valid Missive token and reviewed inbox/company mapping remain required; the supplied token previously returned HTTP401. SoftPro/underwriter, signature and accounting connections still depend on the actual vendor accounts and supported interfaces in [integration setup](integration-setup.md).
 
 Server recovery points reference immutable files in the same Supabase project. They are not an independent disaster-recovery copy of the Storage bucket. Configure and exercise independent retention before using real closing records.
+
+## September 13 sign-in follow-up
+
+A reported invalid-credentials error was investigated using the intended owner account. The current temporary credential signed in successfully and the account required personal password setup. No account reset was needed. The login form now clears its password after successful authentication and sign-out, so a later sign-in cannot reuse an obsolete temporary password retained by React state. TypeScript, nine recovery tests, production build and deployment passed.
