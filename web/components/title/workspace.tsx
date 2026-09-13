@@ -1,8 +1,10 @@
 "use client";
-import { BackendSettings } from "./backend-settings";
+import { BackendSettings, type BackendSettingsSection } from "./backend-settings";
 import { PartnerStatements } from "./close-suite";
 import { PartnerDocuments } from "./partner-documents";
 import { partnerPeriod } from "@/lib/title/followups";
+import { selectPartnerSummary, summarizePartnerCompany } from "@/lib/backend/partner-summary";
+import { reportingDate } from "./overview-summary";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -151,7 +153,8 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
   const isPartner = connection?.access.role === "partner";
   const [company, setCompany] = useState(s.companies[0]?.id || "");
   const [tab, setTab] = useState("Overview");
-  const [month, setMonth] = useState("2026-09");
+  const [month, setMonth] = useState(() => reportingDate().period);
+  const currentPeriod = reportingDate().period;
   const c = s.companies.find((x) => x.id === company) || s.companies[0];
   if (!c)
     return (
@@ -160,8 +163,15 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
         <p>Your company documents will appear here after access is assigned.</p>
       </section>
     );
-  const period = partnerPeriod(s, c.id, month);
-  const orders = period.orders;
+  const summary = isPartner
+    ? selectPartnerSummary(s.partnerSummary, c.id, month)
+    : summarizePartnerCompany(s, c.id, month);
+  const previewPeriod = isPartner ? undefined : partnerPeriod(s, c.id, month);
+  const orders = previewPeriod?.orders || [];
+  const activeTab = isPartner && tab === "Orders" ? "Overview" : tab;
+  const asOfDate = isPartner
+    ? s.partnerSummary?.asOfDate
+    : `${currentPeriod}-${reportingDate().day.padStart(2, "0")}`;
   return (
     <>
       <Heading
@@ -176,12 +186,13 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
           type="month"
           aria-label="Partner reporting month"
           value={month}
+          max={currentPeriod}
           onChange={(e) => setMonth(e.target.value)}
         />
         <Picker
           value={c.id}
           onChange={setCompany}
-          label="Preview company"
+          label={isPartner ? "Your company" : "Preview company"}
           options={s.companies.map((x) => ({ value: x.id, label: x.name }))}
         />
       </Heading>
@@ -190,63 +201,53 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
         <div>
           <p className="eyebrow">YOUR COMPANY WORKSPACE</p>
           <h2>{c.name}</h2>
-          <p>Welcome back, {c.contact.split(" ")[0]}.</p>
+          <p>{isPartner ? "Company activity, your statements, and shared documents." : `Welcome back, ${c.contact.split(" ")[0] || "partner"}.`}</p>
         </div>
         <Status value={c.stage} />
       </div>
-      {!isPartner && (
-        <div className="metrics partner-metrics">
-          <Metric
-            label="Received orders"
-            value={period.received.length}
-            detail="Recorded receipt dates"
+      {summary ? (
+        <>
+          <div className="metrics partner-metrics">
+            <Metric label="Received orders" value={summary.received} detail="Receipt dates in this month" />
+            <Metric label="Pending orders" value={summary.pending} detail={month === asOfDate?.slice(0, 7) ? `As of ${asOfDate}` : "At the end of this month"} />
+            <Metric label="Recorded closings" value={summary.closingRecorded} detail="Closing events in this month" />
+            <Metric label="Rejected orders" value={summary.rejected} detail="Rejection events in this month" />
+            <Metric label="Recovered orders" value={summary.recovered} detail="Recovery events in this month" />
+            <Metric label="Lost recoveries" value={summary.lost} detail="Lost events in this month" />
+          </div>
+          <p className="inline-note">
+            Each event count includes a file once per month; a file can appear in more than one count.
+            Pending includes dated receipts awaiting a recorded closing, excluding rejected or lost files.
+            Files without a receipt date are excluded from received and pending totals.
+          </p>
+        </>
+      ) : (
+        <section className="panel partner-panel">
+          <Empty
+            title={month ? "Activity summary unavailable" : "Select a reporting month"}
+            text={month ? "No activity summary is available for this company and period. Published statements and shared documents remain below." : "Choose a month to see the company’s recorded activity."}
           />
-          <Metric
-            label="Issued orders"
-            value={period.issued.length}
-            detail="Orders with issuance this month"
-          />
-          <Metric
-            label="Rejected orders"
-            value={period.rejected.length}
-            detail="Dated rejection events"
-          />
-          <Metric
-            label="Recovered orders"
-            value={period.recovered.length}
-            detail="Dated recovery events"
-          />
-          <Metric
-            label="Recorded closings"
-            value={period.closed.length}
-            detail="Independent of policy issuance"
-          />
-        </div>
-      )}
-      {!isPartner && period.unknownReceived > 0 && (
-        <p className="inline-note">
-          {period.unknownReceived} legacy records have no receipt date and are
-          excluded from received counts. Business rows include a recorded
-          receipt, issuance or outcome in the selected month.
-        </p>
+        </section>
       )}
       <Segments
-        value={tab}
+        value={activeTab}
         onChange={setTab}
-        items={
-          isPartner
-            ? ["Statements", "Shared documents"]
-            : ["Overview", "Statements", "Shared documents", "Orders"]
-        }
+        items={isPartner ? ["Overview", "Statements", "Shared documents"] : ["Overview", "Statements", "Shared documents", "Orders"]}
       />
-      {tab === "Statements" || (isPartner && tab !== "Shared documents") ? (
+      {activeTab === "Statements" ? (
         <PartnerStatements key={c.id} companyId={c.id} />
-      ) : tab === "Shared documents" ? (
+      ) : activeTab === "Shared documents" ? (
         <PartnerDocuments key={c.id} companyId={c.id} />
+      ) : isPartner ? (
+        <section className="panel partner-panel">
+          <div className="section-heading"><h2>Company activity</h2><span className="subtle">{c.name} only</span></div>
+          <p>Activity totals reflect the team’s recorded receipt, closing, and recovery events. A recorded closing is separate from policy issuance.</p>
+          <p>Your individual earnings appear under Statements after the team publishes a reviewed financial close. Company materials appear under Shared documents.</p>
+        </section>
       ) : (
         <section className="panel partner-panel">
           <div className="section-heading">
-            <h2>{tab === "Overview" ? "Period business" : "Company orders"}</h2>
+            <h2>{activeTab === "Overview" ? "Period business" : "Company orders"}</h2>
             <span className="subtle">{c.name} only</span>
           </div>
           <DataTable headers={["Order", "Property", "Status", "Next update"]}>
@@ -254,16 +255,8 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
               <TableRow key={o.id}>
                 <TableCell>{o.id}</TableCell>
                 <TableCell>{o.address}</TableCell>
-                <TableCell>
-                  <Status value={o.status} />
-                </TableCell>
-                <TableCell>
-                  {o.status === "Rejected"
-                    ? "Team reviewing outcome"
-                    : o.status === "Issued"
-                      ? "Completed"
-                      : "Closing team is preparing the file"}
-                </TableCell>
+                <TableCell><Status value={o.status} /></TableCell>
+                <TableCell>{o.status === "Rejected" ? "Team reviewing outcome" : o.status === "Issued" ? "Completed" : "Closing team is preparing the file"}</TableCell>
               </TableRow>
             ))}
           </DataTable>
@@ -272,7 +265,7 @@ export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
       )}
       <p className="inline-note">
         {isPartner
-          ? "Only records published to your assigned membership appear here."
+          ? "Company totals are limited to your current membership assignments. Statements and documents appear only when published to you."
           : "Administrator preview. Earnings appear after a reviewed financial close is published."}
       </p>
     </>
@@ -289,7 +282,8 @@ export function Settings() {
     restore,
     connection: sharedConnection,
   } = useWorkspace();
-  const [tab, setTab] = useState("Connections");
+  const [tab, setTab] = useState(sharedConnection ? "Account" : "Connections");
+  const workspaceAdmin = !!sharedConnection && (sharedConnection.access.role === "owner" || (sharedConnection.access.role === "admin" && sharedConnection.access.allCompanies));
   const [connection, setConnection] = useState<
     (typeof integrations)[number] | null
   >(null);
@@ -363,35 +357,28 @@ export function Settings() {
         title="Workspace settings"
         description="Your team, connections, and operating standards."
       />
-      <BackendSettings />
       <Segments
         value={tab}
         onChange={setTab}
-        items={[
-          "Connections",
-          "Team & access",
-          "Jurisdictions",
-          "Activity",
-          "Demo workspace",
-        ]}
+        items={sharedConnection ? ["Account", "Connections", "Team & access", ...(workspaceAdmin ? ["Recovery"] : []), ...(sharedConnection.access.role !== "partner" ? ["Jurisdictions", "Activity"] : [])] : ["Connections", "Team & access", "Jurisdictions", "Activity", "Demo workspace"]}
       />
+      {sharedConnection && ["Account", "Connections", "Team & access", "Recovery"].includes(tab) && <BackendSettings key={`${tab}:${sharedConnection.access.version}`} section={tab as BackendSettingsSection} />}
       {tab === "Connections" && (
         <>
           <div className="settings-intro">
-            <h2>Connect the systems behind your work.</h2>
+            <h2>{sharedConnection ? "Integration plans" : "Explore the systems behind your work"}</h2>
             <p>
-              Vendor connections are currently disconnected. Review each
-              integration plan before connecting live services.
+              {sharedConnection ? "Missive connection checks and reviewed imports are available above to workspace administrators. The services below are planned integrations; account access and implementation must be confirmed before use." : "These connection plans describe future integrations. Local sample mode does not connect to vendor accounts."}
             </p>
           </div>
           <div className="integration-grid">
-            {integrations.map((i) => (
+            {integrations.filter((i) => !sharedConnection || i.name !== "Missive").map((i) => (
               <section className="panel integration-card" key={i.name}>
                 <div>
                   <span className={`integration-logo ${i.color}`}>
                     {i.initials}
                   </span>
-                  <Status value="Not connected" />
+                  <Status value="Planned" />
                 </div>
                 <h3>{i.name}</h3>
                 <p>{i.description}</p>
@@ -404,7 +391,7 @@ export function Settings() {
           </div>
         </>
       )}
-      {tab === "Team & access" && (
+      {!sharedConnection && tab === "Team & access" && (
         <>
           <div className="notice">
             <LockKeyhole size={18} />
@@ -517,10 +504,10 @@ export function Settings() {
                 live use.
               </p>
             </div>
-            <Button variant="outline" onClick={() => setStateOpen(true)}>
+            {(!sharedConnection || workspaceAdmin) && <Button variant="outline" onClick={() => setStateOpen(true)}>
               <Plus />
               Plan another state
-            </Button>
+            </Button>}
           </div>
           <div className="jurisdiction-grid">
             {[
@@ -606,9 +593,10 @@ export function Settings() {
               </span>
             </div>
           ))}
+          {!s.activity.length && <Empty title="No recorded activity" text="Changes visible to your account will appear here." />}
         </section>
       )}
-      {tab === "Demo workspace" && (
+      {!sharedConnection && tab === "Demo workspace" && (
         <section className="panel demo-settings">
           <h2>Local preview</h2>
           <p>
@@ -618,9 +606,8 @@ export function Settings() {
             policy issuance.
           </p>
           <p>
-            Use redacted samples only. A backend, access enforcement, backups,
-            and approved vendor connections will be added after the product
-            review.
+            Use redacted samples only. Local sample data stays separate from the
+            authenticated shared workspace and its server recovery points.
           </p>
           <div className="settings-actions">
             <Button
@@ -663,12 +650,12 @@ export function Settings() {
             </Button>
           </div>
           <p className="inline-note">
-            "Export demo records" saves metadata and sample text only. "Export
-            full backup" also bundles every uploaded file's bytes into the same
-            downloaded file, so this browser's storage is not the only copy of
+            Export demo records saves metadata and sample text only. Export
+            full backup also bundles every uploaded file into the same
+            downloaded file, so browser storage is not the only copy of
             anything — use it before clearing browser data, switching browsers,
-            or moving to a new computer. "Restore from backup" only accepts a
-            file made by "Export full backup" and replaces everything currently
+            or moving to a new computer. Restore from backup only accepts a
+            file made by Export full backup and replaces everything currently
             in this browser; the confirmation step shows what it contains first,
             and the resulting toast offers Undo.
           </p>
@@ -682,7 +669,7 @@ export function Settings() {
           <DialogHeader>
             <DialogTitle>{connection?.name} connection plan</DialogTitle>
             <DialogDescription>
-              Requirements for the later integration phase.
+              Setup requirements for this planned integration.
             </DialogDescription>
           </DialogHeader>
           <ol className="connection-checklist">
@@ -696,8 +683,8 @@ export function Settings() {
             ))}
           </ol>
           <p className="form-note">
-            No account has been connected and no credentials are requested in
-            this MVP.
+            This is a connection plan. It does not verify account access or
+            activate the integration.
           </p>
           <Button asChild variant="outline">
             <a href={connection?.url} target="_blank" rel="noreferrer">
@@ -753,7 +740,7 @@ export function Settings() {
                 readable file when this backup was made and will stay file-less
                 after restoring:{" "}
                 {pendingRestore.missingAssets.map((m) => m.name).join(", ")}.
-                Re-attach the file on each one afterward if it's needed.
+                Re-attach each file afterward if needed.
               </p>
             </div>
           )}

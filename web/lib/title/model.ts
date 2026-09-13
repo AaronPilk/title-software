@@ -10,6 +10,7 @@ import {
 import { enrichBusiness, type BusinessState } from "./business";
 export type Page =
   | "Overview"
+  | "Assistant"
   | "Inbox"
   | "Orders"
   | "Policy workbench"
@@ -53,7 +54,7 @@ export type Company = {
   authorizations?: AuthorityRecord[];
   stage: string;
   steps: boolean[];
-  members: { name: string; share: number }[];
+  members: { name: string; share: number; email?: string; phone?: string }[];
 };
 export type Field = {
   documentId?: string;
@@ -198,7 +199,25 @@ export type ImportTemplate = {
   /** CSV header text (as it appeared in that file) -> target field. */
   columnMap: Record<string, ImportTargetField>;
 };
+/** Server-derived company activity only; contains no file or member details. */
+export type PartnerCompanyPeriodSummary = {
+  companyId: string;
+  period: string;
+  received: number;
+  pending: number;
+  closingRecorded: number;
+  rejected: number;
+  recovered: number;
+  lost: number;
+};
+export type PartnerOperationalSummary = {
+  asOfDate: string;
+  /** Event months plus the current month. Quiet months carry pending forward. */
+  rows: PartnerCompanyPeriodSummary[];
+};
 export type Workspace = {
+  /** Read-only projection; never an authoritative source or a saved approval. */
+  partnerSummary?: PartnerOperationalSummary;
   statementDeliveries?: import("./statement-delivery").StatementDelivery[];
   materials?: import("./materials").MaterialsState;
   business?: BusinessState;

@@ -38,7 +38,26 @@ export type TitleRequirement = {
   evidence: string;
   note: string;
 };
+export type ReferencedSourceRole = "Prior policy" | "Search package" | "Other";
+export type ReferencedSourceReview = {
+  decision: "Reviewed" | "Not applicable";
+  documentId: string;
+  documentVersion: number;
+  rationale: string;
+  reviewedBy: string;
+  reviewedAt: string;
+};
+export type ReferencedSource = {
+  id: string;
+  wording: string;
+  role: ReferencedSourceRole;
+  required: boolean;
+  createdBy: string;
+  createdAt: string;
+  reviews: ReferencedSourceReview[];
+};
 export type TitleFile = {
+  referencedSources?: ReferencedSource[];
   securityInstrument?: "Deed of trust" | "Mortgage";
   commitmentReview?: {
     note: string;
@@ -259,9 +278,113 @@ export function productionLocked(s: Workspace, order: Order) {
     )
   );
 }
+export function referencedSourceStatus(s: Workspace, o: Order, source: ReferencedSource) {
+  const review = source.reviews.at(-1);
+  if (!review) return "Pending" as const;
+  if (review.decision === "Not applicable") return "Not applicable" as const;
+  return orderSources(s, o.id).some(d =>
+    d.id === review.documentId && d.version === review.documentVersion &&
+    (source.role === "Other" || d.sourceRole === source.role),
+  ) ? "Reviewed" as const : "Source changed" as const;
+}
+export function referencedSourceProblems(s: Workspace, o: Order) {
+  return (titleFile(o).referencedSources || []).filter(source =>
+    source.required && ["Pending", "Source changed"].includes(referencedSourceStatus(s, o, source)),
+  );
+}
+function referenceOrder(s: Workspace, orderId: string) {
+  const o = s.orders.find(o => o.id === orderId);
+  if (!o || o.status === "Rejected" || productionLocked(s, o))
+    throw new Error("Choose an active, unissued file for source review.");
+  return o;
+}
+function invalidateReferenceReview(o: Order) {
+  o.production = { ...titleFile(o), version: titleFile(o).version + 1, commitmentReview: undefined };
+  if (o.status === "Ready for jacket") o.status = "Needs review";
+}
+export function addReferencedSource(s: Workspace, orderId: string, input: {
+  wording: string; role: ReferencedSourceRole; required: boolean;
+}) {
+  return traceMutation(s, "addReferencedSource", [orderId, input], () => {
+    const o = referenceOrder(s, orderId);
+    if (!input || typeof input.wording !== "string" || !input.wording.trim() || input.wording.length > 5000 ||
+      !["Prior policy", "Search package", "Other"].includes(input.role) || typeof input.required !== "boolean")
+      throw new Error("Record the original reference wording, source type and whether it is required.");
+    const existing = titleFile(o).referencedSources || [];
+    const duplicate = existing.find(r => r.wording === input.wording && r.role === input.role && r.required === input.required);
+    if (duplicate) return duplicate;
+    if (existing.length >= 100) throw new Error("This file already has 100 source references.");
+    const source: ReferencedSource = {
+      id: commandUuid(), wording: input.wording, role: input.role, required: input.required,
+      createdBy: s.user, createdAt: new Date().toISOString(), reviews: [],
+    };
+    o.production = { ...titleFile(o), referencedSources: [...existing, source] };
+    invalidateReferenceReview(o);
+    return source;
+  });
+}
+export function reviewReferencedSource(s: Workspace, orderId: string, referenceId: string, input: {
+  decision: "Reviewed" | "Not applicable"; documentId: string; documentVersion: number; rationale: string;
+}) {
+  return traceMutation(s, "reviewReferencedSource", [orderId, referenceId, input], () => {
+    const o = referenceOrder(s, orderId);
+    const source = titleFile(o).referencedSources?.find(r => r.id === referenceId);
+    if (!source) throw new Error("Choose a source reference from this file.");
+    if (!input || !["Reviewed", "Not applicable"].includes(input.decision) ||
+      typeof input.rationale !== "string" || !input.rationale.trim() || input.rationale.length > 5000)
+      throw new Error("Record a review decision and rationale.");
+    if (input.decision === "Reviewed" && !orderSources(s, o.id).some(d =>
+      d.id === input.documentId && d.version === input.documentVersion &&
+      (source.role === "Other" || d.sourceRole === source.role),
+    )) throw new Error("Choose the current referenced document and version from this file.");
+    const review: ReferencedSourceReview = {
+      decision: input.decision,
+      documentId: input.decision === "Reviewed" ? input.documentId : "",
+      documentVersion: input.decision === "Reviewed" ? input.documentVersion : 0,
+      rationale: input.rationale.trim(), reviewedBy: s.user, reviewedAt: new Date().toISOString(),
+    };
+    source.reviews.push(review);
+    invalidateReferenceReview(o);
+    return review;
+  });
+}
+export function referencedSourcesShapeValid(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value) || value.length > 100) return false;
+  const text = (v: unknown, max = 5000) => typeof v === "string" && !!v.trim() && v.length <= max;
+  const date = (v: unknown) => typeof v === "string" && Number.isFinite(Date.parse(v));
+  const ids = new Set<string>();
+  return value.every(r => {
+    if (!r || !text(r.id, 150) || ids.has(r.id) || !text(r.wording) ||
+      !["Prior policy", "Search package", "Other"].includes(r.role) || typeof r.required !== "boolean" ||
+      !text(r.createdBy, 500) || !date(r.createdAt) || !Array.isArray(r.reviews)) return false;
+    ids.add(r.id);
+    return r.reviews.every((review: ReferencedSourceReview) => review &&
+      ["Reviewed", "Not applicable"].includes(review.decision) && text(review.rationale) &&
+      text(review.reviewedBy, 500) && date(review.reviewedAt) &&
+      (review.decision === "Reviewed"
+        ? text(review.documentId, 150) && Number.isInteger(review.documentVersion) && review.documentVersion > 0
+        : review.documentId === "" && review.documentVersion === 0));
+  });
+}
+export function validateReferencedSourcesMutation(before: Workspace, after: Workspace) {
+  if (after.orders.some(o => !referencedSourcesShapeValid(titleFile(o).referencedSources)))
+    throw new Error("The referenced-source checklist contains invalid records.");
+  for (const o of before.orders) {
+    const current = after.orders.find(n => n.id === o.id);
+    for (const old of titleFile(o).referencedSources || []) {
+      const next = current && titleFile(current).referencedSources?.find(r => r.id === old.id);
+      const capture = ({ reviews: _reviews, ...rest }: ReferencedSource) => rest;
+      if (!next || JSON.stringify(capture(old)) !== JSON.stringify(capture(next)) ||
+        JSON.stringify(next.reviews.slice(0, old.reviews.length)) !== JSON.stringify(old.reviews))
+        throw new Error("Preserve the original source reference and its review history. Record a new decision instead.");
+    }
+  }
+}
 export function commitmentSnapshot(s: Workspace, o: Order) {
   const p = titleFile(o);
   return JSON.stringify({
+    ...(p.referencedSources?.length ? { referencedSources: p.referencedSources } : {}),
     sources: orderSources(s, o.id)
       .filter((d) => !outputRoles.includes(d.sourceRole!))
       .map((d) => [d.id, d.version, d.sourceRole])
@@ -318,6 +441,7 @@ export function finalReadiness(s: Workspace, order: Order) {
   });
   const p = titleFile(order);
   const missingContext = [
+    ...referencedSourceProblems(s, order).map(r => `referenced source: ${r.wording}`),
     ...((s.business?.followups || []).some(
       (r) =>
         r.orderId === order.id && !["Resolved", "Cancelled"].includes(r.status),

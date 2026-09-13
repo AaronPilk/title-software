@@ -4,14 +4,15 @@ Deployed September 13, 2026 at **https://title-software-pilot.aaron-9c3.workers.
 
 ## Deployment
 
-- Cloudflare Worker: `title-software-pilot`; current version `0658e1d0-0993-42f4-bc7a-9860c109bc50`.
-- Supabase project: `yhneskzvmtcmbsknidlt`; `title-api` version 7, JWT verification enabled. Nine migrations applied. Local filenames match the remote migration versions.
+- Cloudflare Worker: `title-software-pilot`; current version `b7981321-18e8-4baf-bdd0-5085d556c55f`.
+- Private assistant Worker: `title-personal-assistant`; version `deaaa4ea-6e0c-412c-a9d7-46ed5c557f03`. It is reached through the application service binding, with public Worker and preview URLs disabled.
+- Supabase project: `yhneskzvmtcmbsknidlt`; `title-api` version 8, JWT verification enabled; bundle SHA-256 `82c196d50de1957523db4bd8244ac3bf9690d6d6abfd87467321d128bcdc7f7f`. Ten migrations are applied. This update adds no product schema migration; the tenth is the narrowly guarded completed-QA data cleanup described below.
 - Cloudflare Access protects the hostname and the Worker itself. The sole remaining policy allows the seven explicitly approved staff emails with an eight-hour session. Preview URLs are disabled; there are no extra routes or custom domains.
 - Anonymous requests redirect to Cloudflare Access. Cloudflare's email-code gate is separate from the application's Supabase sign-in and authenticator check.
 - The deployed bundle has no sample-workspace entry or account registration button. Missing hosted backend configuration fails closed. Local builds retain explicit sample mode.
-- Only built web assets and the Worker are deployed. Recordings, transcripts, uploaded files, setup credentials and source context files are not part of the deployment.
+- Only built web assets and application/service code are deployed. Recordings, transcripts, uploaded files, setup credentials and source context files are not part of the deployment.
 
-The Supabase APIs are reachable independently of Cloudflare. Therefore every record, file, administration and Missive API route enforces verified account identity, a live Auth session, password setup, a verified TOTP factor and current membership/company permissions on the server. Cloudflare Access is an additional front door, not the backend authorization boundary.
+The Supabase APIs are reachable independently of Cloudflare. Therefore every record, file, administration, assistant-context and Missive API route enforces verified account identity, a live Auth session, password setup, a verified TOTP factor and current membership/company permissions on the server. Cloudflare Access is an additional front door, not the backend authorization boundary.
 
 ## First sign-in
 
@@ -31,7 +32,7 @@ Auth Site URL is the HTTPS pilot address. The exact allowed redirects are that a
 
 ## Recovery email: final owner handoff pending
 
-The existing Resend account has `pilk.ai` verified. A dedicated key form is prepared in Chrome: **Ballantyne Title — Supabase recovery**, **Sending access**, **pilk.ai**. The owner must create the key, copy it into the prepared Supabase SMTP Password field and save. The browser credential policy requires this handoff. No new Resend key has been created and SMTP has not been saved by this deployment.
+The existing Resend account has `pilk.ai` verified. The earlier owner handoff prepared a dedicated key form in Chrome: **Ballantyne Title — Supabase recovery**, **Sending access**, **pilk.ai**. The owner still needs to create the dedicated key, enter it in the Supabase SMTP Password field and save; recheck the setup fields before doing so. The browser credential policy requires this handoff. No new Resend key has been created and SMTP has not been saved by this deployment.
 
 | SMTP field | Prepared value |
 | --- | --- |
@@ -44,7 +45,23 @@ The existing Resend account has `pilk.ai` verified. A dedicated key form is prep
 
 [Resend's Supabase SMTP instructions](https://resend.com/docs/send-with-supabase-smtp) describe this connection. Supabase's built-in sender is restricted to project-team recipients; successful email delivery to ordinary staff remains unverified until custom SMTP is saved and a real recovery email is received. [Supabase SMTP restrictions](https://supabase.com/docs/guides/auth/auth-smtp)
 
-## Verification evidence
+## September 13 workflow and assistant verification
+
+The [transcript recheck](transcript-recheck-2026-09-13.md) records the requirements, newly added features, and vendor boundaries. The completed combined suite ran **224 tests per round × five rounds = 1,120 passing cases**: 109 domain, 40 backend/context, 34 workflow, 24 Missive, and 17 assistant tests per round. Web and assistant-service TypeScript checks, private-pilot build, and ordinary local production build passed.
+
+The real hosted browser pass covered **17 pages with zero browser errors** and a **390-pixel mobile viewport**. Live Workers AI acceptance exercised two specialist responses, explicit task proposal review/save, the stale-revision guard, and company-scoped conversation history. A separate colleague verified finals filters, missing-reference handling, persistence of a reasoned not-applicable decision, and member contact edits without changing ownership interests.
+
+The staff assistant keeps personal conversations within the authenticated workspace/user and selected company/file. It runs at most two specialized forks and uses up to three eligible prior same-thread turns as bounded historical context. Current evidence is limited to permitted saved structured fields and document metadata; original file contents, OCR, email bodies, sensitive applications, and credentials are not read. Staff may edit and save a proposed task through the normal authorized app update only after context and revision checks. The model cannot send messages, issue policies, operate vendors, or move money.
+
+QA teardown completed after the final acceptance pass. Synthetic assistant histories, the exact synthetic workspace, and two test Auth accounts were deleted. Post-cleanup checks confirmed **seven users, one real workspace, seven memberships, zero QA users, and zero company/order records in the real workspace**. Temporary Cloudflare QA policy/token access was deleted. The temporary `title-assistant-qa` function is a JWT-verified HTTP410 tombstone, version 3, bundle SHA-256 `b784ec7c0298be10a5411aca833380e1190d243f0b7946fa7a64932ba8dd2bcd`.
+
+Cleanup required `20260913200011_title_completed_assistant_qa_cleanup.sql`, a narrowly guarded data-cleanup migration for the exact completed QA fixture and its audit/foreign-key children. The normal service role correctly cannot delete audit records. This brings the applied migration count to ten without changing the product schema. The ordinary local build was restored and the preview restarted on port 5173. HTTP 200, local sample navigation, and the truthful connected-pilot assistant invitation passed a fresh browser check with no runtime/console errors.
+
+These results do not establish successful Missive mail ingestion, SoftPro operations, OCR, Docusign delivery, accounting posting, SMTP delivery, or payments. Those dependencies remain listed below.
+
+## Earlier pilot verification evidence
+
+The following results and cleanup counts describe the earlier pilot version, not the newly completed workflow/assistant pass above.
 
 - Final local suite: **109 domain + 30 backend/security/recovery tests**, repeated **five times**: 695 passing cases. The separate **24 Missive tests** also passed.
 - Five live backend rounds covered anonymous/direct database denials, company isolation, persisted edits, private uploads/downloads, restricted-file denial and snapshot restore.
@@ -69,10 +86,15 @@ npm run typecheck
 npm test
 npm run test:backend
 npm run test:missive
+npm run test:workflows
+npm run test:assistant
+npm --prefix ../services/title-assistant run typecheck
 npm run build:pilot
 npm run check:pilot
 npm run deploy:pilot
 ```
+
+The assistant is a separate service deployment: when its source changes, run its tests/typecheck and deploy from `services/title-assistant` before publishing the application that binds to it. Backend changes require the separately reviewed `title-api` build/deployment; the frontend deployment command does not deploy that API.
 
 Keep the existing Access application/policy and Worker destination protection. The deployment script rejects a normal local build or enabled preview URLs. It does not recreate Access if someone deletes it. Do not use a previous unprotected version as a rollback; rebuild the desired code with the current hosted/security configuration.
 

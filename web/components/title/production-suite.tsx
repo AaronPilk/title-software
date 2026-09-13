@@ -63,6 +63,7 @@ import {
   type PolicyCorrection,
 } from "@/lib/title/business";
 import { TitleFileDetails } from "./final-intake";
+import { ReferencedSources } from "./referenced-sources";
 import { UploadDocument, DocumentPreview } from "./documents";
 
 export function ProductionSuite({
@@ -371,6 +372,7 @@ function CommitmentEditor({ order }: { order: Order }) {
             placeholder="Confirm the source, exact legal description, selected products and requirements."
           />
         </FieldLabel>
+        <ReferencedSources key={order.id} order={order} />
         <div className="source-actions">
           <Button
             variant="outline"

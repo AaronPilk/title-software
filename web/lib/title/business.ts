@@ -14,6 +14,8 @@ import {
   orderSources,
   finalReadiness,
   fieldDefinitions,
+  referencedSourceProblems,
+  validateReferencedSourcesMutation,
 } from "./production";
 import { allocateOwnership, round } from "./engine";
 
@@ -367,6 +369,7 @@ export function commitmentFingerprint(
   const t = titleFile(o);
   return JSON.stringify({
     order: [o.id, o.companyId, o.address, o.jurisdiction, o.underwriter],
+    ...(t.referencedSources?.length ? { referencedSources: t.referencedSources } : {}),
     file: [
       t.financing,
       t.loanAmount,
@@ -408,6 +411,7 @@ export function commitmentProblems(
 ) {
   const t = titleFile(o),
     errors: string[] = [];
+  referencedSourceProblems(s, o).forEach(r => errors.push(`Referenced source needs review: ${r.wording}`));
   if (["Issued", "Rejected"].includes(o.status))
     errors.push("Choose an active order");
   if (
@@ -1382,7 +1386,7 @@ export function ledgerLines(
 export function closeFingerprint(s: Workspace, c: Company, month: string) {
   return JSON.stringify({
     rows: ledgerLines(s, c.id, month),
-    members: c.members,
+    members: c.members.map(({ name, share }) => ({ name, share })),
     expense: s.expenses[`${month}:${c.id}`] || 0,
   });
 }
@@ -1419,7 +1423,7 @@ export function newClose(s: Workspace, companyId: string, month: string) {
       status: "Draft",
       sourceHash: closeFingerprint(s, c, month),
       rows: structuredClone(rows),
-      members: structuredClone(c.members),
+      members: c.members.map(({ name, share }) => ({ name, share })),
       expenses: s.expenses[`${month}:${companyId}`] || 0,
       adjustment: 0,
       reserve: 0,
@@ -1522,7 +1526,7 @@ export function refreshClose(s: Workspace, closeId: string) {
     if (!p || !c || p.status !== "Draft")
       throw new Error("Only draft source records can be refreshed.");
     p.rows = structuredClone(ledgerLines(s, c.id, p.month));
-    p.members = structuredClone(c.members);
+    p.members = c.members.map(({ name, share }) => ({ name, share }));
     p.sourceHash = closeFingerprint(s, c, p.month);
     p.expenses = s.expenses[`${p.month}:${c.id}`] || 0;
     p.totals = closeCalculations(p);
@@ -1723,6 +1727,7 @@ export function applicationFingerprint(s: Workspace, c: Company) {
   ]);
 }
 export function validateBusinessMutation(before: Workspace, after: Workspace) {
+  validateReferencedSourcesMutation(before, after);
   validateStatementDeliveryMutation(before, after);
   validateMaterialsMutation(before, after);
   for (const r of business(before).followups || []) {
@@ -1812,13 +1817,13 @@ export function validateBusinessMutation(before: Workspace, after: Workspace) {
         previous.formationState,
         previous.jurisdiction,
         previous.operatingStates,
-        previous.members,
+        previous.members.map(({ name, share }) => ({ name, share })),
       ]) !==
         JSON.stringify([
           c.formationState,
           c.jurisdiction,
           c.operatingStates,
-          c.members,
+          c.members.map(({ name, share }) => ({ name, share })),
         ])
     ) {
       if (!oc) {
@@ -1927,7 +1932,7 @@ export function launchFingerprint(s: Workspace, c: Company) {
       c.name,
       c.formationState || c.jurisdiction,
       c.operatingStates || [c.jurisdiction],
-      c.members,
+      c.members.map(({ name, share }) => ({ name, share })),
     ],
     application: [
       oc.legalName,

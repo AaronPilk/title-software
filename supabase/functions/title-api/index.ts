@@ -1,3 +1,4 @@
+import { assistantContext } from "../../../web/lib/backend/assistant-context.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { accountSecurity, requireAccountReady } from "../../../web/lib/backend/account-security.ts";
 import { missiveSetup, checkMissiveConnection } from "../../../web/lib/backend/missive.ts";
@@ -327,6 +328,11 @@ Deno.serve(async (req) => {
     }
     const wid = uuid(input.workspaceId),
       a = await access(wid, user);
+    if (pathname === "/assistant/context" && req.method === "POST") {
+      const w = await workspace(wid);
+      return response(assistantContext(w.state, a, wid, w.revision,
+        input.companyId ? ident(input.companyId) : "", input.orderId ? ident(input.orderId) : ""));
+    }
     if (pathname === "/state" && req.method === "GET")
       return response(await stateResponse(wid, a));
     if (pathname === "/commands" && req.method === "POST") {

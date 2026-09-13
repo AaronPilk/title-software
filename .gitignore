@@ -4,3 +4,6 @@
 
 /supabase/functions/title-api/bundle.js
 /supabase/.temp/
+
+# Local Cloudflare CLI state
+/.wrangler/

@@ -20,6 +20,7 @@ const localBindingConfig = {
     account_id: "9c332c75b96cc642621dad5d86d4bf18",
     workers_dev: true,
     preview_urls: false,
+    services: [{binding: "TITLE_ASSISTANT", service: "title-personal-assistant"}],
   } : {}),
   main: "vinext/server/fetch-handler",
   compatibility_flags: ["nodejs_compat"],

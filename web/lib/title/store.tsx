@@ -9,6 +9,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { createSeed, uid, type Workspace } from "./model";
+import { referencedSourcesShapeValid } from "./production";
 import { enrichWorkspace } from "./production";
 import { enrichBusiness, validateBusinessMutation } from "./business";
 import { isValidStatementDeliveryWorkspace } from "./statement-delivery";
@@ -61,6 +62,7 @@ function isWorkspaceShape(data: unknown): data is Workspace {
     WORKSPACE_ARRAY_KEYS.every((k) =>
       Array.isArray((data as Record<string, unknown>)[k]),
     ) &&
+    (data as Workspace).orders.every(o => !!o && referencedSourcesShapeValid(o.production?.referencedSources)) &&
     isValidOptionalMaterials((data as { materials?: unknown }).materials) &&
     isValidStatementDeliveryWorkspace(data)
   );
@@ -72,6 +74,7 @@ type Store = {
     fn: (draft: Workspace) => void,
     title?: string,
     detail?: string,
+    expectedRevision?: number,
   ) => Promise<boolean>;
   reset: () => void;
   restore: (w: Workspace) => void;
@@ -166,11 +169,16 @@ function ConnectedWorkspaceProvider({
     fn: (draft: Workspace) => void,
     title?: string,
     detail = "",
+    expectedRevision?: number,
   ) {
     if (busy.current) {
       toast.error(
         "A save is still in progress. Please try again when it completes.",
       );
+      return false;
+    }
+    if (expectedRevision !== undefined && latest.current.revision !== expectedRevision) {
+      toast.error("Records changed after this review. Run a fresh review before saving.");
       return false;
     }
     const before = latest.current,
@@ -248,8 +256,7 @@ function ConnectedWorkspaceProvider({
       <div className="shared-mode-bar" role="status">
         {saving
           ? "Saving securely…"
-          : `Shared workspace · ${remote.access.email}`}
-        <span>Revision {remote.revision}</span>
+          : failure ? "Changes not saved" : "All changes saved"}
         {failure && (
           <button type="button" onClick={() => void refresh()}>
             Refresh connection

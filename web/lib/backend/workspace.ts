@@ -1,3 +1,5 @@
+import { projectPartnerSummary } from "./partner-summary";
+import { normalizeMemberContacts } from "../title/member-directory";
 import type { Workspace, Company, Order, VaultDoc } from "../title/model";
 import { createSeed } from "../title/model";
 import * as B from "../title/business";
@@ -186,6 +188,7 @@ function checkScope(before: Workspace, after: Workspace, a: Access) {
   }
 }
 function ensureShape(s: Workspace) {
+  if (s.orders.some(o => !P.referencedSourcesShapeValid(o.production?.referencedSources))) fail("Invalid referenced-source checklist.");
   for (const table of recordTables) {
     const list = collection(s, table),
       ids = new Set<string>();
@@ -324,7 +327,7 @@ function validateMembers(members: any) {
     !Array.isArray(members) ||
     members.some(
       (m) =>
-        typeof m.name !== "string" ||
+        !m || typeof m !== "object" || typeof m.name !== "string" ||
         !m.name.trim() ||
         !Number.isFinite(m.share) ||
         m.share <= 0,
@@ -337,6 +340,11 @@ function validateMembers(members: any) {
     fail(
       "Ownership must have unique members and positive shares totaling 100%.",
     );
+  for (const member of members) {
+    keys(member, ["name", "share", "email", "phone"]);
+    try { Object.assign(member, normalizeMemberContacts(member)); }
+    catch (e) { fail(e instanceof Error ? e.message : "Check member contact details."); }
+  }
 }
 function applyEdit(
   s: Workspace,
@@ -555,6 +563,7 @@ function applyEdit(
         "priorPolicyReference",
         "requirements",
         "commitmentReview",
+        "referencedSources",
       ]);
       cash(n.loanAmount);
       cash(n.purchasePrice);
@@ -565,6 +574,7 @@ function applyEdit(
         )
       )
         fail("Invalid production inputs.");
+      if (!eq(n.referencedSources, prior.referencedSources)) fail("Referenced sources require their review actions.");
       if (n.commitmentReview && !eq(n.commitmentReview, prior.commitmentReview))
         fail("Commitment approval requires its review action.");
       if (
@@ -875,7 +885,7 @@ function applyEdit(
 }
 
 const productionNames =
-  "saveCommitment prepareCommitment addPolicy savePolicy preparePolicy issuePolicy deliverPolicy requestCorrection reviewCorrectionRequest recordCorrection cancelCorrection saveCPL recordCommitmentReturn recordHandoff voidDraftPolicy prepareCPL returnCPL deliverCPL recordOrderOutcome backfillReceivedDate reviewCommitment replaceSourceFields createRevision applyRevision recheckRevision createFieldRevision applyFieldRevision recheckFieldRevision approveReplyDraft createFollowup recordFollowupSent resolveFollowupItem cancelFollowupItem".split(
+  "addReferencedSource reviewReferencedSource saveCommitment prepareCommitment addPolicy savePolicy preparePolicy issuePolicy deliverPolicy requestCorrection reviewCorrectionRequest recordCorrection cancelCorrection saveCPL recordCommitmentReturn recordHandoff voidDraftPolicy prepareCPL returnCPL deliverCPL recordOrderOutcome backfillReceivedDate reviewCommitment replaceSourceFields createRevision applyRevision recheckRevision createFieldRevision applyFieldRevision recheckFieldRevision approveReplyDraft createFollowup recordFollowupSent resolveFollowupItem cancelFollowupItem".split(
     " ",
   );
 const companyNames =
@@ -1011,6 +1021,7 @@ export function executeCommands(
 
 export function projectWorkspace(source: Workspace, a: Access): Workspace {
   const s = structuredClone(source);
+  delete s.partnerSummary;
   s.user = a.email;
   s.activity = [];
   if (a.role === "partner") {
@@ -1111,6 +1122,7 @@ export function projectWorkspace(source: Workspace, a: Access): Workspace {
         });
       }
     }
+    result.partnerSummary = projectPartnerSummary(source, a);
     return result;
   }
   for (const table of recordTables) {

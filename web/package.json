@@ -20,7 +20,9 @@
     "backend:build": "node scripts/backend/build.mjs",
     "test:backend": "node scripts/backend/test.mjs",
     "test:cloud": "node scripts/backend/test-cloud.mjs",
-    "test:missive": "node scripts/backend/test-missive.mjs"
+    "test:missive": "node scripts/backend/test-missive.mjs",
+    "test:workflows": "node --experimental-strip-types --test tests/finals-workflow.test.mjs tests/member-directory.test.mjs tests/overview.test.mjs tests/partner-summary.test.mjs",
+    "test:assistant": "npm --prefix ../services/title-assistant test"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

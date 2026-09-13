@@ -1,0 +1,6 @@
+{
+  "name": "title-personal-assistant", "private": true, "type": "module",
+  "scripts": {"types":"wrangler types", "typecheck":"tsc --noEmit", "deploy":"wrangler deploy", "test":"node --experimental-strip-types --test tests/*.test.ts"},
+  "dependencies": {"agents":"0.23.0"},
+  "devDependencies": {"typescript":"5.9.3", "wrangler":"4.92.0", "@types/node":"22.19.19"}
+}

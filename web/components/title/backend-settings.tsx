@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Cloud, RefreshCw, LogOut, Users, Archive } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
@@ -13,15 +13,21 @@ import {
 import { Picker } from "./shared";
 import { MissiveSettings } from "./missive-settings";
 
-export function BackendSettings() {
+export type BackendSettingsSection = "Account" | "Connections" | "Team & access" | "Recovery";
+type Membership = { user_id: string; role: string; company_ids: string[]; all_companies: boolean; active: boolean };
+type Invitation = { id: string; email: string; role: string; revoked_at: string | null; accepted_at: string | null };
+type RecoveryPoint = { id: string; revision: number; created_at: string };
+type SettingsData = { members?: Membership[]; invitations?: Invitation[]; backups?: RecoveryPoint[] };
+
+export function BackendSettings({ section = "Account" }: { section?: BackendSettingsSection }) {
   const { s, connection } = useWorkspace();
   const [email, setEmail] = useState(""),
     [role, setRole] = useState("operations"),
     [company, setCompany] = useState(""),
     [memberName, setMemberName] = useState(""),
-    [members, setMembers] = useState<any[]>([]),
-    [invites, setInvites] = useState<any[]>([]),
-    [backups, setBackups] = useState<any[]>([]),
+    [members, setMembers] = useState<Membership[]>([]),
+    [invites, setInvites] = useState<Invitation[]>([]),
+    [backups, setBackups] = useState<RecoveryPoint[]>([]),
     [selectedBackup, setSelectedBackup] = useState(""),
     [restoreConfirm, setRestoreConfirm] = useState(""),
     [busy, setBusy] = useState(false);
@@ -29,30 +35,32 @@ export function BackendSettings() {
     connection &&
     (connection.access.role === "owner" ||
       (connection.access.role === "admin" && connection.access.allCompanies));
-  async function load() {
-    if (!admin) return;
-    try {
-      const [m, b] = await Promise.all([
-        backendRequest("/members"),
-        backendRequest("/backups"),
-      ]);
-      setMembers(m.members);
-      setInvites(m.invitations);
-      setBackups(b.backups);
-    } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : "Unable to refresh access settings.",
-      );
-    }
-  }
+  const workspaceId = activeWorkspace();
+  const readSettings = useCallback(async (): Promise<SettingsData> => {
+    if (!admin) return {};
+    const path = section === "Team & access" ? "/members" : section === "Recovery" ? "/backups" : "";
+    if (!path) return {};
+    const result = await backendRequest<SettingsData>(path);
+    return activeWorkspace() === workspaceId ? result : {};
+  }, [admin, section, workspaceId]);
+  const acceptSettings = useCallback((data: SettingsData) => {
+    if (data.members) setMembers(data.members);
+    if (data.invitations) setInvites(data.invitations);
+    if (data.backups) setBackups(data.backups);
+  }, []);
   useEffect(() => {
-    void load();
-  }, [admin]);
+    let cancelled = false;
+    void readSettings().then(
+      (data) => { if (!cancelled) acceptSettings(data); },
+      (error) => { if (!cancelled) toast.error(error instanceof Error ? error.message : "Unable to refresh settings."); },
+    );
+    return () => { cancelled = true; };
+  }, [readSettings, acceptSettings]);
   async function act(fn: () => Promise<void>) {
     setBusy(true);
     try {
       await fn();
-      await load();
+      acceptSettings(await readSettings());
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Request failed.");
     } finally {
@@ -65,35 +73,39 @@ export function BackendSettings() {
       <div className="section-heading">
         <div>
           <Cloud size={20} />
-          <h2>Shared workspace</h2>
+          <h2>{section === "Account" ? "Your account" : section}</h2>
         </div>
-        <Button variant="outline" onClick={() => void connection.refresh()}>
+        <Button variant="outline" disabled={busy} onClick={() => void act(async () => { await connection.refresh(); })}>
           <RefreshCw />
           Refresh
         </Button>
       </div>
+      {section === "Account" && <>
       <p>
         Signed in as <strong>{connection.access.email}</strong> ·{" "}
         {connection.access.role} · revision {connection.revision}
       </p>
       <p className="form-note">
-        Records and uploaded files are stored in the Title Software Supabase
-        project. Vendor connections remain pending their account access.
+        Your changes and uploaded documents are saved to the shared workspace.
+        Company access is assigned by your administrator.
       </p>
+      <p className="form-note">{connection.access.allCompanies ? "Access to all companies" : `Access to ${s.companies.length} assigned ${s.companies.length === 1 ? "company" : "companies"}`}{connection.access.restricted ? " · Restricted evidence access enabled" : ""}</p>
       <Button variant="outline" onClick={() => void supabase?.auth.signOut()}>
         <LogOut />
         Sign out
       </Button>
+      </>}
+      {!admin && section !== "Account" && <p className="form-note">An organization-wide administrator manages {section === "Connections" ? "vendor connections" : section === "Recovery" ? "recovery points" : "team access"}. Your assigned role and companies are shown in Account.</p>}
       {admin && (
         <>
-          <MissiveSettings key={activeWorkspace()} workspaceId={activeWorkspace()} />
-          <div className="backend-settings-section">
+          {section === "Connections" && <MissiveSettings key={workspaceId} workspaceId={workspaceId} />}
+          {section === "Team & access" && <div className="backend-settings-section">
             <h3>
               <Users size={18} /> Team access
             </h3>
             <p>
-              Prepare access for a verified account. This records an invitation;
-              it does not send an email.
+              Assign a role and company scope. Access invitations are recorded here;
+              share sign-in instructions with the person separately.
             </p>
             <form
               className="form-grid"
@@ -114,7 +126,7 @@ export function BackendSettings() {
                   });
                   setEmail("");
                   toast.success(
-                    "Access invitation prepared. The person can create and verify their account, then sign in.",
+                    "Access invitation prepared. Share account setup and sign-in instructions separately.",
                   );
                 });
               }}
@@ -134,7 +146,7 @@ export function BackendSettings() {
                 <Picker
                   label="Invitation role"
                   value={role}
-                  onChange={setRole}
+                  onChange={(value) => { setRole(value); setMemberName(""); }}
                   options={[
                     "operations",
                     "onboarding",
@@ -150,7 +162,7 @@ export function BackendSettings() {
                 <Picker
                   label="Invitation company"
                   value={company}
-                  onChange={setCompany}
+                  onChange={(value) => { setCompany(value); setMemberName(""); }}
                   options={[
                     { value: "", label: "All companies (staff only)" },
                     ...s.companies.map((c) => ({ value: c.id, label: c.name })),
@@ -189,6 +201,7 @@ export function BackendSettings() {
                     <small>
                       {m.role} · {m.active ? "Active" : "Revoked"}
                     </small>
+                    <small>{m.all_companies ? "All companies" : (m.company_ids || []).map((id: string) => s.companies.find((company) => company.id === id)?.name || "Unavailable company").join(", ") || "No company access assigned"}</small>
                   </span>
                   {m.active &&
                     m.role !== "owner" &&
@@ -219,8 +232,8 @@ export function BackendSettings() {
                   {i.email} · {i.role} · awaiting verified sign-in
                 </p>
               ))}
-          </div>
-          <div className="backend-settings-section">
+          </div>}
+          {section === "Recovery" && <div className="backend-settings-section">
             <h3>
               <Archive size={18} /> Server recovery points
             </h3>
@@ -288,7 +301,7 @@ export function BackendSettings() {
                 )}
               </>
             )}
-          </div>
+          </div>}
         </>
       )}
     </section>

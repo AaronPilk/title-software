@@ -536,3 +536,13 @@ test("private onboarding does not prevent finance from closing its company",()=>
   assert.equal(executeCommands(s,[command('newClose','c1','2026-09')],a).business.closes.length,1);
   assert.throws(()=>executeCommands(s,[command('addHandoff',{companyId:'c1',sourceId:'c1',kind:'Application packet'})],{...a,role:'onboarding'}),/Restricted/);
 });
+
+test("member contacts normalize and reject malformed optional data",()=>{const s=fixture();const r=executeCommands(s,[edit("companies","A",{members:[{name:"Member A",share:100,email:" member@example.com ",phone:" 704-555-0101 "}]})],owner);assert.equal(r.companies[0].members[0].email,"member@example.com");for(const extra of [{email:"invalid"},{phone:{}},{credential:"invalid"}])assert.throws(()=>executeCommands(s,[edit("companies","A",{members:[{name:"Member A",share:100,...extra}]})],owner));});
+
+test("referenced-source workflow commands pass through the gateway and cannot be forged as draft edits",()=>{
+  const state={...emptyWorkspace(),...createSeed()};B.loadDemoScenario(state);const order=state.orders.find(o=>o.status!=="Issued"&&o.status!=="Rejected");
+  const next=executeCommands(state,[command("addReferencedSource",order.id,{wording:"See prior search package",role:"Search package",required:true})],owner);
+  const record=next.orders.find(o=>o.id===order.id);assert.equal(P.titleFile(record).referencedSources.length,1);
+  assert.throws(()=>executeCommands(next,[edit("orders",order.id,{production:{...P.titleFile(record),referencedSources:[]}})],owner),/review action|history/);
+  assert.throws(()=>executeCommands(state,[command("addReferencedSource",order.id,{wording:"See source",role:"Other",required:true})],scope("viewer",{allCompanies:true})),/cannot|permitted|access|role/i);
+});

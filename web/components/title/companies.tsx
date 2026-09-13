@@ -35,6 +35,10 @@ import {
 import { useWorkspace } from "@/lib/title/store";
 import { similarCompanies } from "@/lib/title/business";
 import {
+  memberContactError,
+  normalizeMemberContacts,
+} from "@/lib/title/member-directory";
+import {
   onboardingSteps,
   onboardingOwner,
   uid,
@@ -494,7 +498,7 @@ export function CompanyDetail({
             <CompanyMaterials companyId={c.id} onDoc={onDoc} />
           )}
           {tab === "Jurisdictions" && <CompanyJurisdictions id={id} />}{" "}
-          {tab === "Members" && <CompanyMembers company={c} />}
+          {tab === "Members" && <CompanyMembers key={c.id} company={c} />}
         </div>
       </SheetContent>
     </Sheet>
@@ -672,6 +676,10 @@ function CompanyMembers({ company }: { company: Company }) {
   const [members, setMembers] = useState(() =>
     company.members.map((m) => ({ ...m })),
   );
+  const [baseline, setBaseline] = useState(() =>
+    JSON.stringify(company.members),
+  );
+  const contactErrors = members.map(memberContactError);
   const total = members.reduce((n, m) => n + m.share, 0);
   const valid =
     members.length > 0 &&
@@ -684,70 +692,117 @@ function CompanyMembers({ company }: { company: Company }) {
     ) &&
     new Set(members.map((m) => m.name.trim().toLowerCase())).size ===
       members.length &&
-    Math.abs(total - 100) < 0.000001;
+    Math.abs(total - 100) < 0.000001 &&
+    !contactErrors.some(Boolean);
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!valid) return;
-    await update(
+    const normalized = members.map((m) => ({
+      name: m.name.trim(),
+      share: m.share,
+      ...normalizeMemberContacts(m),
+    }));
+    const saved = await update(
       (d) => {
-        d.companies.find((c) => c.id === company.id)!.members = members.map(
-          (m) => ({ name: m.name.trim(), share: m.share }),
-        );
+        const current = d.companies.find((c) => c.id === company.id)!;
+        if (JSON.stringify(current.members) !== baseline)
+          throw new Error(
+            "Company members changed. Reopen this company before saving.",
+          );
+        current.members = normalized;
       },
-      "Demo ownership updated",
+      "Company members updated",
       company.name,
     );
+    if (saved) {
+      setMembers(normalized);
+      setBaseline(JSON.stringify(normalized));
+    }
   }
   return (
     <form onSubmit={save} className="form-stack">
       <p className="inline-note">
-        Edit fictional ownership interests for financial planning. Live
-        distributions will use reviewed agreements and effective ownership
-        dates.
+        Keep member contact details with the company. Ownership interests are
+        used for financial planning and require reviewed agreements.
       </p>
       {members.map((m, i) => (
-        <div className="member-editor" key={i}>
-          <FieldLabel label={`Member ${i + 1}`}>
-            <Input
-              aria-label={`Member ${i + 1} name`}
-              required
-              maxLength={100}
-              value={m.name}
-              onChange={(e) =>
-                setMembers((prev) =>
-                  prev.map((v, j) =>
-                    j === i ? { ...v, name: e.target.value } : v,
-                  ),
-                )
+        <div className="form-stack" key={i}>
+          <div className="member-editor">
+            <FieldLabel label={`Member ${i + 1}`}>
+              <Input
+                aria-label={`Member ${i + 1} name`}
+                required
+                maxLength={100}
+                value={m.name}
+                onChange={(e) =>
+                  setMembers((prev) =>
+                    prev.map((v, j) =>
+                      j === i ? { ...v, name: e.target.value } : v,
+                    ),
+                  )
+                }
+              />
+            </FieldLabel>
+            <FieldLabel label="Interest (%)">
+              <Input
+                type="number"
+                aria-label={`Member ${i + 1} ownership percentage`}
+                min="0.01"
+                max="100"
+                step="0.01"
+                required
+                value={m.share}
+                onChange={(e) =>
+                  setMembers((prev) =>
+                    prev.map((v, j) =>
+                      j === i ? { ...v, share: Number(e.target.value) } : v,
+                    ),
+                  )
+                }
+              />
+            </FieldLabel>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() =>
+                setMembers((prev) => prev.filter((_, j) => j !== i))
               }
-            />
-          </FieldLabel>
-          <FieldLabel label="Interest (%)">
-            <Input
-              type="number"
-              aria-label={`Member ${i + 1} ownership percentage`}
-              min="0.01"
-              max="100"
-              step="0.01"
-              required
-              value={m.share}
-              onChange={(e) =>
-                setMembers((prev) =>
-                  prev.map((v, j) =>
-                    j === i ? { ...v, share: Number(e.target.value) } : v,
-                  ),
-                )
-              }
-            />
-          </FieldLabel>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => setMembers((prev) => prev.filter((_, j) => j !== i))}
-            aria-label={`Remove member ${i + 1}`}
-          >
-            Remove
-          </Button>
+              aria-label={`Remove member ${i + 1}`}
+            >
+              Remove
+            </Button>
+          </div>
+          <div className="form-grid">
+            <FieldLabel label="Email (optional)">
+              <Input
+                type="email"
+                aria-label={`Member ${i + 1} email`}
+                maxLength={254}
+                value={m.email || ""}
+                onChange={(e) =>
+                  setMembers((prev) => prev.map((v, j) =>
+                    j === i ? { ...v, email: e.target.value } : v,
+                  ))
+                }
+              />
+            </FieldLabel>
+            <FieldLabel label="Phone (optional)">
+              <Input
+                type="tel"
+                aria-label={`Member ${i + 1} phone`}
+                maxLength={60}
+                value={m.phone || ""}
+                onChange={(e) =>
+                  setMembers((prev) => prev.map((v, j) =>
+                    j === i ? { ...v, phone: e.target.value } : v,
+                  ))
+                }
+              />
+            </FieldLabel>
+          </div>
+          {contactErrors[i] && (
+            <p className="form-note" role="alert">{contactErrors[i]}</p>
+          )}
         </div>
       ))}
       <div className="member-editor-actions">
@@ -771,7 +826,7 @@ function CompanyMembers({ company }: { company: Company }) {
         ownership requires a new month-end review.
       </p>
       <Button type="submit" disabled={!valid}>
-        Save demo ownership
+        Save members
       </Button>
     </form>
   );

@@ -1,6 +1,10 @@
 "use client";
 import { BufferedInput } from "./buffered-input";
 import { ledgerLines } from "@/lib/title/business";
+import {
+  remittanceUnderwriters,
+  underwriterKey,
+} from "@/lib/title/underwriters";
 import { CloseWorkspace } from "./close-suite";
 import { AccountingImport } from "./accounting-import";
 import { useState } from "react";
@@ -53,6 +57,7 @@ export function Financials() {
   );
   const premium = round(rows.reduce((n, r) => n + r.premium, 0)),
     remittance = round(rows.reduce((n, r) => n + r.remittance, 0));
+  const underwriters = remittanceUnderwriters(s, issued);
   const reportKey =
     month +
     JSON.stringify(
@@ -62,7 +67,10 @@ export function Financials() {
     JSON.stringify(
       rows
         .filter((r) => r.orders > 0)
-        .map((r) => [r.company.id, r.company.members]),
+        .map((r) => [
+          r.company.id,
+          r.company.members.map(({ name, share }) => ({ name, share })),
+        ]),
     );
   const approved = s.approvedReports.includes(reportKey);
   function exportReport() {
@@ -238,9 +246,9 @@ export function Financials() {
           <div className="notice">
             <FileCheck2 size={18} />
             <p>
-              The demo uses illustrative 40% underwriter allocations. Actual
+              Figures use the recorded underwriter allocation for each policy. Verify
               agreements, state rules, effective dates, adjustments, and
-              remittance statements must be verified before live use.
+              remittance statements before completing a reconciliation.
             </p>
           </div>
           <section className="panel">
@@ -254,10 +262,12 @@ export function Financials() {
                 "",
               ]}
             >
-              {["WFG", "Commonwealth"].map((name) => {
-                const orders = issued.filter((o) => o.underwriter === name);
+              {underwriters.map(({ key, name }) => {
+                const orders = issued.filter(
+                  (o) => underwriterKey(o.underwriter) === key,
+                );
                 return (
-                  <TableRow key={name}>
+                  <TableRow key={key}>
                     <TableCell>
                       <strong>{name}</strong>
                     </TableCell>
@@ -283,6 +293,7 @@ export function Financials() {
                         size="sm"
                         disabled={
                           !approved ||
+                          !key ||
                           !orders.length ||
                           orders.every((o) => o.remitted)
                         }
@@ -294,7 +305,7 @@ export function Financials() {
                                   (o) =>
                                     o.month === month &&
                                     o.status === "Issued" &&
-                                    o.underwriter === name,
+                                    underwriterKey(o.underwriter) === key,
                                 )
                                 .forEach((o) => (o.remitted = true));
                               d.business?.policies
@@ -304,8 +315,10 @@ export function Financials() {
                                     ["Issued", "Delivered"].includes(
                                       p.status,
                                     ) &&
-                                    d.orders.find((o) => o.id === p.orderId)
-                                      ?.underwriter === name,
+                                    underwriterKey(
+                                      d.orders.find((o) => o.id === p.orderId)
+                                        ?.underwriter || "",
+                                    ) === key,
                                 )
                                 .forEach(
                                   (p) =>
@@ -324,6 +337,12 @@ export function Financials() {
                 );
               })}
             </DataTable>
+            {!underwriters.length && (
+              <Empty
+                title="No underwriters recorded"
+                text="Underwriters appear from issued policies and company authority settings."
+              />
+            )}
           </section>
           <p className="inline-note">
             Complete the month-end review on the Overview tab to enable

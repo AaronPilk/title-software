@@ -69,6 +69,8 @@ import {
   titleFile,
 } from "@/lib/title/production";
 import { FinalSources, TitleFileDetails } from "./final-intake";
+import { ReferencedSources } from "./referenced-sources";
+import { finalsQueue, filterFinalsQueue, nextReadyFinal } from "@/lib/title/finals-queue";
 export const statuses: OrderStatus[] = [
   "New",
   "In progress",
@@ -401,18 +403,23 @@ export function PolicyWorkbench({
   onSelect: (id: string) => void;
 }) {
   const { s, update } = useWorkspace();
-  const [filter, setFilter] = useState("All active");
+  const [filter, setFilter] = useState("All finals");
+  const [company, setCompany] = useState("all");
+  const [assignee, setAssignee] = useState("all");
   const [q, setQ] = useState("");
   const [tab, setTab] = useState("Document review");
   const [attorney, setAttorney] = useState(false);
   const [attorneyRef, setAttorneyRef] = useState("");
-  const rows = s.orders.filter(
-    (o) =>
-      !["Rejected", "Issued"].includes(o.status) &&
-      (filter === "All active" || o.status === filter) &&
-      `${o.address} ${o.id}`.toLowerCase().includes(q.toLowerCase()),
-  );
-  const order = s.orders.find((o) => o.id === selectedId) || rows[0];
+  const backlog = finalsQueue(s);
+  const scopedBacklog = filterFinalsQueue(s, backlog, { company, owner: assignee, query: q });
+  const rows = filterFinalsQueue(s, scopedBacklog, { stage: filter });
+  const hasFilters = company !== "all" || assignee !== "all" || filter !== "All finals" || !!q.trim();
+  // Explicit navigation can still open an initial file to attach its final package.
+  // It never adds that file to the backlog or bypasses an active queue filter.
+  const outsideQueue = !hasFilters && selectedId && !backlog.some(r => r.order.id === selectedId)
+    ? s.orders.find(o => o.id === selectedId && !["Issued", "Rejected"].includes(o.status)) : undefined;
+  const order = rows.find(r => r.order.id === selectedId)?.order || outsideQueue || rows[0]?.order;
+  const nextReadyId = nextReadyFinal(rows, order?.id || "");
   const readiness = order ? finalReadiness(s, order) : null;
   const complete = !!readiness?.ready;
   const reviewFields = order
@@ -508,28 +515,45 @@ export function PolicyWorkbench({
           Local preparation
         </span>
       </Heading>
-      <div className="workbench">
+      <div className="finals-queue-summary">
+        <span><strong>{scopedBacklog.length}</strong> final files</span>
+        <span><strong>{scopedBacklog.filter(r => r.stage === "Ready").length}</strong> ready for preparation</span>
+        <span><strong>{scopedBacklog.filter(r => r.stage === "Waiting").length}</strong> waiting for information</span>
+        <span><strong>{scopedBacklog.filter(r => r.ageDays === null).length}</strong> receipt date unknown</span>
+        <Button variant="outline" disabled={!nextReadyId} onClick={() => nextReadyId && select(nextReadyId)}>Next ready file <ArrowRight size={15} /></Button>
+      </div>
+      <div className="workbench finals-queue-workbench">
         <aside className="work-queue">
           <div className="queue-head">
-            <strong>Preparation queue</strong>
+            <strong>Finals backlog</strong>
             <span>{rows.length}</span>
           </div>
           <div className="queue-filters">
-            <SearchBox value={q} onChange={setQ} placeholder="Find a policy…" />
+            <SearchBox value={q} onChange={setQ} placeholder="Find a final file…" />
+            <Picker value={company} onChange={setCompany} label="Finals company" options={[
+              { value: "all", label: "All companies" },
+              ...s.companies.map(c => ({ value: c.id, label: c.name })),
+            ]} />
+            <Picker value={assignee} onChange={setAssignee} label="Finals assignee" options={[
+              { value: "all", label: "All assignees" },
+              ...[...new Set(backlog.map(r => r.order.owner))].sort().map(owner => ({ value: owner || "__unassigned", label: owner || "Unassigned" })),
+            ]} />
             <Picker
               value={filter}
               onChange={setFilter}
-              label="Policy status"
+              label="Finals readiness"
               options={[
-                "All active",
+                "All finals",
+                "Ready",
                 "Needs review",
-                "Ready for jacket",
-                "In progress",
-                "New",
+                "Waiting",
+                "Partially issued",
               ]}
             />
           </div>
-          {rows.map((o) => (
+          {rows.map((row) => {
+            const o = row.order;
+            return (
             <button
               className={`queue-item ${o.id === order?.id ? "selected" : ""}`}
               onClick={() => select(o.id)}
@@ -541,16 +565,20 @@ export function PolicyWorkbench({
               </span>
               <strong>{o.address}</strong>
               <small>{companyById(s, o.companyId).name}</small>
+              <small>{o.owner || "Unassigned"}</small>
+              <small className="finals-receipt">{row.receivedAt ? `Received ${new Date(row.receivedAt).toLocaleDateString(undefined, { timeZone: "UTC" })} · ${row.ageDays}d ago` : "Final receipt date unknown"}</small>
               <div>
-                <Status value={o.status} />
+                <span className={`finals-stage ${row.stage.toLowerCase().replaceAll(" ", "-")}`}>{row.stage}</span>
                 {o.exception && <AlertCircle size={14} color="#ba881f" />}
               </div>
+              {row.waitingReasons.length > 0 && <small className="finals-blocker">{row.waitingReasons[0]}{row.waitingReasons.length > 1 ? ` · +${row.waitingReasons.length - 1} more` : ""}</small>}
+              {row.stage === "Needs review" && <small className="finals-receipt">{row.pendingFieldCount ? `${row.pendingFieldCount} fields awaiting review` : "File details / clearance need review"}</small>}
             </button>
-          ))}
+          );})}
           {!rows.length && (
             <Empty
-              title="Queue is clear"
-              text="Change the filter to see more orders."
+              title="No matching finals"
+              text="Initial orders appear here after a final request or final opinion is received. Known receipt dates sort oldest first."
             />
           )}
         </aside>
@@ -570,6 +598,7 @@ export function PolicyWorkbench({
                 </div>
                 <Status value={order.status} />
               </div>
+              {outsideQueue?.id === order.id && <p className="notice">This file is outside the finals backlog. Attach its final opinion or capture a Finals request to add it to the queue.</p>}
               <Segments
                 value={tab}
                 onChange={setTab}
@@ -582,7 +611,7 @@ export function PolicyWorkbench({
                 ]}
               />
               {tab === "Source package" && (
-                <FinalSources key={order.id} order={order} />
+                <><FinalSources key={order.id} order={order} /><ReferencedSources key={`${order.id}:references`} order={order} /></>
               )}
               {tab === "File details" && (
                 <TitleFileDetails

@@ -1,0 +1,15 @@
+{
+  "$schema":"node_modules/wrangler/config-schema.json",
+  "name":"title-personal-assistant",
+  "account_id":"9c332c75b96cc642621dad5d86d4bf18",
+  "main":"src/index.ts",
+  "compatibility_date":"2026-09-13",
+  "compatibility_flags":["nodejs_compat"],
+  "workers_dev":false,
+  "preview_urls":false,
+  "ai":{"binding":"AI"},
+  "durable_objects":{"bindings":[{"name":"PERSONAL_ASSISTANT","class_name":"PersonalAssistant"}]},
+  "migrations":[{"tag":"v1","new_sqlite_classes":["PersonalAssistant"]}],
+  "vars":{"TITLE_API_URL":"https://yhneskzvmtcmbsknidlt.supabase.co/functions/v1/title-api"},
+  "observability":{"enabled":true,"logs":{"enabled":true,"invocation_logs":false}}
+}

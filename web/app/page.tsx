@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ArrowRight,
   Activity,
+  Sparkles,
 } from "lucide-react";
 import {
   SidebarProvider,
@@ -82,8 +83,11 @@ import { Handoffs } from "@/components/title/handoffs";
 import { OnboardingHub } from "@/components/title/onboarding-suite";
 import { ProductionSuite } from "@/components/title/production-suite";
 import { PartnerPortal, Settings } from "@/components/title/workspace";
+import { Assistant } from "@/components/title/assistant";
+import { hostedPilot } from "@/lib/backend/client";
 const navigation: { label: Page; icon: typeof LayoutGrid }[] = [
   { label: "Overview", icon: LayoutGrid },
+  { label: "Assistant", icon: Sparkles },
   { label: "Inbox", icon: Inbox },
   { label: "Orders", icon: Files },
   { label: "Commitments", icon: FilePenLine },
@@ -163,6 +167,7 @@ function Workspace() {
   const navRef = useRef(navigate);
   navRef.current = navigate;
   useEffect(() => {
+    if (connection || hostedPilot) return;
     type Tool = {
       name: string;
       description: string;
@@ -248,7 +253,7 @@ function Workspace() {
       }
     }
     return () => controller.abort();
-  }, []);
+  }, [connection]);
   function openReview(id: string) {
     setPolicyId(id);
     navigate("Policy workbench");
@@ -260,8 +265,9 @@ function Workspace() {
   }
   const doc = s.documents.find((d) => d.id === docId);
   const openDoc = (d: VaultDoc) => setDocId(d.id);
-  const initials =
-    s.user === "Stephenie" ? "ST" : s.user === "Tyler" ? "TY" : "JO";
+  const initials = connection
+    ? connection.access.email.split("@")[0].split(/[. _-]+/).map(part => part[0]).slice(0,2).join("").toUpperCase()
+    : s.user === "Stephenie" ? "ST" : s.user === "Tyler" ? "TY" : "JO";
   const titles = {
     Stephenie: "Company administrator",
     Tyler: "Policy operations",
@@ -274,10 +280,14 @@ function Workspace() {
         <Overview
           navigate={navigate}
           newOrder={() => setNewOrder(true)}
+          newCompany={() => setNewCompany(true)}
           openOrder={setOrderId}
           openCompany={setCompanyId}
         />
       );
+      break;
+    case "Assistant":
+      content = <Assistant navigate={navigate} />;
       break;
     case "Orders":
       content = <Orders onOpen={setOrderId} onNew={() => setNewOrder(true)} />;
@@ -464,7 +474,7 @@ function Workspace() {
                 {s.user === "Stephenie" ? " Tocado" : ""}
               </strong>
               <small>
-                {titles[s.user as keyof typeof titles] || "Team member"}
+                {connection ? ({owner:"Workspace owner",admin:"Administrator",operations:"Title operations",onboarding:"Company onboarding",finance:"Finance",viewer:"Read-only access",partner:"Company partner"})[connection.access.role] : titles[s.user as keyof typeof titles] || "Team member"}
               </small>
             </div>
             <ChevronRight size={13} />
