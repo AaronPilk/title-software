@@ -121,3 +121,16 @@ test("large and empty message bodies retain complete source while display remain
   assert.ok(long.inbox[0].body.length<20000); assert.equal(JSON.parse(long.documents[0].text).html.length,100000);
   const empty=await imported(fixture(),await fetchMessage({...raw,body:""}));assert.equal(empty.inbox[0].body,"(Message body is empty.)");
 });
+
+test('shared inbox routes can import separate messages into two LLCs without moving either source', async () => {
+  const first = await imported(), mappingB = { ...mapping, companyId: 'B', version: 2 };
+  const message = await readMissiveMessage(config,'workspace',owner,mappingB,'message-b',async()=>json({messages:{...raw,id:'message-b'}}));
+  const next = await importMissiveText(first,owner,mappingB,message,'O-B','Commitment',(await previewMissiveMessage(message)).fingerprint,crypto.randomUUID());
+  assert.deepEqual(next.inbox.map(m=>[m.companyId,m.orderId,m.missive.mappingVersion]),[['B','O-B',2],['A','O-A',1]]);
+  assert.deepEqual(next.inbox.find(m=>m.companyId==='A'),first.inbox[0]);
+  const original = await fetchMessage();
+  await assert.rejects(importMissiveText(next,owner,mappingB,original,'O-B','Revision',(await previewMissiveMessage(original)).fingerprint,crypto.randomUUID()),/another destination/);
+  const accessA={...owner,role:'operations',allCompanies:false,companyIds:['A']};
+  assert(projectWorkspace(next,accessA).inbox.every(m=>m.companyId==='A'));
+  assert(projectWorkspace(next,accessA).documents.every(d=>d.companyId==='A'));
+});

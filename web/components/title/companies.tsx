@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/sheet";
 import { useWorkspace } from "@/lib/title/store";
 import { similarCompanies } from "@/lib/title/business";
+import { businessDay, nextWeekday } from "@/lib/title/business-date";
 import {
   memberContactError,
   normalizeMemberContacts,
@@ -228,7 +229,7 @@ export function NewCompany({
             title: "Collect onboarding application",
             companyId: id,
             owner: "Stephenie",
-            due: "2026-09-15",
+            due: nextWeekday(businessDay()),
             priority: "Normal",
             done: false,
           });
@@ -246,7 +247,8 @@ export function NewCompany({
         <DialogHeader>
           <DialogTitle>Add a company</DialogTitle>
           <DialogDescription>
-            Create a company workspace and onboarding checklist.
+            Add a title company or joint venture to this workspace. Its files,
+            ownership, contacts and onboarding stay organized by company.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="form-stack">
@@ -255,11 +257,12 @@ export function NewCompany({
               name="name"
               required
               maxLength={100}
-              placeholder="e.g. Magnolia Title"
+              placeholder="e.g. Magnolia Title, LLC"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
           </FieldLabel>
+          <p className="form-note">Use the legal company name from its formation documents. Add each joint venture as its own company; a single-company business only needs one.</p>
           <div className="form-grid">
             <FieldLabel label="Primary contact">
               <Input
@@ -352,7 +355,7 @@ export function NewCompany({
               Cancel
             </Button>
             <Button type="submit" disabled={needsAck && !reviewed}>
-              {matches.length ? "Create anyway" : "Create workspace"}
+              {matches.length ? "Create separate company" : "Add company"}
             </Button>
           </div>
         </form>

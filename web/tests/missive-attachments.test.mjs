@@ -173,3 +173,12 @@ test("a completed import can be found after file issuance without starting anoth
   next.orders[0].status = "Issued";
   assert.equal(existingMissiveAttachment(next, owner, mapping, "message", "attachment").id, a.documentId);
 });
+
+test('adding or reapproving shared inbox routes preserves attachment company and original message version', async () => {
+  const s=await imported(),current={...mapping,version:7};
+  const a=await artifact(s,{},owner,config,current),next=await attachMissiveAttachment(s,owner,current,a,crypto.randomUUID());
+  assert.equal(next.inbox[0].missive.mappingVersion,1);assert.equal(a.providerSource.mappingVersion,7);
+  assert.equal(next.documents.find(d=>d.assetId===a.assetId).companyId,'A');
+  await assert.rejects(artifact(s,{},owner,config,{...current,companyId:'B'}),/routing|destination|company/i);
+  await assert.rejects(attachMissiveAttachment(s,owner,{...current,companyId:'B'},a,crypto.randomUUID()),/routing|destination|company/i);
+});

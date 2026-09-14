@@ -1,0 +1,14 @@
+.root h4 { margin: 18px 0 8px; font-size: 14px; font-weight: 650; color: var(--navy, #123c58); }
+.root select { width: 100%; min-height: 40px; padding: 8px 12px; border: 1px solid #d9e2eb; border-radius: 9px; background: #fff; color: #193a50; font: inherit; }
+.root select:focus-visible { outline: 2px solid #809eb9; outline-offset: 2px; }
+.root label { display: block; line-height: 1.6; }
+.routing { margin: 20px 0; padding: 18px; border: 1px solid #dae4ed; border-radius: 14px; background: #f8fafc; }
+.routing h4 { margin-top: 0; }
+.manage { margin: 14px 0; }
+.manage summary { cursor: pointer; padding: 8px 0; color: #315b78; font-size: 13px; font-weight: 600; }
+.routeList { max-height: 320px; overflow: auto; margin-top: 6px; border-top: 1px solid #e1e8ef; }
+.routeRow { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid #e1e8ef; }
+.routeRow strong { display: block; font-size: 13px; }
+.routeRow span { display: block; margin-top: 3px; color: #647a8c; font-size: 12px; }
+.routeRow button { flex-shrink: 0; }
+@media (max-width: 600px) { .routing { padding: 14px; } .routeRow { gap: 8px; } }

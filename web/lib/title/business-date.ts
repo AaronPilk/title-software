@@ -57,3 +57,11 @@ export function businessDayOf(timestamp: string): string {
   if (!Number.isFinite(parsed)) return "";
   return businessDay(new Date(parsed));
 }
+
+/** Next Monday-Friday date; holidays remain an operator scheduling decision. */
+export function nextWeekday(after: string): string {
+  if (!isCalendarDay(after)) throw new Error("Choose a valid starting date.");
+  const date = new Date(`${after}T12:00:00Z`);
+  do { date.setUTCDate(date.getUTCDate() + 1); } while ([0, 6].includes(date.getUTCDay()));
+  return date.toISOString().slice(0, 10);
+}

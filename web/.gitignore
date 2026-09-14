@@ -49,3 +49,6 @@ next-env.d.ts
 *.tsbuildinfo
 
 !.env.example
+
+# Reproducible OCR runtime/model assets from lockfile-pinned packages.
+/public/ocr/

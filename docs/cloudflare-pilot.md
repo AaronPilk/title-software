@@ -4,12 +4,12 @@ Deployed September 13, 2026 at **https://title-software-pilot.aaron-9c3.workers.
 
 ## Deployment
 
-Updated September 14 with the [PDF requirements implementation](REQUIREMENTS_IMPLEMENTATION.md). That guide records the current feature scope, 2,270 automated test passes, 224 isolated database assertions and the limits of live verification.
+Updated September 14 with the [PDF requirements implementation](REQUIREMENTS_IMPLEMENTATION.md). That guide records the current feature scope, 2,465 automated test passes, existing 224 database assertions plus five routing and five credential transaction rounds and the limits of live verification.
 
-- Cloudflare Worker: `title-software-pilot`; current version `4b6d158d-1784-43a0-8353-fdc39cca1de8`.
+- Cloudflare Worker: `title-software-pilot`; current version `f0593c60-70ec-485e-92a9-bb333066e56c`.
 - Private assistant Worker: `title-personal-assistant`; version `deaaa4ea-6e0c-412c-a9d7-46ed5c557f03`. It is reached through the application service binding, with public Worker and preview URLs disabled.
-- Supabase project: `yhneskzvmtcmbsknidlt`; `title-api` version 9, JWT verification enabled; bundle SHA-256 `b966ef592eaf284bc0a9b3f1a24daf97272a0921541cda586b493e30c8420d20`. Twelve migrations are applied. The September 14 update adds reviewed attachment commits and transactional Missive event handling.
-- Dedicated `title-missive-events` version 1 uses raw-body HMAC authentication and has JWT verification disabled for Missive's webhook delivery. Its bundle SHA-256 is `b753c61e62fed1b10853777c6deee98fefac4ad3bb928e42afbe7ebbeb18071b`. The deployed receiver remains inactive until its workspace, signing secret and rule IDs are configured.
+- Supabase project: `yhneskzvmtcmbsknidlt`; `title-api` version 10, JWT verification enabled; bundle SHA-256 `2c12bc8486b52ec5573255286c2d329fe19d45b147cccf7d260e0a78440c3b4e`. Fourteen migrations are applied. The latest update adds multiple-company routing and encrypted workspace Missive credential settings.
+- Dedicated `title-missive-events` version 2 uses raw-body HMAC authentication and has JWT verification disabled for Missive's webhook delivery. Its bundle SHA-256 is `3695364a053e7bbb0f5e8ccc0d1a47d5a85726fb36627fee471476a9330dcb0f`. The deployed receiver remains inactive until its workspace, signing secret and rule IDs are configured.
 - Cloudflare Access protects the hostname and the Worker itself. The sole remaining policy allows the seven explicitly approved staff emails with an eight-hour session. Preview URLs are disabled; there are no extra routes or custom domains.
 - Anonymous requests redirect to Cloudflare Access. Cloudflare's email-code gate is separate from the application's Supabase sign-in and authenticator check.
 - The deployed bundle has no sample-workspace entry or account registration button. Missing hosted backend configuration fails closed. Local builds retain explicit sample mode.
@@ -113,7 +113,7 @@ Cloudflare runs independently of the Mac. This deployment used Wrangler directly
 
 ## Next operational dependencies
 
-Finish SMTP and each person's authenticator enrollment, then assign staff company access. A fresh valid Missive token and reviewed inbox/company mapping remain required; the supplied token previously returned HTTP401. SoftPro/underwriter, signature and accounting connections still depend on the actual vendor accounts and supported interfaces in [integration setup](integration-setup.md).
+Finish SMTP and each person's authenticator enrollment, then assign staff company access. The supplied Missive token now verifies after restoring its missing `missive_pat-` prefix. It still needs saving in the deployed Settings form, followed by reviewed company/inbox routes. No live mail has been imported. SoftPro/underwriter, signature and accounting connections still depend on the actual vendor accounts and supported interfaces in [integration setup](integration-setup.md).
 
 Server recovery points reference immutable files in the same Supabase project. They are not an independent disaster-recovery copy of the Storage bucket. Configure and exercise independent retention before using real closing records.
 

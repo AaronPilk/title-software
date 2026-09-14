@@ -2,12 +2,14 @@ import { assistantContext } from "../../../web/lib/backend/assistant-context.ts"
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { accountSecurity, requireAccountReady } from "../../../web/lib/backend/account-security.ts";
 import { missiveSetup, checkMissiveConnection } from "../../../web/lib/backend/missive.ts";
+import { credentialStatus, workspaceMissiveConfig, verifyCredentialChange } from "../../../web/lib/backend/missive-credentials.ts";
 import { missiveAttachmentsEnabled, existingMissiveAttachment, downloadMissiveAttachment,
   attachMissiveAttachment } from "../../../web/lib/backend/missive-attachments.ts";
 import { webhookConfigured } from "../../../web/lib/backend/missive-webhook.ts";
 import { listMissiveConversations, listMissiveMessages, readMissiveMessage, previewMissiveMessage,
   importMissiveText, existingMissiveImport, requireMissiveDestination, providerId,
-  type MissiveMapping } from "../../../web/lib/backend/missive-import.ts";
+  } from "../../../web/lib/backend/missive-import.ts";
+import { missiveRouting, selectMissiveRoute, requireRoutingRevision, missiveEventRoutes } from "../../../web/lib/backend/missive-routing.ts";
 import {
   ApiError,
   emptyWorkspace,
@@ -586,30 +588,58 @@ Deno.serve(async (req) => {
       // The single explicitly bootstrapped workspace is the default token owner.
       // A server override can bind a different workspace during a reviewed move.
       const bootstrap = checked(await service.from("title_bootstrap").select("workspace_id").eq("singleton", true).maybeSingle());
-      const config = { token: Deno.env.get("MISSIVE_API_TOKEN"), workspaceId: Deno.env.get("MISSIVE_WORKSPACE_ID") || bootstrap?.workspace_id,
+      const fallback = { token: Deno.env.get("MISSIVE_API_TOKEN"), workspaceId: Deno.env.get("MISSIVE_WORKSPACE_ID") || bootstrap?.workspace_id };
+      const credentialResult = await service.rpc(pathname === "/integrations/missive/credential" ? "title_missive_credential_status" : "title_read_missive_credential", {
+        p_workspace: wid, p_actor: user.id, p_access_version: a.version,
+      });
+      if (credentialResult.error) error(credentialResult.error.code === "42501" ? "Administrator access changed. Sign in again." :
+        "Missive connection could not be loaded. Open connection settings to replace or disconnect the token.",
+        credentialResult.error.code === "42501" ? 403 : 500);
+      const credential = credentialResult.data;
+      if (pathname === "/integrations/missive/credential" && req.method === "GET")
+        return response(credentialStatus(credential, fallback, wid));
+      if (pathname === "/integrations/missive/credential" && req.method === "POST") {
+        const { change } = await verifyCredentialChange(input, wid, a);
+        // Only fixed metadata is returned. Neither vendor bodies nor tokens are logged.
+        const result = await service.rpc("title_save_missive_credential", { p_workspace: wid,
+          p_actor: user.id, p_access_version: a.version, p_expected: change.expectedRevision, p_token: change.token });
+        if (result.error) error(result.error.code === "PT409" ? "Missive connection changed. Refresh before saving." :
+          result.error.code === "42501" ? "Administrator access changed. Sign in again." : "Unable to save the Missive connection.",
+          result.error.code === "PT409" ? 409 : result.error.code === "42501" ? 403 : 500);
+        return response(result.data);
+      }
+      const config = { ...workspaceMissiveConfig(credential, fallback, wid),
         attachmentOrigins: (Deno.env.get("MISSIVE_ATTACHMENT_ORIGINS") || "").split(",").map(v => v.trim()).filter(Boolean) };
       const integration = checked(await service.from("title_integrations").select("config,status").eq("workspace_id", wid).eq("provider", "missive").maybeSingle());
-      const mapping = integration?.config?.mapping as MissiveMapping | undefined;
+      const routing = missiveRouting(integration?.config);
+      const routingRevision = input.expectedRoutingRevision ?? input.expectedMappingVersion;
       const setup = missiveSetup(config, wid, a);
-      if (pathname === "/integrations/missive" && req.method === "GET") return response({ ...setup, mapping: mapping || null,
+      if (pathname === "/integrations/missive" && req.method === "GET") return response({ ...setup, routing, mapping: routing.mappings.length === 1 ? routing.mappings[0] : null,
         attachmentDownloadEnabled: setup.importEnabled && missiveAttachmentsEnabled(config) });
       if (pathname === "/integrations/missive/check" && req.method === "POST") return response(await checkMissiveConnection(config, wid, a));
       if (pathname === "/integrations/missive/mapping" && req.method === "POST") {
-        if (!Number.isSafeInteger(input.expectedMappingVersion) || input.expectedMappingVersion < 0) error("Invalid mapping version.");
+        requireRoutingRevision(routing, routingRevision);
+        if (input.enabled !== undefined && typeof input.enabled !== "boolean") error("Invalid route status.");
         const companyId = ident(input.companyId), teamId = providerId(input.teamId);
-        const discovery = await checkMissiveConnection(config, wid, a);
-        const team = discovery.teamInboxes.find(t => t.id === teamId);
-        if (!team || !discovery.organizations.some(o => o.id === team.organizationId)) error("Choose a verified team inbox.", 409);
-        const saved = checked(await service.rpc("title_save_missive_mapping", {
+        const previous = routing.mappings.find(m => m.companyId === companyId && m.teamId === teamId && m.id === input.mappingId);
+        let team: { id: string; name: string; organizationId: string } | undefined;
+        if (input.enabled === false) {
+          if (!previous) error("Choose an existing route to pause.", 409);
+          team = { id: previous.teamId, name: previous.teamName, organizationId: previous.organizationId };
+        } else {
+          const discovery = await checkMissiveConnection(config, wid, a);
+          team = discovery.teamInboxes.find(t => t.id === teamId);
+          if (!team || !discovery.organizations.some(o => o.id === team.organizationId)) error("Choose a verified team inbox.", 409);
+        }
+        const saved = checked(await service.rpc("title_save_missive_route", {
           p_workspace: wid, p_actor: user.id, p_email: user.email, p_access_version: a.version,
-          p_expected: input.expectedMappingVersion, p_mapping: { companyId, teamId, teamName: team.name, organizationId: team.organizationId },
+          p_expected: routingRevision, p_mapping: { companyId, teamId, teamName: team.name, organizationId: team.organizationId, enabled: input.enabled !== false },
         }));
-        return response({ mapping: saved });
+        return response({ routing: missiveRouting(saved) });
       }
-      if (!mapping || integration.status === "disabled") error("Review an inbox-to-company mapping first.", 409);
-      if (mapping.version !== input.expectedMappingVersion) error("Inbox mapping changed. Refresh and review it again.", 409);
+      if (!routing.mappings.length || integration.status === "disabled") error("Review an inbox-to-company mapping first.", 409);
+      requireRoutingRevision(routing, routingRevision);
       const w = await workspace(wid);
-      requireMissiveDestination(w.state, mapping);
       if (pathname === "/integrations/missive/events" && req.method === "POST") {
         const offset = input.offset ?? 0;
         if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) error("Invalid event page.");
@@ -617,17 +647,21 @@ Deno.serve(async (req) => {
         return response({ events: jobs.slice(0, 100).map((j: any) => ({ id: j.id, messageId: j.payload.messageId,
             conversationId: j.payload.conversationId, subject: j.payload.subject, receivedAt: j.payload.receivedAt,
             mappingVersion: j.payload.mappingVersion, status: j.status, companyId: j.payload.companyId,
-            teamId: j.payload.teamId, currentMapping: j.payload.companyId === mapping.companyId &&
-              j.payload.organizationId === mapping.organizationId && j.payload.teamId === mapping.teamId })),
+            organizationId: j.payload.organizationId, teamId: j.payload.teamId,
+            candidateRouteIds: missiveEventRoutes(routing, j.payload).map(m => m.id),
+            originallyShared: Array.isArray(j.payload.candidateRoutes) && j.payload.candidateRoutes.length > 1 })),
           nextOffset: jobs.length > 100 ? offset + 100 : null,
           webhookConfigured: Deno.env.get("MISSIVE_WORKSPACE_ID") === wid && webhookConfigured({ workspaceId: Deno.env.get("MISSIVE_WORKSPACE_ID"),
             secret: Deno.env.get("MISSIVE_WEBHOOK_SECRET"), validationOnly: Deno.env.get("MISSIVE_WEBHOOK_VALIDATION_ONLY") === "true",
             ruleIds: (Deno.env.get("MISSIVE_WEBHOOK_RULE_IDS") || "").split(",").map(v => v.trim()).filter(Boolean) }) });
       }
+      const legacyRouteId = integration?.config?.schemaVersion !== 2 && routing.mappings.length === 1 ? routing.mappings[0].id : undefined;
+      const mapping = selectMissiveRoute(routing, routingRevision, input.mappingId ?? legacyRouteId);
+      requireMissiveDestination(w.state, mapping);
       if (pathname === "/integrations/missive/attachments/import" && req.method === "POST") {
         const requestId = uuid(input.requestId), messageId = providerId(input.messageId), attachmentId = providerId(input.attachmentId);
         const hash = await digest(new TextEncoder().encode(JSON.stringify({ action: "importMissiveAttachment", messageId, attachmentId,
-          expectedRevision: input.expectedRevision, expectedMappingVersion: input.expectedMappingVersion })));
+          expectedRevision: input.expectedRevision, expectedRoutingRevision: routingRevision, mappingId: mapping.id })));
         const receipt = checked(await service.from("title_command_receipts").select("actor_id,payload_hash").eq("workspace_id", wid).eq("request_id", requestId).maybeSingle());
         if (receipt) {
           if (receipt.actor_id !== user.id || receipt.payload_hash !== hash) error("This request ID already represents a different change.", 409);
@@ -655,9 +689,10 @@ Deno.serve(async (req) => {
           error("This attachment's saved bytes no longer match its source. Review before continuing.", 409);
         const next = await attachMissiveAttachment(w.state, a, mapping, artifact, requestId);
         await checkAssets(next, wid);
-        checked(await service.rpc("title_import_missive_attachment", { p_workspace: wid, p_actor: user.id, p_email: user.email,
+        checked(await service.rpc("title_import_missive_routed", { p_workspace: wid, p_actor: user.id, p_email: user.email,
           p_access_version: a.version, p_expected: input.expectedRevision, p_request: requestId, p_hash: hash, p_state: next,
-          p_mapping_version: mapping.version, p_company: mapping.companyId }));
+          p_mapping_version: mapping.version, p_company: mapping.companyId, p_routing_revision: routingRevision, p_mapping_id: mapping.id,
+          p_action: "importMissiveAttachment" }));
         return response({ ...(await stateResponse(wid, a)), imported: true });
       }
       if (pathname === "/integrations/missive/conversations" && req.method === "POST")
@@ -670,7 +705,7 @@ Deno.serve(async (req) => {
         const requestId = uuid(input.requestId), messageId = providerId(input.messageId), orderId = ident(input.orderId);
         const hash = await digest(new TextEncoder().encode(JSON.stringify({
           action: "importMissiveText", messageId, orderId, kind: input.kind, fingerprint: input.fingerprint,
-          expectedRevision: input.expectedRevision, expectedMappingVersion: input.expectedMappingVersion,
+          expectedRevision: input.expectedRevision, expectedRoutingRevision: routingRevision, mappingId: mapping.id,
         })));
         const receipt = checked(await service.from("title_command_receipts").select("actor_id,payload_hash").eq("workspace_id", wid).eq("request_id", requestId).maybeSingle());
         if (receipt) {
@@ -686,10 +721,11 @@ Deno.serve(async (req) => {
         const message = await readMissiveMessage(config, wid, a, mapping, messageId);
         const next = await importMissiveText(w.state, a, mapping, message, orderId, input.kind, input.fingerprint, requestId);
         await checkAssets(next, wid);
-        checked(await service.rpc("title_import_missive", {
+        checked(await service.rpc("title_import_missive_routed", {
           p_workspace: wid, p_actor: user.id, p_email: user.email, p_access_version: a.version,
           p_expected: input.expectedRevision, p_request: requestId, p_hash: hash, p_state: next,
-          p_mapping_version: mapping.version, p_company: mapping.companyId,
+          p_mapping_version: mapping.version, p_company: mapping.companyId, p_routing_revision: routingRevision, p_mapping_id: mapping.id,
+          p_action: "importMissiveText",
         }));
         return response({ ...(await stateResponse(wid, a)), imported: true });
       }

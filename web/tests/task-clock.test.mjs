@@ -17,7 +17,7 @@ import {
   earliestWaitingStart,
   taskCreatedOn,
 } from "../.local-test/task-clock.js";
-import { businessDay } from "../.local-test/business-date.js";
+import { businessDay, nextWeekday } from "../.local-test/business-date.js";
 
 /** A pristine copy of a workspace, for validating a mutation against its own start. */
 const seedWith = (s) => structuredClone(s);
@@ -486,4 +486,13 @@ test("C02: the detail and resolver on a recorded waiting period are frozen too",
   const resolverEdit = structuredClone(s);
   resolverEdit.tasks[0].waiting[0].resolvedBy = "Someone Else";
   assert.throws(() => validateBusinessMutation(s, resolverEdit), /cannot be reopened or edited/);
+});
+
+test("new company onboarding dates advance on the business calendar and skip weekends", () => {
+  assert.equal(nextWeekday("2026-09-14"), "2026-09-15");
+  assert.equal(nextWeekday("2026-09-18"), "2026-09-21");
+  assert.equal(nextWeekday("2026-09-19"), "2026-09-21");
+  assert.equal(nextWeekday("2026-12-31"), "2027-01-01"); // No holiday calendar is assumed.
+  assert.equal(nextWeekday(businessDay(new Date("2026-09-15T02:00:00Z"))), "2026-09-15");
+  assert.throws(() => nextWeekday("2026-02-30"));
 });

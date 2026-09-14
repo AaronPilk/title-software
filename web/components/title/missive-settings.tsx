@@ -1,15 +1,19 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Mail, RefreshCw } from "lucide-react";
+import styles from "./missive-settings.module.css";
 import { Button } from "../ui/button";
 import { backendRequest, downloadRemoteAsset } from "@/lib/backend/client";
 import { download, useWorkspace } from "@/lib/title/store";
 import { productionLocked } from "@/lib/title/production";
 import type { MissiveCheck, MissiveSetup } from "@/lib/backend/missive";
-import type { MissiveMapping, MissivePage, MissivePreview } from "@/lib/backend/missive-import";
+import type { MissivePage, MissivePreview } from "@/lib/backend/missive-import";
+import { MissiveCredentialSettings } from "./missive-credential-settings";
 
-type Setup = MissiveSetup & { mapping: MissiveMapping | null; attachmentDownloadEnabled?: boolean };
-type MissiveEvent = { id: string; messageId: string; conversationId: string; subject: string; receivedAt: string; status: "queued" | "completed"; mappingVersion: number; companyId: string; teamId: string; currentMapping: boolean };
+import type { MissiveRouting } from "@/lib/backend/missive-routing";
+
+type Setup = MissiveSetup & { routing: MissiveRouting; attachmentDownloadEnabled?: boolean };
+type MissiveEvent = { id: string; messageId: string; conversationId: string; subject: string; receivedAt: string; status: "queued" | "completed"; mappingVersion: number; companyId: string | null; organizationId: string; teamId: string; candidateRouteIds: string[]; originallyShared: boolean };
 type Events = { events: MissiveEvent[]; webhookConfigured: boolean; nextOffset: number | null };
 export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
   const { s, connection } = useWorkspace();
@@ -25,7 +29,10 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
   const [reviewed, setReviewed] = useState(false);
   const [sourceMailId, setSourceMailId] = useState("");
   const [events, setEvents] = useState<Events | null>(null);
-  const mapping = setup?.mapping;
+  const [mappingId, setMappingId] = useState("");
+  const activeRoutes = setup?.routing.mappings.filter(m => m.enabled) || [];
+  const selectedId = mappingId || (activeRoutes.length === 1 ? activeRoutes[0].id : "");
+  const mapping = activeRoutes.find(m => m.id === selectedId);
   const importedSources = s.inbox.filter(m => mapping && m.missive && m.companyId === mapping.companyId &&
     m.missive.organizationId === mapping.organizationId && m.missive.teamId === mapping.teamId);
   const sourceMail = importedSources.find(m => m.id === sourceMailId);
@@ -45,18 +52,22 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
   }
   function resetReview() { setPreview(null); setOrderId(""); setKind(""); setReviewed(false); }
   const request = <T,>(path: string, input: Record<string, unknown> = {}, timeoutMs = 30000) => backendRequest<T>(`/integrations/missive/${path}`, {
-    workspaceId, expectedMappingVersion: mapping?.version || 0, ...input,
+    workspaceId, expectedRoutingRevision: setup?.routing.revision || 0, mappingId: mapping?.id, ...input,
   }, "POST", timeoutMs);
   async function loadConversations(until?: number) {
     resetReview(); setMessages(null); setConversationId("");
     setConversations(await request<MissivePage>("conversations", { until }));
   }
   return (
-    <div className="backend-settings-section">
+    <div className={`backend-settings-section ${styles.root}`}>
       <h3><Mail size={18} /> Missive</h3>
+      <MissiveCredentialSettings key={workspaceId} workspaceId={workspaceId} onChanged={() => {
+        setCheck(null); resetReview(); setConversations(null); setMessages(null); setEvents(null); setMappingId("");
+        void run(async () => { setSetup(await backendRequest<Setup>("/integrations/missive")); });
+      }} />
       <p>Review incoming emails, save the original message, then import selected attachments into the same title file.</p>
-      {setup?.status === "workspace_required" && <p className="form-note">Assign this workspace to the server’s Missive connection to continue.</p>}
-      {setup?.status === "token_required" && <p className="form-note">Add a working Missive REST API token as the server secret MISSIVE_API_TOKEN.</p>}
+      {setup?.status === "workspace_required" && <p className="form-note">Connect this workspace to its Missive account above.</p>}
+      {setup?.status === "token_required" && <p className="form-note">Connect a working Missive API token above to review your inboxes.</p>}
       <Button variant="outline" disabled={busy} onClick={() => void run(async () => {
         setCheck(null); resetReview(); setConversations(null); setMessages(null); setEvents(null);
         const current = await backendRequest<Setup>("/integrations/missive"); setSetup(current);
@@ -65,7 +76,7 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
       {error && <p role="alert" className="form-note">{error}</p>}
       {notice && <p role="status" className="form-note">{notice}</p>}
       {check && <div>
-        <p><strong>Connection verified.</strong> Choose the team inbox and the company it feeds.</p>
+        <p><strong>Connection verified.</strong> Add each company that receives work from an inbox. A shared inbox can serve several companies; you will choose the destination for each message.</p>
         {(check.moreOrganizations || check.moreTeams) && <p className="form-note">This directory shows the first 200 organizations and teams. Additional teams need a separate connection review.</p>}
         <div className="form-grid">
           <label>Missive team inbox<select aria-label="Missive team inbox" value={teamId} disabled={busy} onChange={e => setTeamId(e.target.value)}>
@@ -77,16 +88,35 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
           </select></label>
         </div>
         <Button disabled={busy || !teamId || !companyId} onClick={() => void run(async () => {
-          const result = await request<{ mapping: MissiveMapping }>("mapping", { teamId, companyId });
-          setSetup(current => current ? { ...current, mapping: result.mapping } : current);
-          resetReview(); setConversations(null); setMessages(null); setSourceMailId(""); setEvents(null); setNotice("Inbox routing saved.");
+          const result = await request<{ routing: MissiveRouting }>("mapping", { teamId, companyId, enabled: true });
+          setSetup(current => current ? { ...current, routing: result.routing } : current);
+          setMappingId(result.routing.mappings.find(m => m.teamId === teamId && m.companyId === companyId)?.id || "");
+          resetReview(); setConversations(null); setMessages(null); setSourceMailId(""); setEvents(null); setNotice("Inbox routing saved. Other company routes remain available.");
         })}>Save reviewed inbox routing</Button>
       </div>}
+      {!!setup?.routing.mappings.length && <section aria-label="Company inbox routing" className={styles.routing}>
+        <h4>Company inbox routes</h4>
+        <p className="form-note">One company or many joint ventures use the same review process. An inbox may be shared, but each saved message belongs to one reviewed company and title file.</p>
+        <label>Inbox and company<select aria-label="Active Missive company route" value={selectedId} disabled={busy} onChange={e => {
+          setMappingId(e.target.value); resetReview(); setMessages(null); setConversations(null); setSourceMailId("");
+        }}><option value="">Choose the company receiving this work</option>{activeRoutes.map(m => <option key={m.id} value={m.id}>{s.companies.find(c => c.id === m.companyId)?.name || m.companyId} · {m.teamName}</option>)}</select></label>
+        <details className={styles.manage}><summary>Manage {setup.routing.mappings.length} company inbox {setup.routing.mappings.length === 1 ? "route" : "routes"}</summary><div className={styles.routeList}>
+        {setup.routing.mappings.map(route => <div key={route.id} className={styles.routeRow}>
+          <div><strong>{s.companies.find(c => c.id === route.companyId)?.name || route.companyId}</strong><span>{route.teamName} · {route.enabled ? "Active" : "Paused"}</span></div>
+          <Button variant="ghost" aria-label={`${route.enabled ? "Pause" : "Enable"} ${s.companies.find(c => c.id === route.companyId)?.name || route.companyId} · ${route.teamName}`} disabled={busy} onClick={() => void run(async () => {
+            const result = await request<{ routing: MissiveRouting }>("mapping", { mappingId: route.id, teamId: route.teamId, companyId: route.companyId, enabled: !route.enabled });
+            setSetup(current => current ? { ...current, routing: result.routing } : current);
+            setMappingId(""); resetReview(); setConversations(null); setMessages(null); setSourceMailId(""); setEvents(null);
+            setNotice(route.enabled ? "Route paused. Existing message routing is preserved." : "Route enabled. Review the company before importing.");
+          })}>{route.enabled ? "Pause" : "Enable"}</Button>
+        </div>)}
+        </div></details>
+        <Button variant="ghost" disabled={busy || setup.status !== "ready"} onClick={() => void run(async () => setEvents(await request<Events>("events")))}>Refresh incoming events</Button>
+      </section>}
       {mapping && <div>
         <p><strong>{mapping.teamName}</strong> → {s.companies.find(c => c.id === mapping.companyId)?.name || "Company unavailable"}</p>
         <p className="form-note">This shows the team’s current inbox queue. Assigned and archived conversations may no longer appear. Review each message before importing.</p>
         <Button variant="outline" disabled={busy || setup?.status !== "ready"} onClick={() => void run(() => loadConversations())}>Browse inbox queue</Button>
-        <Button variant="ghost" disabled={busy || setup?.status !== "ready"} onClick={() => void run(async () => setEvents(await request<Events>("events")))}>Refresh incoming events</Button>
       </div>}
       {events && <section aria-label="Incoming Missive events">
         <h4>Incoming events</h4>
@@ -95,8 +125,11 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
         {!events.events.some(e => e.status === "queued") && <p>No incoming events awaiting review.</p>}
         {events.events.filter(e => e.status === "queued").map(event => <div key={event.id}>
           <p><strong>{event.subject || "Incoming email"}</strong> · {new Date(event.receivedAt).toLocaleString()}</p>
-          {!event.currentMapping && <p className="form-note">This event belongs to {s.companies.find(c => c.id === event.companyId)?.name || "a previously mapped company"}, inbox {event.teamId}. Review and restore its inbox routing above before opening it.</p>}
-          <Button variant="outline" disabled={busy || !event.currentMapping} onClick={() => void run(async () => {
+          {event.companyId && <p className="form-note">Company recorded when received: {s.companies.find(c => c.id === event.companyId)?.name || event.companyId}.</p>}
+          {event.candidateRouteIds.length > 1 && <p className="form-note">Shared inbox: choose the destination company above before reviewing. No company has been assigned automatically.</p>}
+          {!event.candidateRouteIds.length && <p className="form-note">This event has no active route for inbox {event.teamId}. Enable or add its company route above to review it. Its original source stays in this queue.</p>}
+          {!!event.candidateRouteIds.length && <p className="form-note">Available companies: {activeRoutes.filter(m => event.candidateRouteIds.includes(m.id)).map(m => s.companies.find(c => c.id === m.companyId)?.name || m.companyId).join(", ")}</p>}
+          <Button variant="outline" disabled={busy || !mapping || !event.candidateRouteIds.includes(mapping.id)} onClick={() => void run(async () => {
             resetReview(); setMessages(null); setConversationId(event.conversationId);
             setPreview(await request<MissivePreview>("preview", { messageId: event.messageId }));
           })}>Review incoming email</Button>
@@ -123,6 +156,7 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
         {messages.until && <Button variant="ghost" disabled={busy} onClick={() => void run(async () => { resetReview(); setMessages(await request<MissivePage>("messages", { conversationId, until: messages.until })); })}>Older messages</Button>}
       </div>}
       {preview && <div>
+        <p><strong>Destination company: {s.companies.find(c => c.id === mapping?.companyId)?.name}</strong></p>
         <h4>{preview.subject}</h4><p>{preview.from} &lt;{preview.email}&gt; · {new Date(preview.receivedAt).toLocaleString()}</p>
         <p>To: {preview.headers.to.map(a => a.address).join(", ") || "No recipient listed"}</p>
         <pre className="message-text" style={{ maxHeight: 320, overflow: "auto" }}>{preview.body || "(Message body is empty.)"}</pre>

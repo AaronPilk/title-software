@@ -1,45 +1,76 @@
-# Reviewed Missive import
+# Reviewed Missive connection and import
 
-**September 14 source update:** Connections, reviewed attachment bytes, signed event intake and local PDF text review are implemented and described in the [requirements implementation guide](REQUIREMENTS_IMPLEMENTATION.md). Its release status supersedes feature-status statements below; earlier hosted verification remains historical.
+Updated September 14, 2026. **Multiple-company routing and encrypted workspace credential settings are deployed and the five-round combined suite passed.** The verified token still needs saving through owner setup, followed by a signed-in live import acceptance case. See the [requirements implementation guide](REQUIREMENTS_IMPLEMENTATION.md) for release versions and test evidence.
 
-Settings → Shared workspace → Missive now supports a manual incoming-email pilot: verify the connection, approve one team inbox → company mapping, browse conversations, preview a message, choose an existing open title file and request type, and import after review. The backend is deployed as `title-api` version 5.
+## The token issue is resolved
 
-## Current live status — September 12, 2026
+The previously saved token value omitted the literal `missive_pat-` prefix. The incomplete value returned HTTP 401; the complete token returned HTTP 200 against the official organizations endpoint. Read-only directory discovery found one organization and 21 team inboxes. Only directory metadata was inspected. No token value or real directory names/identifiers are stored in this guide.
 
-The seven requested accounts and the real owner workspace have been created. All seven logins and the staff company-scope restrictions were verified. The supplied Missive credential was tested once against the official organizations endpoint and returned **HTTP401**; no real mail was read. The rejected credential was not installed as a server secret. A replacement token and an approved inbox/company mapping remain pending.
+This establishes a working token and directory access. It does not establish that routing is approved, that every intended message is accessible, or that a full live message/attachment import has passed. A replacement token is not required merely because of the earlier prefix error. Missive's token display name and “Never used” label are not substitutes for request evidence. See the [documented investigation and sources](research/vendor-integration-and-product-readiness.md#missive-protocol-and-the-token-question).
 
-Save a working REST API token as `MISSIVE_API_TOKEN` in [Title Software Edge Function Secrets](https://supabase.com/dashboard/project/yhneskzvmtcmbsknidlt/functions/secrets). The server binds it to the consumed owner-bootstrap workspace automatically. `MISSIVE_WORKSPACE_ID` is an optional explicit server override for a reviewed workspace move. Another workspace cannot use the global token. Saved secrets are picked up without a frontend rebuild. [Supabase secret management](https://supabase.com/docs/guides/functions/secrets)
+The documented REST base is `https://public.missiveapp.com/v1/`; requests send the **complete** personal token in `Authorization: Bearer …`. It inherits its owner's accessible accounts, including shared accounts. The application's company/inbox permissions remain essential because the provider token itself is not a mailbox-scoped read-only credential. [Missive REST API](https://missiveapp.com/docs/developers/rest-api)
 
-After saving the token, sign in as the owner, create or select the actual company and title file, and complete the mapping and message review in Settings. Staff company access is assigned separately; default staff accounts currently have no company assignments. Initial account details remain in the private local handoff, outside Git.
+## Connect a workspace
 
-## Preserved records and boundaries
+In the deployed pilot:
 
-- The inbox stores display text, immutable provider provenance, confirmed company/file, request kind, import actor/time, mapping version and source fingerprint.
-- One immutable JSON source document retains the full HTML body and normalized sender/recipient/reply headers, raw subject, provider Message-ID/references, timestamps and attachment metadata. It is a retained message snapshot, not an RFC822 export. HTML is never rendered or used to load remote images. Long display text points to the complete source snapshot.
-- **Attachment bytes are not downloaded yet.** Each provider attachment is explicitly `not_downloaded` and remains outside the document/evidence list. No placeholder document or fake download is created. Originals may be uploaded through the normal file-upload workflow; that is a separate reviewed source, not a claimed Missive download.
-- The raw snapshot has no production source role. Importing text does not make a commitment/final policy stale or satisfy title evidence requirements. The snapshot cannot be promoted to a production evidence role.
-- Imported routing is immutable. Capture a separate request if the original destination needs correction. Generic browser edits cannot create provider provenance, change it, or use the reserved source-ID namespace.
-- Existing issued/locked files are excluded. Incoming commitment, revision and finals requests require explicit classification. Outgoing/author-present records and drafts are excluded. No auto-extraction, production transition, provider draft, outbound email or scheduled sync is triggered.
+1. Sign in as the workspace owner or an administrator with access to all companies.
+2. Open **Settings → Shared workspace → Missive account connection → Connect Missive**. Paste the complete token into the password input and select **Verify and save connection**.
+3. The server checks directory access before saving the token encrypted in Supabase Vault for that workspace. Status responses contain connection metadata, not the secret. Workspace JSON, backups and audit detail do not contain the token.
+4. Review and enable the intended inbox/company routes. Replacing or disconnecting the credential pauses existing routes and invalidates in-flight reviews; reapprove the destinations before resuming intake.
 
-## Server behavior
+The credential settings, API and migration are deployed. The actual token has not been installed: the connected SQL tool rejects data writes, and the local CLI lacks access to this project. Use the owner setup form above. Legacy server-secret configuration remains a compatibility path for the designated owner workspace. An explicit workspace disconnection must not silently fall back to that global credential. Secrets do not belong in frontend environment variables, committed files or this guide. [Supabase Vault](https://supabase.com/docs/guides/database/vault), [Edge Function secrets](https://supabase.com/docs/guides/functions/secrets)
 
-All endpoints require confirmed Supabase authentication and current organization-wide administrator access. The token stays in Edge secrets. Provider calls use fixed HTTPS GET destinations, no redirects, a shared 20-second timeout per operation and a 1 MB response limit; errors and rate-limit responses are sanitized. There are no automatic retries.
+Company permissions are assigned separately from provider connection setup. Giving someone an app login does not automatically authorize every company, and connecting Missive does not send account invitations or messages.
 
-Connection discovery reads the first 200 organizations/teams and flags incomplete directories. Conversation/message pages preserve every timestamp tie before advancing a cursor. Guest conversations without scope are omitted with a count; explicit scope mismatches fail. Merged conversations are checked against the current organization/team. Message preview and import both re-fetch and verify scope. A fingerprint change requires a fresh review.
+## One company, many JVs, and shared inboxes
 
-The mapping RPC checks current membership, company existence and mapping version. The import RPC locks membership → workspace → integration, rechecks mapping and access, then calls the existing atomic revision/receipt/audit transaction. Two imports racing against one revision cannot both commit. Provider identity is deduplicated against canonical workspace provenance; the same message cannot silently move to another file. Request IDs remain bound to their exact input and actor.
+Version 2 routing stores multiple reviewed routes in one workspace, with capacity for up to 500 routes. It supports one company and portfolios such as approximately 25 JVs without requiring different source code or inventing extra workspaces. An inbox may serve several companies, and a company may use several inboxes.
 
-An older backup can intentionally remove an imported record. A new reviewed import can restore it using a new request ID; existing receipts and append-only audit remain preserved. Imported records already present in a restored snapshot still deduplicate normally.
+A route means: **this Missive organization/team inbox is approved for this application company**. It does not mean every message in the inbox belongs to that company. The operator selects an active route, previews the actual message, chooses an existing open title file in that company, classifies the request and imports after review. Shared-inbox events remain unresolved until a permitted company/file destination is selected.
 
-A team inbox is a current triage queue, not complete email-account history. Assigned/archived conversations can disappear, and merged conversations can contain several threads. Review the actual sender, recipients and body rather than assuming every message in a team came from one email address. [Missive API](https://missiveapp.com/docs/developers/rest-api), [endpoint reference](https://missiveapp.com/docs/developers/rest-api/endpoints), [rate limits](https://missiveapp.com/docs/developers/rest-api/rate-limits)
+Routing changes retain imported source history, advance the routing revision and invalidate old browser reviews. Previously queued events that had a single destination preserve it when an inbox later becomes shared. Older single-route configuration is read compatibly. Company/file choice is still mandatory; there is no automatic mail classification or silent cross-company transfer.
 
-## Verification
+A team inbox is a current triage queue, not complete email-account history. Assigned/archived conversations can disappear, and merged conversations may contain several threads. Review sender, recipients and body; neither an inbox label nor a thread alone proves the legal company or transaction. [Missive endpoint reference](https://missiveapp.com/docs/developers/rest-api/endpoints)
 
-- `npm run test:missive`: 24 adapter/domain cases × 5 rounds, all 120 passed.
-- Existing 109 domain and 15 backend tests passed; TypeScript and production build passed.
-- Migration transaction assertions ran five times against the real project. Mapping/revision conflicts, request replay/collision, wrong-company mapping and revoked access were tested. Every fixture rolled back; the database retains exactly one real workspace and seven memberships.
-- Five live gateway rounds verified owner state, token-required status and blocked unconfigured connection/import requests. All six staff logins, empty company scopes and administrator-only integration access passed separately.
-- Actual browser: owner login and live Settings/token-required state passed. An isolated synthetic harness exercised the real Missive component through mapping → queue → preview → file/type review → import, verified confirmation clears after a file change, and saved exactly one message/source while showing the attachment pending. No console errors.
-- Supabase security advisor has no warning/error findings. The informational no-policy notices reflect intentional server-only tables with browser grants revoked. [Advisor explanation](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)
+## Preserved records and attachments
 
-Live successful Missive discovery/import remains unverified because the token was rejected. Attachment ingestion, mailbox polling/webhooks and outbound drafts remain future work. The frontend stays on localhost; nothing was pushed to GitHub.
+- Reviewed message import retains immutable provider identity, confirmed company/file, request kind, actor/time, mapping version and source fingerprint.
+- An immutable JSON source document keeps the message HTML and normalized headers, provider references, timestamps and attachment metadata. It is a source snapshot, not an RFC822 export. HTML is not rendered and cannot load remote images.
+- Selected attachment bytes can be fetched from Missive and stored as private documents with source attribution, filename/MIME/size and SHA-256 metadata. Repeated imports deduplicate; an attachment-list entry by itself never claims that its bytes were downloaded.
+- Attachment downloads use URLs obtained from a freshly verified provider response. Only exact administrator-configured HTTPS origins are accepted; redirects and credential forwarding to download hosts are disabled. Files are bounded and checked against their metadata and supported format.
+- Source snapshots do not automatically become production title evidence, satisfy requirements or make a policy ready. Original source-role restrictions remain; any separate evidence classification requires its existing review workflow.
+- Imported company/file routing cannot be rewritten through generic browser edits. Issued/locked files, scope mismatches and stale review fingerprints block import. Receiving an email or attachment never completes a title file or triggers a provider write.
+
+Attachment origins must be configured in server-side `MISSIVE_ATTACHMENT_ORIGINS` after confirming the actual provider download host. Missive's published material does not establish a universal CDN origin; do not guess one or accept arbitrary download URLs.
+
+## Signed event intake
+
+The dedicated `title-missive-events` function verifies the raw request body's HMAC signature and queues bounded source metadata for review. It does not import a title change or execute a SoftPro action. Event ingestion, mapping checks, deduplication and reviewed import completion use database transactions; old pending work remains visible after routing changes.
+
+The receiver currently targets the server-configured workspace. Configure:
+
+- `MISSIVE_WORKSPACE_ID`: the intended workspace.
+- `MISSIVE_WEBHOOK_SECRET`: the shared signing secret, at least 32 characters.
+- `MISSIVE_WEBHOOK_RULE_IDS`: the reviewed rule allowlist.
+- `MISSIVE_WEBHOOK_VALIDATION_ONLY=true` temporarily when validating a new rule. Correctly signed validation requests are acknowledged but queue no work. Record the actual rule ID, then disable validation-only mode before testing intake.
+
+Use `https://<project-ref>.supabase.co/functions/v1/title-missive-events` as the callback. Keep signing secrets in server secret storage. Confirm the route and receiver configuration with a permitted representative message before enabling real intake. Separate independent customer workspaces also require a deliberate receiver/rule configuration; multi-company routing is not a claim that every future customer's webhook is already configured. [Missive webhooks](https://missiveapp.com/docs/developers/webhooks)
+
+## Server enforcement
+
+Interactive integration endpoints require current organization-wide administrator access. Provider reads use fixed HTTPS API destinations, no redirects, bounded response sizes/time and sanitized errors. Directory pagination completeness is reported. Preview and import re-fetch scope and compare the reviewed fingerprint; stale reviews must be repeated.
+
+Atomic database transactions recheck membership, workspace revision, selected route, routing revision and company before saving. Request receipts bind input and actor; imports and queue completion either commit together or roll back. The same provider message cannot silently move to a different company/file. Attachment commits retain immutable metadata and private asset identity. Credential rotation/disconnection pauses routes so work started with an earlier connection cannot proceed under an unreviewed destination.
+
+An older backup can intentionally remove an imported record. A fresh reviewed import may restore it with a new request ID while existing receipts/audit remain preserved; records already in the restored state still deduplicate.
+
+## Verification and remaining work
+
+**Current release:** the complete token passed live directory discovery. Both migrations, `title-api` v10, `title-missive-events` v2 and the frontend are deployed. The combined suite passed 2,465 cases over five rounds, including 85 Missive/credential tests per round. Local routing/credential transaction tests and synthetic browser workflows passed. No live mailbox content was imported, the token remains to be installed through owner setup, and a signed-in hosted acceptance case remains pending. Directory access does not establish a successful live import.
+
+**Historical baseline:** the September 12 release passed its then-current adapter/domain/backend checks, rolled-back transaction fixtures and synthetic message-review browser flow. It reported HTTP 401 for the incomplete token and no attachment download capability. The September 14 baseline subsequently added attachment bytes, signed event intake and stronger transactions; its recorded total was 454 tests per round across five rounds. The earlier “replacement token required,” “attachments pending,” “single mapping only” and “frontend localhost only” conclusions are superseded by this guide and the current release status.
+
+Run `npm run test:missive` and `npm run test:missive:sql` from `web/`, plus the repository's backend/domain/browser checks. The disposable SQL runner requires local PostgreSQL tools and removes its synthetic database afterward. Current OCR has its separate real-raster browser suite, `npm run test:ocr`.
+
+Still unimplemented: scheduled mailbox polling, automatic mail classification/structured field extraction, provider-side notes/labels/reply drafts, outbound sending, OneDrive automation, accounting-provider connections and actual SoftPro reads/writes. The signed event receiver and reviewed import are implemented capabilities; they must not be described as autonomous title processing or a completed vendor integration.

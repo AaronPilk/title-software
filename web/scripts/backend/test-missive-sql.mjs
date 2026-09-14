@@ -162,6 +162,30 @@ try {
     select 'Missive SQL verification complete: five independent rounds passed';
   `);
   console.log(result.trim());
+  sql(fs.readFileSync(path.join(root, "supabase/migrations/20260914212201_title_multi_company_missive_routing.sql"), "utf8"));
+  console.log(sql(fs.readFileSync(path.join(root, "web/tests/missive-routing.test.sql"), "utf8")).trim());
+  // Native PostgreSQL does not bundle Supabase Vault. This stub verifies RPC
+  // authorization, rotation/deletion and transactional rollback, NOT encryption.
+  sql(`create schema vault;
+    create table vault.secrets(id uuid primary key default gen_random_uuid(),secret text not null,name text unique,description text);
+    create view vault.decrypted_secrets as select id,
+      case when current_setting('title_test.vault_read_failure',true)='yes' then null else secret end as decrypted_secret from vault.secrets;
+    create function vault.create_secret(new_secret text,new_name text default null,new_description text default '') returns uuid
+      language plpgsql security invoker set search_path='' as $$ declare result uuid; begin
+        insert into vault.secrets(secret,name,description) values(new_secret,new_name,new_description) returning id into result; return result; end $$;
+    create function vault.update_secret(secret_id uuid,new_secret text default null,new_name text default null,new_description text default null) returns void
+      language plpgsql security invoker set search_path='' as $$ begin
+        update vault.secrets set secret=coalesce(new_secret,secret),name=coalesce(new_name,name),description=coalesce(new_description,description) where id=secret_id;
+        if not found then raise exception 'Synthetic Vault record missing'; end if; end $$;
+    revoke all on schema vault from public,anon,authenticated,service_role;
+    revoke all on all tables in schema vault from public,anon,authenticated,service_role;
+    revoke all on all functions in schema vault from public,anon,authenticated,service_role;`);
+  const credentialMigration = fs.readFileSync(path.join(root, "supabase/migrations/20260914212209_title_missive_workspace_credentials.sql"), "utf8");
+  const vaultExtension = "create extension if not exists supabase_vault with schema vault;";
+  if (credentialMigration.split(vaultExtension).length !== 2) throw new Error("Credential migration extension statement changed; review the local Vault stub loader.");
+  sql(credentialMigration.replace(vaultExtension, "-- Local Vault API stub loaded above; all remaining migration SQL is unchanged."));
+  console.log(sql(fs.readFileSync(path.join(root, "web/tests/missive-credentials-sql.test.sql"), "utf8")).trim());
+
 } finally {
   try { if (started) command("pg_ctl", ["-D", data, "-m", "fast", "-w", "stop"]); }
   finally { fs.rmSync(dir, { recursive: true, force: true }); }

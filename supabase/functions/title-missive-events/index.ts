@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.116.0';
+import { missiveRouting } from '../../../web/lib/backend/missive-routing.ts';
 import { handleMissiveWebhook } from '../../../web/lib/backend/missive-webhook.ts';
 const service = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -13,9 +14,8 @@ Deno.serve(req => handleMissiveWebhook(req, {
     const result = await service.from('title_integrations').select('status,config').eq('workspace_id', workspaceId).eq('provider', 'missive').maybeSingle();
     if (result.error) throw result.error;
     if (!result.data || result.data.status === 'disabled') return null;
-    const mapping = result.data.config?.mapping;
-    if (!mapping || !Number.isSafeInteger(mapping.version) || !mapping.companyId) return null;
-    return mapping;
+    const routing = missiveRouting(result.data.config);
+    return routing.mappings.some(m => m.enabled) ? routing : null;
   },
   async enqueue(workspaceId, event) {
     const result = await service.rpc('title_enqueue_missive_event', { p_workspace: workspaceId, p_event: event.payload });

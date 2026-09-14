@@ -50,7 +50,7 @@ export function missiveReader(
   if (setup.status !== "ready")
     throw new ApiError(setup.status === "workspace_required"
       ? "Assign the Missive connection to this workspace before checking it."
-      : "Add the Missive API token in the server's secret settings first.", 409);
+      : "Connect your Missive account in Settings first.", 409);
   const token = config.token!.trim();
   if (!/^[\x21-\x7e]{1,4096}$/.test(token))
     throw new ApiError("The saved Missive token has an invalid format. Replace it in the server's secret settings.", 409);
