@@ -1,4 +1,5 @@
 import { traceMutation, commandUuid } from "./command-log";
+import { completeTaskFromSource } from "./task-clock";
 import type { Workspace, Order } from "./model";
 import { business, enrichBusiness, today, products } from "./business";
 import {
@@ -180,8 +181,11 @@ export function resolveFollowupItem(
       if (o.status === "Ready for jacket") o.status = "Needs review";
       if (r.items.every((i) => i.status !== "Outstanding")) {
         r.status = "Resolved";
-        const task = s.tasks.find((t) => t.id === `task-${r.id}`);
-        if (task) task.done = true;
+        completeTaskFromSource(
+          s,
+          `task-${r.id}`,
+          "Every requested item on this attorney follow-up was received.",
+        );
       }
     },
   );

@@ -12,7 +12,15 @@ import {
   resolveWaiting,
   validateTaskClock,
   waitingReasons,
+  isValidTaskFields,
+  completeTaskFromSource,
+  earliestWaitingStart,
+  taskCreatedOn,
 } from "../.local-test/task-clock.js";
+import { businessDay } from "../.local-test/business-date.js";
+
+/** A pristine copy of a workspace, for validating a mutation against its own start. */
+const seedWith = (s) => structuredClone(s);
 
 const day = (offsetDays, from = "2026-09-14") =>
   new Date(Date.parse(`${from}T00:00:00Z`) + offsetDays * 86_400_000)
@@ -301,4 +309,181 @@ test("every offered reason is accepted and Other carries the detail", () => {
     );
     assert.equal(openWaiting(s.tasks.find((x) => x.id === t.id)).reason, reason);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Regressions for Codex's September 14 QA findings (F04 task, F05, F06, F07, C02).
+// ---------------------------------------------------------------------------
+
+test("F06: the due-date countdown follows the Carolina business day, not UTC", () => {
+  // 00:30 UTC on the 15th is 8:30pm on the 14th in the Carolinas.
+  const lateUtc = new Date("2026-09-15T00:30:00Z");
+  assert.equal(businessDay(lateUtc), "2026-09-14");
+  const s = seed();
+  const t = addTask(s, { due: "2026-09-14", createdAt: "2026-09-04T13:00:00Z" });
+  const clock = taskClock(t, lateUtc);
+  // The bug reported this as already one day overdue while it was still the 14th.
+  assert.equal(clock.dueInDays, 0);
+  assert.equal(clock.state, "Due today");
+  // And it does turn over once the business day actually does.
+  const nextEvening = new Date("2026-09-16T00:30:00Z");
+  assert.equal(taskClock(t, nextEvening).dueInDays, -1);
+  assert.equal(taskClock(t, nextEvening).state, "Overdue");
+});
+
+test("F06: month boundaries follow the business calendar too", () => {
+  assert.equal(businessDay(new Date("2026-10-01T02:00:00Z")), "2026-09-30");
+  assert.equal(businessDay(new Date("2026-10-01T05:00:00Z")), "2026-10-01");
+});
+
+test("F05: a new waiting period cannot overlap the previous one", () => {
+  const s = seed();
+  const t = addTask(s, { createdAt: `${day(-10)}T09:00:00.000Z` });
+  startWaiting(s, t.id, { reason: "Waiting on attorney", detail: "", since: day(-9) }, NOW);
+  resolveWaiting(s, t.id, { until: day(-4), resolution: "Deed received" }, NOW);
+  assert.throws(
+    () => startWaiting(s, t.id, { reason: "Waiting on client", detail: "", since: day(-8) }, NOW),
+    /already waiting until that date/,
+  );
+  // Starting on the day the last one ended, or later, is fine.
+  assert.doesNotThrow(() =>
+    startWaiting(s, t.id, { reason: "Waiting on client", detail: "", since: day(-4) }, NOW),
+  );
+});
+
+test("F05: a waiting period cannot start before the task existed", () => {
+  const s = seed();
+  const t = addTask(s, { createdAt: `${day(-4)}T09:00:00.000Z` });
+  assert.throws(
+    () => startWaiting(s, t.id, { reason: "Waiting on client", detail: "", since: day(-9) }, NOW),
+    /before it existed/,
+  );
+  assert.doesNotThrow(() =>
+    startWaiting(s, t.id, { reason: "Waiting on client", detail: "", since: day(-4) }, NOW),
+  );
+});
+
+test("F05: waiting time can never exceed the age of the task", () => {
+  const s = seed();
+  const t = addTask(s, { createdAt: `${day(-10)}T09:00:00.000Z` });
+  startWaiting(s, t.id, { reason: "Waiting on attorney", detail: "", since: day(-9) }, NOW);
+  resolveWaiting(s, t.id, { until: day(-5), resolution: "a" }, NOW);
+  startWaiting(s, t.id, { reason: "Waiting on client", detail: "", since: day(-3) }, NOW);
+  const clock = taskClock(s.tasks[0], NOW);
+  assert.equal(clock.heldDays, 10);
+  assert.ok(
+    clock.waitingDays <= clock.heldDays,
+    `waiting ${clock.waitingDays} exceeded age ${clock.heldDays}`,
+  );
+  assert.equal(clock.waitingDays, 7);
+  assert.equal(clock.activeDays, 3);
+});
+
+test("F05: the central validator rejects overlapping periods however they arrive", () => {
+  const s = seed();
+  const t = addTask(s, { createdAt: `${day(-10)}T09:00:00.000Z` });
+  const base = {
+    reason: "Waiting on attorney",
+    detail: "",
+    by: "Tyler",
+    resolution: "done",
+    resolvedBy: "Tyler",
+  };
+  const overlapping = structuredClone(s);
+  overlapping.tasks[0].waiting = [
+    { ...base, id: "w1", since: day(-9), until: day(-4) },
+    { ...base, id: "w2", since: day(-6), until: day(-2) },
+  ];
+  assert.throws(() => validateBusinessMutation(s, overlapping), /cannot overlap/);
+
+  const beforeBirth = structuredClone(s);
+  beforeBirth.tasks[0].waiting = [{ ...base, id: "w3", since: day(-20), until: day(-15) }];
+  assert.throws(() => validateBusinessMutation(s, beforeBirth), /before it existed/);
+
+  const adjacent = structuredClone(s);
+  adjacent.tasks[0].waiting = [
+    { ...base, id: "w4", since: day(-9), until: day(-5) },
+    { ...base, id: "w5", since: day(-5), until: day(-2) },
+  ];
+  assert.doesNotThrow(() => validateBusinessMutation(s, adjacent));
+  void t;
+});
+
+test("F04: malformed task fields are refused at the import boundary", () => {
+  assert.equal(isValidTaskFields({ waiting: {} }), false);
+  assert.equal(isValidTaskFields({ waiting: [null] }), false);
+  assert.equal(isValidTaskFields({ createdAt: 42 }), false);
+  assert.equal(isValidTaskFields({ createdAt: "not a date" }), false);
+  assert.equal(isValidTaskFields({}), true);
+  assert.equal(isValidTaskFields({ createdAt: "2026-09-04T09:00:00.000Z" }), true);
+  const good = {
+    id: "w",
+    reason: "Waiting on attorney",
+    detail: "",
+    since: "2026-09-05",
+    by: "Tyler",
+    until: "2026-09-08",
+    resolution: "done",
+    resolvedBy: "Tyler",
+  };
+  assert.equal(isValidTaskFields({ waiting: [good] }), true);
+  // Two open periods, and a period ending before it starts, are both unusable.
+  assert.equal(isValidTaskFields({ waiting: [{ ...good, until: "" }, { ...good, id: "x", until: "" }] }), false);
+  assert.equal(isValidTaskFields({ waiting: [{ ...good, until: "2026-09-01" }] }), false);
+  assert.equal(isValidTaskFields({ waiting: [{ ...good, since: "nope" }] }), false);
+});
+
+test("F07: a source outcome completes a waiting task and records what unblocked it", () => {
+  const s = seed();
+  const t = addTask(s, { createdAt: `${day(-6)}T09:00:00.000Z` });
+  startWaiting(s, t.id, { reason: "Waiting on attorney", detail: "", since: day(-3) }, NOW);
+  const before = structuredClone(s);
+  completeTaskFromSource(s, t.id, "Every requested item was received.", NOW);
+  const done = s.tasks[0];
+  assert.equal(done.done, true);
+  assert.equal(openWaiting(done), null);
+  assert.equal(taskWaiting(done)[0].resolution, "Every requested item was received.");
+  assert.equal(taskWaiting(done)[0].until, day(0));
+  // And the whole thing is a legal mutation, where setting done alone was not.
+  assert.doesNotThrow(() => validateBusinessMutation(before, s));
+  const naive = structuredClone(before);
+  naive.tasks[0].done = true;
+  assert.throws(() => validateBusinessMutation(before, naive), /Resolve what this task is waiting on/);
+});
+
+test("F07: completing from a source is a no-op for a missing task and safe with no wait", () => {
+  const s = seed();
+  const t = addTask(s);
+  assert.doesNotThrow(() => completeTaskFromSource(s, "task-gone", "x", NOW));
+  completeTaskFromSource(s, t.id, "Material published.", NOW);
+  assert.equal(s.tasks[0].done, true);
+  assert.deepEqual(taskWaiting(s.tasks[0]), []);
+});
+
+test("F07: a wait recorded today and resolved today does not end before it began", () => {
+  const s = seed();
+  const t = addTask(s, { createdAt: `${day(0)}T09:00:00.000Z` });
+  startWaiting(s, t.id, { reason: "Waiting on client", detail: "", since: day(0) }, NOW);
+  completeTaskFromSource(s, t.id, "Client answered.", NOW);
+  const period = taskWaiting(s.tasks[0])[0];
+  assert.equal(period.until, period.since);
+  // The resulting task is a legal state to arrive at from the pre-wait task.
+  const before = seed();
+  addTask(before, { createdAt: `${day(0)}T09:00:00.000Z` });
+  assert.doesNotThrow(() => validateBusinessMutation(before, s));
+});
+
+test("C02: the detail and resolver on a recorded waiting period are frozen too", () => {
+  const s = seed();
+  const t = addTask(s);
+  startWaiting(s, t.id, { reason: "Waiting on attorney", detail: "Asked Mark", since: day(-3) }, NOW);
+  resolveWaiting(s, t.id, { until: day(-1), resolution: "Received" }, NOW);
+
+  const detailEdit = structuredClone(s);
+  detailEdit.tasks[0].waiting[0].detail = "Asked someone else";
+  assert.throws(() => validateBusinessMutation(s, detailEdit), /cannot be rewritten/);
+
+  const resolverEdit = structuredClone(s);
+  resolverEdit.tasks[0].waiting[0].resolvedBy = "Someone Else";
+  assert.throws(() => validateBusinessMutation(s, resolverEdit), /cannot be reopened or edited/);
 });

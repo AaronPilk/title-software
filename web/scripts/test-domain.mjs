@@ -8,6 +8,7 @@ try {
       "lib/title/model.ts",
       "lib/title/engine.ts",
       "lib/title/csv.ts",
+      "lib/title/business-date.ts",
       "lib/title/task-clock.ts",
       "lib/title/delivery-ledger.ts",
       "lib/title/ownership-history.ts",

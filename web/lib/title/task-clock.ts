@@ -1,5 +1,12 @@
 import { traceMutation, commandUuid } from "./command-log";
 import type { Task, Workspace } from "./model";
+import {
+  businessDay,
+  businessDayOf,
+  daysBetween,
+  dayNumber,
+  isCalendarDay,
+} from "./business-date";
 
 /**
  * Suggested starting text, not an approved fixed taxonomy. Every reason is
@@ -54,14 +61,9 @@ export type TaskClock = {
   activeDays: number | null;
 };
 
-const dayValid = (v: string) =>
-  /^\d{4}-\d{2}-\d{2}$/.test(v) &&
-  Number.isFinite(Date.parse(v)) &&
-  new Date(v).toISOString().slice(0, 10) === v;
+const dayValid = isCalendarDay;
 
-const dayNumber = (v: string) => Math.floor(Date.parse(`${v}T00:00:00Z`) / 86_400_000);
-
-const today = (now: Date) => now.toISOString().slice(0, 10);
+const today = (now: Date) => businessDay(now);
 
 const actor = (s: Workspace) => {
   if (!s.user.trim()) throw new Error("Choose the operator recording this work.");
@@ -72,14 +74,39 @@ export function taskWaiting(t: Task): TaskWaitingPeriod[] {
   return t.waiting || [];
 }
 
+/**
+ * The business day a task was created, or "" for a task saved before creation
+ * dates were recorded. An unknown creation date stays unknown: it never
+ * becomes a guess derived from the due date.
+ */
+export function taskCreatedOn(t: Task): string {
+  if (!t.createdAt) return "";
+  const day = businessDayOf(t.createdAt);
+  return isCalendarDay(day) ? day : "";
+}
+
+/**
+ * The earliest date a new waiting period may start: after the last resolved
+ * period ended, and not before the task existed. Overlapping periods would
+ * double-count the same days and could report more waiting time than the
+ * task has been alive.
+ */
+export function earliestWaitingStart(t: Task): string {
+  const resolved = taskWaiting(t)
+    .filter((p) => p.until)
+    .map((p) => p.until)
+    .sort();
+  const created = taskCreatedOn(t);
+  const candidates = [resolved[resolved.length - 1], created].filter(Boolean) as string[];
+  return candidates.sort()[candidates.length - 1] || "";
+}
+
 export function openWaiting(t: Task): TaskWaitingPeriod | null {
   return taskWaiting(t).find((p) => !p.until) || null;
 }
 
 /** Whole days between two calendar dates, never negative. */
-function spanDays(from: string, to: string) {
-  return Math.max(0, dayNumber(to) - dayNumber(from));
-}
+const spanDays = daysBetween;
 
 export function waitingDays(t: Task, now = new Date()) {
   const end = today(now);
@@ -93,9 +120,8 @@ export function taskClock(t: Task, now = new Date()): TaskClock {
   const end = today(now);
   const open = openWaiting(t);
   const waited = waitingDays(t, now);
-  const held = t.createdAt && dayValid(t.createdAt.slice(0, 10))
-    ? spanDays(t.createdAt.slice(0, 10), end)
-    : null;
+  const created = taskCreatedOn(t);
+  const held = created ? spanDays(created, end) : null;
   const dueInDays = t.due && dayValid(t.due) ? dayNumber(t.due) - dayNumber(end) : null;
   const state: TaskClockState = t.done
     ? "Completed"
@@ -155,6 +181,13 @@ export function startWaiting(
     if (!dayValid(since)) throw new Error("Enter the date this task started waiting.");
     if (dayNumber(since) > dayNumber(today(now)))
       throw new Error("A task cannot start waiting on a future date.");
+    const floor = earliestWaitingStart(t);
+    if (floor && dayNumber(since) < dayNumber(floor))
+      throw new Error(
+        taskCreatedOn(t) === floor
+          ? "A task cannot start waiting before it existed."
+          : "This task was already waiting until that date. Start the new wait after the previous one ended.",
+      );
     const by = actor(s);
     const period: TaskWaitingPeriod = {
       id: `wait-${commandUuid().slice(0, 8)}`,
@@ -197,6 +230,42 @@ export function resolveWaiting(
   });
 }
 
+/**
+ * Complete a task as the outcome of a reviewed source workflow — an attorney
+ * follow-up fully received, a company material approved and published.
+ *
+ * The source outcome is itself the evidence of what unblocked the task, so an
+ * open waiting period is resolved in the same transaction rather than
+ * rejecting the whole receipt and sending the operator off to the task list to
+ * clear it by hand. The ordinary checkbox on the Tasks screen still refuses to
+ * complete a waiting task, because there no such evidence exists.
+ */
+export function completeTaskFromSource(
+  s: Workspace,
+  taskId: string,
+  resolution: string,
+  now = new Date(),
+) {
+  const t = s.tasks.find((x) => x.id === taskId);
+  if (!t) return;
+  const open = openWaiting(t);
+  if (open) {
+    const end = today(now);
+    t.waiting = taskWaiting(t).map((p) =>
+      p.id === open.id
+        ? {
+            ...p,
+            // A wait recorded as starting today must not end before it began.
+            until: dayNumber(end) < dayNumber(p.since) ? p.since : end,
+            resolution: resolution.trim() || "Resolved by the source workflow outcome.",
+            resolvedBy: s.user.trim() || open.by,
+          }
+        : p,
+    );
+  }
+  t.done = true;
+}
+
 const periodShape = (v: unknown): v is TaskWaitingPeriod => {
   if (!v || typeof v !== "object") return false;
   const p = v as Record<string, unknown>;
@@ -217,6 +286,29 @@ export function validWaitingShape(t: Task) {
 }
 
 /**
+ * What hydration and backup restore must agree is usable. The parser and the
+ * running app previously disagreed: a backup carrying `waiting: {}` or
+ * `createdAt: 42` was accepted, and Tasks then threw on first render.
+ */
+export function isValidTaskFields(t: unknown): boolean {
+  if (!t || typeof t !== "object") return false;
+  const task = t as Record<string, unknown>;
+  if (task.createdAt !== undefined && typeof task.createdAt !== "string") return false;
+  if (task.createdAt !== undefined && !Number.isFinite(Date.parse(task.createdAt as string)))
+    return false;
+  if (task.waiting === undefined) return true;
+  if (!Array.isArray(task.waiting)) return false;
+  if (!task.waiting.every(periodShape)) return false;
+  const periods = task.waiting as TaskWaitingPeriod[];
+  if (periods.filter((p) => !p.until).length > 1) return false;
+  return periods.every(
+    (p) =>
+      isCalendarDay(p.since) &&
+      (p.until === "" || (isCalendarDay(p.until) && dayNumber(p.until) >= dayNumber(p.since))),
+  );
+}
+
+/**
  * Cross-cutting invariants, enforced centrally so no UI path can bypass them.
  * Waiting history is append-only: a recorded period's identity and start never
  * change, and a resolved period is never reopened or rewritten.
@@ -230,11 +322,24 @@ export function validateTaskClock(before: Workspace, after: Workspace) {
       throw new Error("A task can only be waiting on one thing at a time.");
     if (t.done && periods.some((p) => !p.until))
       throw new Error("Resolve what this task is waiting on before completing it.");
+    const created = taskCreatedOn(t);
     for (const p of periods) {
       if (p.until && dayNumber(p.until) < dayNumber(p.since))
         throw new Error("A waiting period cannot end before it started.");
       if (p.until && !p.resolution.trim())
         throw new Error("A resolved waiting period must record what unblocked the task.");
+      if (created && dayNumber(p.since) < dayNumber(created))
+        throw new Error("A task cannot start waiting before it existed.");
+    }
+    // Periods must not overlap: overlapping ones double-count the same days
+    // and can report more waiting time than the task has been alive.
+    const ordered = [...periods].sort(
+      (a, b) => dayNumber(a.since) - dayNumber(b.since) || a.id.localeCompare(b.id),
+    );
+    for (let i = 1; i < ordered.length; i++) {
+      const previous = ordered[i - 1];
+      if (!previous.until || dayNumber(ordered[i].since) < dayNumber(previous.until))
+        throw new Error("A task's waiting periods cannot overlap.");
     }
     const prior = before.tasks.find((x) => x.id === t.id);
     if (!prior) continue;
@@ -242,9 +347,19 @@ export function validateTaskClock(before: Workspace, after: Workspace) {
       const now = periods.find((x) => x.id === p.id);
       if (!now)
         throw new Error("Waiting history stays on the task; it cannot be removed.");
-      if (now.reason !== p.reason || now.since !== p.since || now.by !== p.by)
+      if (
+        now.reason !== p.reason ||
+        now.detail !== p.detail ||
+        now.since !== p.since ||
+        now.by !== p.by
+      )
         throw new Error("A recorded waiting period cannot be rewritten.");
-      if (p.until && (now.until !== p.until || now.resolution !== p.resolution))
+      if (
+        p.until &&
+        (now.until !== p.until ||
+          now.resolution !== p.resolution ||
+          now.resolvedBy !== p.resolvedBy)
+      )
         throw new Error("A resolved waiting period cannot be reopened or edited.");
     }
   }

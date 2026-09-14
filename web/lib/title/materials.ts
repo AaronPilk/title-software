@@ -1,4 +1,5 @@
 import { traceMutation, commandUuid } from "./command-log";
+import { completeTaskFromSource } from "./task-clock";
 import type { Workspace, VaultDoc } from "./model";
 import { sameDocumentFamily } from "./production";
 
@@ -360,8 +361,11 @@ export function approveMaterial(
         materialSnapshot: item.reviewSnapshot,
       },
     });
-    const task = s.tasks.find((t) => t.id === `task-${item.id}`);
-    if (task) task.done = true;
+    completeTaskFromSource(
+      s,
+      `task-${item.id}`,
+      "This company material was approved and published.",
+    );
   });
 }
 function releaseDoc(s: Workspace, p: DocumentPublication) {

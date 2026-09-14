@@ -54,10 +54,12 @@ import {
   taskClock,
   taskWaiting,
   openWaiting,
+  earliestWaitingStart,
   startWaiting,
   resolveWaiting,
   waitingReasons,
 } from "@/lib/title/task-clock";
+import { businessDay } from "@/lib/title/business-date";
 export function InboxView({
   onReview,
   onRevision,
@@ -435,7 +437,8 @@ export function Tasks() {
   const [expanded, setExpanded] = useState("");
   const [company, setCompany] = useState(s.companies[0]?.id || "");
   const [assignee, setAssignee] = useState(s.user);
-  const today = new Date().toISOString().slice(0, 10);
+  // The company works on the Carolina calendar; a UTC day flips at 8pm Eastern.
+  const today = businessDay();
   const clocks = new Map(s.tasks.map((t) => [t.id, taskClock(t)]));
   const rows = s.tasks.filter((t) => {
     const clock = clocks.get(t.id)!;
@@ -460,6 +463,7 @@ export function Tasks() {
   ).length;
   const activeTask = s.tasks.find((t) => t.id === waitingFor);
   const activeOpen = activeTask ? openWaiting(activeTask) : null;
+  const waitingFloor = activeTask ? earliestWaitingStart(activeTask) : "";
   async function create(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget),
@@ -781,10 +785,17 @@ export function Tasks() {
                   name="since"
                   type="date"
                   required
+                  min={waitingFloor || undefined}
                   max={today}
                   defaultValue={today}
                 />
               </FieldLabel>
+              {waitingFloor && (
+                <p className="form-note">
+                  This task has been waiting or existing since {waitingFloor},
+                  so a new wait starts on or after that date.
+                </p>
+              )}
               <Button type="submit">Mark waiting</Button>
             </form>
           )}
