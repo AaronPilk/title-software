@@ -7,3 +7,12 @@
 
 # Local Cloudflare CLI state
 /.wrangler/
+
+# Local agent context and handoff notes. These stay out of the repository:
+# they name the private credential files under .local/ and, in
+# HANDOFF_FOR_CLAUDE.md, a Drive link to a recorded call with named third
+# parties. Untracked alone was not enough — one `git add -A` would have
+# published them.
+/CLAUDE.md
+/CODEX_PARALLEL_WORK.md
+/HANDOFF_FOR_CLAUDE.md
