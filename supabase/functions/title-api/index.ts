@@ -8,6 +8,7 @@ import { listMissiveConversations, listMissiveMessages, readMissiveMessage, prev
 import {
   ApiError,
   emptyWorkspace,
+  normalizeWorkspace,
   executeCommands,
   projectWorkspace,
   allowedAsset,
@@ -689,6 +690,8 @@ Deno.serve(async (req) => {
           .eq("workspace_id", wid)
           .single(),
       );
+      // Reject unusable legacy/history data before the restore RPC changes live state.
+      normalizeWorkspace(backup.state);
       await checkAssets(backup.state, wid);
       for (const d of backup.state.documents.filter((d: any) => d.assetId)) {
         const asset = backup.asset_manifest.find(

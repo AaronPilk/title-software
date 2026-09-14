@@ -7,6 +7,10 @@ import * as P from "../title/production";
 import * as M from "../title/materials";
 import * as F from "../title/followups";
 import * as S from "../title/statement-delivery";
+import * as T from "../title/task-clock";
+import * as D from "../title/delivery-ledger";
+import * as O from "../title/ownership-history";
+import { isCalendarDay } from "../title/business-date";
 import { executeRules } from "../title/engine";
 import {
   withCommandIds,
@@ -110,6 +114,8 @@ export function emptyWorkspace(actor = ""): Workspace {
     approvedReports: [],
     expansionStates: [],
     statementDeliveries: [],
+    deliveries: [],
+    ownershipHistory: [],
     materials: { version: 1, items: [], publications: [] },
     business: {
       policies: [],
@@ -153,6 +159,8 @@ const recordTables = [
   "fieldRevisions",
   "replyDrafts",
   "statementDeliveries",
+  "deliveries",
+  "ownershipHistory",
   "business.policies",
   "business.commitments",
   "business.cpls",
@@ -248,6 +256,95 @@ function ensureShape(s: Workspace) {
         fail("Message attachment routing does not match.");
   if (!S.isValidStatementDeliveryWorkspace(s))
     fail("Invalid statement delivery data.");
+  validateWorkflowState(s);
+}
+
+function workflowError(fn: () => void) {
+  try { fn(); }
+  catch (error) {
+    if (error instanceof ApiError) throw error;
+    fail(error instanceof Error ? error.message : "Invalid workflow data.");
+  }
+}
+
+/** Validate stored histories before use, including their links to canonical records. */
+function validateWorkflowState(s: Workspace) {
+  if (!s.tasks.every(T.isValidTaskFields)) fail("Invalid task waiting or creation data.");
+  if (!D.isValidDeliveries(s.deliveries)) fail("Invalid document delivery data.");
+  if (!O.isValidOwnershipHistory(s.ownershipHistory)) fail("Invalid ownership history.");
+  workflowError(() => {
+    T.validateTaskClock(s, s);
+    D.validateDeliveryMutation(s, s);
+    O.validateOwnershipMutation(s, s);
+  });
+  for (const task of s.tasks) {
+    const ids = new Set<string>();
+    for (const wait of task.waiting || []) {
+      if (!wait.id.trim() || ids.has(wait.id) || !wait.by.trim() || !wait.reason.trim() ||
+          (wait.until && !wait.resolvedBy.trim())) fail("Invalid task waiting history.");
+      ids.add(wait.id);
+    }
+  }
+  for (const record of s.ownershipHistory || []) {
+    if (!record.companyId || !isCalendarDay(record.effectiveFrom) ||
+        !record.reason.trim() || !record.recordedBy.trim() ||
+        !Number.isFinite(Date.parse(record.recordedAt))) fail("Invalid ownership evidence.");
+    const names = record.members.map(m => m.name.trim().toLowerCase());
+    if (names.some(name => !name) || new Set(names).size !== names.length ||
+        record.members.some(m => !Number.isFinite(m.share) || m.share <= 0 || m.share > 100))
+      fail("Invalid ownership member interests.");
+  }
+  const successors = new Set<string>();
+  for (const record of s.deliveries || []) {
+    const doc = s.documents.find(d => d.id === record.documentId);
+    if (!doc || !record.companyId || !record.orderId || doc.companyId !== record.companyId ||
+        doc.orderId !== record.orderId || record.snapshot.documentId !== doc.id ||
+        record.snapshot.documentVersion !== doc.version || record.snapshot.documentName !== doc.name)
+      fail("Delivery document and file references do not match.");
+    if (!record.recipientName.trim() || !B.emailValid(record.recipientEmail) ||
+        !D.recipientRoles.includes(record.recipientRole as typeof D.recipientRoles[number]) ||
+        !D.deliveryMethods.includes(record.method as typeof D.deliveryMethods[number]) ||
+        !record.preparedBy.trim() || !Number.isFinite(Date.parse(record.preparedAt)))
+      fail("Invalid delivery preparation evidence.");
+    if (record.status === "Recorded" && (!isCalendarDay(record.deliveredOn) ||
+        !record.recordedBy.trim() || !Number.isFinite(Date.parse(record.recordedAt)) ||
+        record.deliveredOn < record.preparedAt.slice(0, 10) ||
+        Date.parse(record.recordedAt) < Date.parse(record.preparedAt) ||
+        record.deliveredOn > record.recordedAt.slice(0, 10)))
+      fail("Invalid recorded delivery evidence.");
+    if (record.status === "Failed" && (!isCalendarDay(record.failedOn) || !record.failedBy.trim() ||
+        record.failedOn < record.preparedAt.slice(0, 10)))
+      fail("Invalid failed delivery evidence.");
+    if (record.status === "Cancelled" && (!record.cancelledBy.trim() ||
+        !Number.isFinite(Date.parse(record.cancelledAt)) ||
+        Date.parse(record.cancelledAt) < Date.parse(record.preparedAt)))
+      fail("Invalid cancelled delivery evidence.");
+    if (!record.previousDeliveryId) {
+      if (record.attempt !== 1) fail("The first delivery attempt must be one.");
+      continue;
+    }
+    const previous = s.deliveries!.find(r => r.id === record.previousDeliveryId);
+    const previousDoc = s.documents.find(d => d.id === previous?.documentId);
+    // New retries use the domain's current-family rule. Historical links use
+    // immutable identity: source roles can be reviewed and reclassified later.
+    if (!previous || !previousDoc || previous.status !== "Failed" ||
+        previous.companyId !== record.companyId || previous.orderId !== record.orderId ||
+        previousDoc.name !== doc.name || record.attempt !== previous.attempt + 1 ||
+        record.recipientName !== previous.recipientName || record.recipientRole !== previous.recipientRole ||
+        Date.parse(record.preparedAt) < Date.parse(previous.preparedAt) ||
+        record.preparedAt.slice(0, 10) < previous.failedOn || successors.has(previous.id))
+      fail("Invalid delivery retry history.");
+    successors.add(previous.id);
+  }
+}
+
+/** Copy and validate a persisted snapshot; only absent legacy modules become empty arrays. */
+export function normalizeWorkspace(source: Workspace): Workspace {
+  const s = structuredClone(object(source)) as Workspace;
+  if (s.deliveries === undefined) s.deliveries = [];
+  if (s.ownershipHistory === undefined) s.ownershipHistory = [];
+  workflowError(() => ensureShape(s));
+  return s;
 }
 function immutableHistory(before: Workspace, after: Workspace) {
   for (const mail of before.inbox.filter(m => m.missive)) {
@@ -460,11 +557,13 @@ function applyEdit(
   }
   if (edit.table === "tasks") {
     permit(a, "tasks");
-    keys(v, ["id", "title", "companyId", "owner", "due", "done", "priority"]);
+    keys(v, ["id", "title", "companyId", "owner", "due", "done", "priority", "createdAt"]);
+    if (has(v, "createdAt") && !edit.insert) fail("Task creation time cannot be changed.");
+    if (has(v, "createdAt") && typeof v.createdAt !== "string") fail("Invalid task creation time.");
     const n = { ...current, ...v };
     nonempty(n.title, "task title");
     if (
-      !/^\d{4}-\d{2}-\d{2}$/.test(n.due) ||
+      !isCalendarDay(n.due) ||
       typeof n.done !== "boolean" ||
       !["High", "Normal"].includes(n.priority)
     )
@@ -900,7 +999,39 @@ const publicationNames =
   "createPublication reviewPublication publishDocument withdrawPublication".split(
     " ",
   );
-const handlers = { ...B, ...P, ...M, ...F, ...S, executeRules } as Record<
+const workflowActions: Record<string, { group: string; fields: string[] | null; target: boolean }> = {
+  startWaiting: { group: "tasks", fields: ["reason", "detail", "since"], target: true },
+  resolveWaiting: { group: "tasks", fields: ["until", "resolution"], target: true },
+  recordOwnership: { group: "company", fields: ["effectiveFrom", "members", "reason"], target: true },
+  prepareDelivery: { group: "production", fields: ["documentId", "recipientName", "recipientEmail", "recipientRole", "method", "reviewNote"], target: false },
+  recordDelivery: { group: "production", fields: ["deliveredOn", "deliveryReference", "deliveryNote"], target: true },
+  recordDeliveryFailure: { group: "production", fields: ["failedOn", "failureReason"], target: true },
+  retryDelivery: { group: "production", fields: ["recipientEmail", "method", "reviewNote"], target: true },
+  cancelDelivery: { group: "production", fields: null, target: true },
+};
+function validateWorkflowCommand(cmd: WorkspaceCommand) {
+  const spec = workflowActions[cmd.name];
+  if (cmd.args.length !== (spec.target ? 2 : 1)) fail("Invalid workflow arguments.");
+  if (spec.target) nonempty(cmd.args[0], "workflow record");
+  const input = cmd.args[spec.target ? 1 : 0];
+  if (!spec.fields) { nonempty(input, "cancellation reason"); return; }
+  const fields = object(input);
+  keys(fields, spec.fields);
+  for (const key of spec.fields) {
+    if (cmd.name === "recordOwnership" && key === "members") {
+      if (!Array.isArray(fields.members)) fail("Enter ownership members.");
+      for (const member of fields.members) {
+        const value = object(member);
+        keys(value, ["name", "share"]);
+        nonempty(value.name, "member name");
+        if (typeof value.share !== "number" || !Number.isFinite(value.share)) fail("Enter a valid ownership interest.");
+      }
+    } else if (typeof fields[key] !== "string" || fields[key].length > 20000) {
+      fail(`Invalid workflow field: ${key}.`);
+    }
+  }
+}
+const handlers = { ...B, ...P, ...M, ...F, ...S, ...T, ...D, ...O, executeRules } as Record<
   string,
   any
 >;
@@ -941,7 +1072,7 @@ export function executeCommands(
   if (!Array.isArray(commands) || !commands.length || commands.length > 100)
     fail("Submit between 1 and 100 actions.");
   safePayload(commands);
-  const next = structuredClone(before);
+  const next = normalizeWorkspace(before);
   next.user = a.email;
   for (const cmd of commands) {
     if (
@@ -953,6 +1084,7 @@ export function executeCommands(
       fail("Invalid command.");
     requireReadableReferences(next, cmd, a);
     const prior = structuredClone(next);
+    const timestamp = new Date().toISOString();
     withCommandIds(cmd.id, () => {
       if (cmd.name === "editDraft") {
         if (!Array.isArray(cmd.args[0])) fail("Invalid draft edits.");
@@ -984,7 +1116,8 @@ export function executeCommands(
           fingerprint: B.applicationFingerprint(next, c),
         });
       } else {
-        const group = productionNames.includes(cmd.name)
+        const workflow = workflowActions[cmd.name];
+        const group = workflow?.group || (productionNames.includes(cmd.name)
           ? "production"
           : companyNames.includes(cmd.name)
             ? "company"
@@ -994,9 +1127,10 @@ export function executeCommands(
                 ? "publication"
                 : cmd.name === "executeRules"
                   ? "admin"
-                  : "";
+                  : "");
         if (!group) fail("Unknown action.");
         permit(a, group);
+        if (workflow) validateWorkflowCommand(cmd);
         const args = structuredClone(cmd.args);
         if (cmd.name === "reviewCommitment") {
           const o = next.orders.find((o) => o.id === object(args[0]).id);
@@ -1007,7 +1141,21 @@ export function executeCommands(
           const v = object(args[0]);
           v.reviewer = a.email;
         }
-        handlers[cmd.name](next, ...args);
+        if (workflow) workflowError(() => handlers[cmd.name](next, ...args));
+        else handlers[cmd.name](next, ...args);
+        if (workflow && cmd.name.includes("Delivery")) {
+          const visible = new Set(projectWorkspace(prior, a).documents.map(d => d.id));
+          for (const delivery of next.deliveries || []) {
+            const previous = prior.deliveries!.find(r => r.id === delivery.id);
+            if (!eq(previous, delivery) && !visible.has(delivery.documentId))
+              fail("The delivery source is outside your access.", 403);
+          }
+        }
+      }
+      for (const task of next.tasks) {
+        const previous = prior.tasks.find(t => t.id === task.id);
+        if (!previous) task.createdAt = timestamp;
+        else if (task.createdAt !== previous.createdAt) fail("Task creation time cannot be changed.");
       }
       B.validateBusinessMutation(prior, next);
       immutableHistory(prior, next);
@@ -1020,7 +1168,7 @@ export function executeCommands(
 }
 
 export function projectWorkspace(source: Workspace, a: Access): Workspace {
-  const s = structuredClone(source);
+  const s = normalizeWorkspace(source);
   delete s.partnerSummary;
   s.user = a.email;
   s.activity = [];

@@ -65,3 +65,25 @@ See [integration-setup.md](integration-setup.md). This implementation supplies t
 ## September 12 account and Missive continuation
 
 Seven requested accounts were created through an expiring, narrowly scoped provisioning function using Auth Admin. Existing accounts/passwords were never overwritten. The temporary function was immediately replaced with an authenticated HTTP410 tombstone and verified. No setup email was sent. Those original shared initial passwords were superseded on September 13 by distinct temporary passwords (see the pilot guide); staff roles are operations with no companies pending assignment. Current Missive verification and outstanding dependencies are recorded in [missive-connection.md](missive-connection.md).
+
+## September 14 connected workflow fixes (F02/F03)
+
+Task waiting, dated ownership and per-recipient document delivery now pass through the shared backend's named action registry. The existing forms previously worked in local sample mode but their new actions were rejected by the connected gateway. The gateway replays the same reviewed domain transitions with the authenticated actor and exact input fields; arbitrary history edits remain disallowed.
+
+| Workflow | Permitted staff roles |
+| --- | --- |
+| Start or resolve task waiting | Operations, onboarding, finance, owner, admin |
+| Record dated ownership | Onboarding, owner, admin |
+| Prepare, record, fail, retry or cancel document delivery | Operations, owner, admin |
+
+Existing company assignments and restricted-source grants still apply. Delivery and ownership collections participate in projection and mutation-scope checks. Waiting history stays nested inside its task. Partner views omit all three internal histories.
+
+Normal task creation now accepts the form's creation field while replacing it with the server's execution timestamp. Domain-generated tasks also receive that timestamp. Later edits cannot change it; existing tasks without a timestamp retain an unknown creation date.
+
+Absent legacy delivery/ownership collections normalize to empty arrays on copies. Present malformed data is rejected. Validation checks history semantics, canonical company/file/document references, retry chains and preparation/outcome chronology. Historical delivery links use immutable document identity so later source-category reviews preserve the captured history; eligibility for a new retry still uses the domain's current-source rules. Backup restore invokes this validation before the database restore operation.
+
+Verification on the combined source tree: **339/339 automated tests** (179 domain, 85 backend, 34 workflows, 24 Missive, 17 assistant); web and assistant typechecks; Edge bundle and production build. Backend coverage includes 45 new cases for command capture/replay, roles, scope, timestamps, legacy snapshots, history validation and atomic rejection. The existing assistant-context fixture now supplies its authenticated recorder instead of creating anonymous source evidence.
+
+A production-build browser pass submitted ten command batches through the real connected provider, command capture, gateway execution and projection. It created a task, started/resolved waiting, recorded opening ownership, prepared/failed/retried/recorded delivery, cancelled another preparation and reloaded saved history, with zero console/runtime errors. Auth and API transport were intercepted with synthetic fixtures; this verifies application integration, not hosted authentication or database execution.
+
+These September 14 fixes are committed source changes only. They require redeploying `title-api` to reach the hosted pilot. No migration, live-data changes, push or deployment was performed for this fix.
