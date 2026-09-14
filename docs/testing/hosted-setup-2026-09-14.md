@@ -51,3 +51,9 @@ Run the added browser suites from `web/` with `npm run test:auth:ui` and `npm ru
 The current invitation feature records access for an existing verified account; it does not provision a new Auth account or send email. Pending invitation editing/revocation and multi-company selection in the staff form are separate remaining capabilities. This pass makes existing behavior accurate and reviewable without claiming those features are implemented. Company removal is also not exposed in the UI, so any live QA fixture needs an explicit, narrow cleanup plan.
 
 Private evidence is saved under `.local/coordination/hosted-setup-2026-09-14/`. No credentials or authenticator secrets belong in this report or Git history.
+
+## Release
+
+Implementation commit `e3b422b` was fast-forwarded to main and pushed to GitHub. The private pilot frontend is deployed as `8e808a1e-4c7e-4305-9dab-e793d9d733a2`; `title-api` is version 12 with JWT verification enabled and bundle SHA-256 `b5b8abb3b9b6bbf933ebc54785595398f040020402962924ee16b96a49ddee61`. The event function remains version 3 and the migration count remains 15.
+
+Cloudflare's existing seven-person Access policy protects both the hostname and Worker; preview URLs remain disabled. Anonymous requests return 302 at the pilot and 401 at the account API. These deployment checks do not replace the pending signed-in company/staff acceptance steps above.

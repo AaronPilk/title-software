@@ -124,3 +124,7 @@ A reported invalid-credentials error was investigated using the intended owner a
 ## September 14 follow-up regression release
 
 The deployed frontend includes scan orientation controls, Missive stale-response/conflict recovery and accurate saved-versus-refresh-failed messages. The matching API/event functions are versions 11/3, with 15 applied migrations. The follow-up pass passed 546 tests plus disposable database transaction rounds. Existing repository-wide lint debt remains (52 baseline errors); see the [regression report](testing/release-regressions-2026-09-14.md). Owner Missive activation and a signed-in staff acceptance case remain pending.
+
+## September 14 hosted setup follow-up
+
+The subsequent setup release is frontend `8e808a1e-4c7e-4305-9dab-e793d9d733a2`, API version 12, event version 3, with the same 15 migrations. It fixes connection/MFA recovery, partial password completion feedback and conflicting pending-invitation feedback. The [setup report](testing/hosted-setup-2026-09-14.md) records 539 passing tests, deployment checks and the exact acceptance boundary: the real owner credential signs in, but the owner must finish personal password and authenticator setup before the live company/staff walkthrough continues. No live business records or staff permissions were changed in this pass.
