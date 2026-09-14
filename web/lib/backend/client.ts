@@ -31,6 +31,7 @@ export async function backendRequest<T = any>(
   path: string,
   data?: unknown,
   method = data === undefined ? "GET" : "POST",
+  timeoutMs = 30000,
 ): Promise<T> {
   if (!supabase) throw new Error("The shared backend is not configured.");
   const { data: session } = await supabase.auth.getSession();
@@ -48,7 +49,7 @@ export async function backendRequest<T = any>(
     },
     body: method === "GET" ? undefined : JSON.stringify(data),
     cache: "no-store",
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const result: any = await response.json();
   if (!response.ok) {

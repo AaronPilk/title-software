@@ -3,3 +3,9 @@ project_id = "title-software"
 [functions.title-api]
 verify_jwt = true
 entrypoint = "./functions/title-api/bundle.js"
+
+# Missive authenticates this dedicated receiver with a raw-body HMAC signature.
+# It never accepts workspace commands or a caller-selected workspace.
+[functions.title-missive-events]
+verify_jwt = false
+entrypoint = "./functions/title-missive-events/bundle.js"

@@ -12,6 +12,7 @@ try {
       "lib/title/task-clock.ts",
       "lib/title/delivery-ledger.ts",
       "lib/title/ownership-history.ts",
+      "lib/title/orchestration.ts",
       "--module",
       "esnext",
       "--target",
@@ -52,6 +53,7 @@ try {
       "tests/task-clock.test.mjs",
       "tests/delivery-ledger.test.mjs",
       "tests/ownership-history.test.mjs",
+      "tests/orchestration.test.mjs",
     ],
     {
       stdio: "inherit",

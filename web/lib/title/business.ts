@@ -12,6 +12,7 @@ import { validateStatementDeliveryMutation } from "./statement-delivery";
 import { validateTaskClock } from "./task-clock";
 import { validateDeliveryMutation } from "./delivery-ledger";
 import { ownershipForMonth, validateOwnershipMutation } from "./ownership-history";
+import { validateOrchestrationMutation } from "./orchestration";
 import {
   titleFile,
   orderSources,
@@ -1702,6 +1703,7 @@ export function handoffCurrent(s: Workspace, j: Handoff) {
       !!o &&
       !!p &&
       ["Prepared", "Issued", "Delivered"].includes(p.status) &&
+      (p.status !== "Prepared" || finalReadiness(s, o).ready) &&
       j.fingerprint === finalProductFingerprint(s, o, p)
     );
   }
@@ -1754,6 +1756,7 @@ export function validateBusinessMutation(before: Workspace, after: Workspace) {
   validateTaskClock(before, after);
   validateDeliveryMutation(before, after);
   validateOwnershipMutation(before, after);
+  validateOrchestrationMutation(before, after);
   for (const r of business(before).followups || []) {
     for (const messageId of [
       r.messageId,

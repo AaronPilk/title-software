@@ -10,6 +10,7 @@ import * as S from "../title/statement-delivery";
 import * as T from "../title/task-clock";
 import * as D from "../title/delivery-ledger";
 import * as O from "../title/ownership-history";
+import * as OR from "../title/orchestration";
 import { isCalendarDay } from "../title/business-date";
 import { executeRules } from "../title/engine";
 import {
@@ -116,6 +117,7 @@ export function emptyWorkspace(actor = ""): Workspace {
     statementDeliveries: [],
     deliveries: [],
     ownershipHistory: [],
+    orchestration: { version: 1, profiles: [], fieldMaps: [], links: [], controls: [], readiness: [], proposals: [], events: [] },
     materials: { version: 1, items: [], publications: [] },
     business: {
       policies: [],
@@ -161,6 +163,13 @@ const recordTables = [
   "statementDeliveries",
   "deliveries",
   "ownershipHistory",
+  "orchestration.profiles",
+  "orchestration.fieldMaps",
+  "orchestration.links",
+  "orchestration.controls",
+  "orchestration.readiness",
+  "orchestration.proposals",
+  "orchestration.events",
   "business.policies",
   "business.commitments",
   "business.cpls",
@@ -230,6 +239,27 @@ function ensureShape(s: Workspace) {
       !["Internal", "Restricted", "Partner"].includes(doc.visibility)
     )
       fail("Invalid document version or access class.");
+    if (doc.providerSource !== undefined) {
+      const p = object(doc.providerSource);
+      const mail = s.inbox.find(m => m.id === p.sourceMailId);
+      const original = mail?.missive;
+      const source = s.documents.find(d => d.id === p.sourceDocumentId);
+      const attachment = original?.attachments.find(a => a.id === p.attachmentId);
+      if (p.provider !== "Missive" || !original || !source || !attachment ||
+          doc.companyId !== mail!.companyId || doc.orderId !== mail!.orderId ||
+          source.companyId !== doc.companyId || source.orderId !== doc.orderId ||
+          p.sourceDocumentId !== original.sourceDocumentId || p.organizationId !== original.organizationId ||
+          p.teamId !== original.teamId || p.conversationId !== original.conversationId || p.messageId !== original.messageId ||
+          !Number.isSafeInteger(p.mappingVersion) || p.mappingVersion < original.mappingVersion ||
+          p.filename !== doc.name || p.filename !== attachment.name || p.mime !== doc.mime || p.mime !== attachment.mime ||
+          p.bytes !== attachment.bytes || !Number.isSafeInteger(p.bytes) || p.bytes <= 0 ||
+          typeof p.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(p.sha256) ||
+          typeof p.importedAt !== "string" || !Number.isFinite(Date.parse(p.importedAt)) ||
+          typeof p.importedBy !== "string" || !p.importedBy.trim() ||
+          !/^missive:attachment:[a-f0-9]{64}$/.test(doc.id) ||
+          doc.assetId !== doc.id.replace("missive:attachment:", "missive:asset:"))
+        fail("Invalid imported attachment source or destination.");
+    }
     for (const [key, list] of [
       ["policyId", B.business(s).policies],
       ["cplId", B.business(s).cpls],
@@ -257,6 +287,7 @@ function ensureShape(s: Workspace) {
   if (!S.isValidStatementDeliveryWorkspace(s))
     fail("Invalid statement delivery data.");
   validateWorkflowState(s);
+  workflowError(() => OR.validateOrchestrationMutation(s, s));
 }
 
 function workflowError(fn: () => void) {
@@ -343,6 +374,7 @@ export function normalizeWorkspace(source: Workspace): Workspace {
   const s = structuredClone(object(source)) as Workspace;
   if (s.deliveries === undefined) s.deliveries = [];
   if (s.ownershipHistory === undefined) s.ownershipHistory = [];
+  if (s.orchestration === undefined) OR.orchestration(s);
   workflowError(() => ensureShape(s));
   return s;
 }
@@ -371,6 +403,7 @@ function immutableHistory(before: Workspace, after: Workspace) {
       "productionVersion",
       "commitmentVersion",
       "preparationFingerprint",
+      "providerSource",
     ] as const)
       if (!eq(doc[k], next[k]))
         fail(
@@ -889,7 +922,7 @@ function applyEdit(
         !a.restricted
       )
         fail("Restricted document access is required.", 403);
-      if (current.id.startsWith("missive:") && v.sourceRole && v.sourceRole !== current.sourceRole)
+      if (current.id.startsWith("missive:source:") && v.sourceRole && v.sourceRole !== current.sourceRole)
         fail("Email source snapshots cannot be reclassified as title evidence.");
       if (v.sourceRole) {
         const o = s.orders.find((o) => o.id === current.orderId);
@@ -1031,7 +1064,7 @@ function validateWorkflowCommand(cmd: WorkspaceCommand) {
     }
   }
 }
-const handlers = { ...B, ...P, ...M, ...F, ...S, ...T, ...D, ...O, executeRules } as Record<
+const handlers = { ...B, ...P, ...M, ...F, ...S, ...T, ...D, ...O, ...OR, executeRules } as Record<
   string,
   any
 >;
@@ -1062,6 +1095,17 @@ function requireReadableReferences(
   }
   if (referencesHidden(cmd.args, hidden))
     fail("This action references a record outside your access.", 403);
+  if ((OR.orchestrationActionNames as readonly string[]).includes(cmd.name)) {
+    const value = typeof cmd.args[0] === "string"
+      ? s.orchestration!.proposals.find(p => p.id === cmd.args[0]) : object(cmd.args[0]);
+    const companyId = value?.companyId || s.orders.find(o => o.id === value?.orderId)?.companyId;
+    if (!companyId || !canCompany(a, companyId)) fail("This company is outside your access.", 403);
+    // A restricted historical profile can affect current selection. Do not replay
+    // a command against hidden configuration that the operator could not review.
+    for (const table of recordTables.filter(t => t.startsWith("orchestration.")))
+      if (collection(s, table).some(r => r.companyId === companyId && hidden.has(r.id)))
+        fail("This company's integration evidence requires restricted access.", 403);
+  }
 }
 
 export function executeCommands(
@@ -1090,6 +1134,14 @@ export function executeCommands(
         if (!Array.isArray(cmd.args[0])) fail("Invalid draft edits.");
         for (const edit of cmd.args[0] as DraftEdit[])
           applyEdit(next, edit, a, prior);
+      } else if ((OR.orchestrationActionNames as readonly string[]).includes(cmd.name)) {
+        const configuration = ["saveCompanyProfile", "saveExternalFieldMap", "setOrchestrationControl", "attestReadiness"].includes(cmd.name);
+        permit(a, configuration ? "admin" : "production");
+        if (cmd.name === "saveCompanyProfile" && !(a.role === "owner" || (a.role === "admin" && a.allCompanies)))
+          fail("Organization-wide administrator access is required for company mappings.", 403);
+        const targeted = ["reviewExternalProposal", "recordExternalOutcome"].includes(cmd.name);
+        if (cmd.args.length !== (targeted ? 2 : 1)) fail("Invalid orchestration arguments.");
+        workflowError(() => handlers[cmd.name](next, ...structuredClone(cmd.args)));
       } else if (cmd.name === "loadDemoScenario") {
         permit(a, "admin");
         B.loadDemoScenario(next);
@@ -1305,6 +1357,24 @@ export function projectWorkspace(source: Workspace, a: Access): Workspace {
           return true;
         });
       }
+    // Revision histories must remain complete within a company. If restricted
+    // evidence withholds one integration record, withhold that company's ledger
+    // instead of exposing a broken sequence or a misleading older profile.
+    const integrationTables = recordTables.filter(t => t.startsWith("orchestration."));
+    const hiddenCompanies = new Set<string>();
+    for (const table of integrationTables)
+      for (const row of collection(s, table))
+        if (referencesHidden(row, hidden)) hiddenCompanies.add(row.companyId);
+    for (const table of integrationTables) {
+      const original = table.split(".").reduce<any>((v, key) => v?.[key], source) || [];
+      const visibleIds = new Set(collection(s, table).map(rowId));
+      for (const row of original)
+        if (canCompany(a, row.companyId) && !visibleIds.has(row.id)) hiddenCompanies.add(row.companyId);
+    }
+    for (const table of integrationTables) {
+      const key = table.split(".")[1];
+      (s.orchestration as any)[key] = collection(s, table).filter(row => !hiddenCompanies.has(row.companyId));
+    }
   }
   if (!admin(a) && a.role !== "finance") {
     s.business!.closes = [];

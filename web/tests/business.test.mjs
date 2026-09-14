@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createSeed } from "../.local-test/model.js";
 import { executeRules } from "../.local-test/engine.js";
+import * as OR from "../.local-test/orchestration.js";
 import {
   createRevision,
   applyRevision,
@@ -95,6 +96,24 @@ function finalCase() {
   o.fields.forEach((f) => (f.reviewed = true));
   reviewCommitment(s, o, "Final opinion and evidence reviewed.");
   return { s, o };
+}
+function externalChange(s, o, extra = {}) {
+  s.user = "reviewer@example.test";
+  if (!OR.currentProfile(s, o.companyId)) OR.saveCompanyProfile(s, {
+    companyId: o.companyId, environmentId: "Select test environment", externalCompanyId: `SP-${o.companyId}`,
+    externalCompanyName: "Reviewed sample company", underwriter: "Reviewed underwriter", inboxAliases: [],
+    templateRef: "Approved sample template", archiveRule: "Approved retention", softPro360Channel: "Existing channel",
+    approvers: [s.user], evidence: "Actual company selector checked for this synthetic case",
+  });
+  const mapping = OR.saveExternalFieldMap(s, { companyId: o.companyId, localField: "lender", externalFieldId: "Verified.LenderName",
+    canRead: true, canWrite: true, risk: "Medium", evidence: "Field identifier reviewed" });
+  OR.verifyExternalOrderLink(s, { orderId: o.id, externalFileId: `remote-${o.id}`, externalFileNumber: `SP-${o.id}`,
+    missiveConversationId: "", evidence: "Company and order reference checked" });
+  OR.setOrchestrationControl(s, { companyId: o.companyId, mode: "Propose", paused: false, reason: "Review incoming changes" });
+  const doc = source(s, o, "Other", { sourceRole: undefined, name: "Incoming lender instruction.txt", text: "Change lender to Updated Bank." });
+  return OR.proposeExternalChange(s, { orderId: o.id, fieldMapId: mapping.id, beforeValue: "Previous Bank", afterValue: "Updated Bank",
+    sourceDocumentId: doc.id, sourcePage: "1", sourceQuote: "Change lender to Updated Bank", reason: "Lender requested update",
+    externalReadEvidence: "Operator read the current Select lender field", matchStatus: "Confirmed", ...extra });
 }
 function policy(s, o, kind = "Owner") {
   let p = addPolicy(s, o.id, kind);
@@ -304,6 +323,82 @@ test("mortgage review does not require a trustee or deed-of-trust classification
   assert.ok(!neededFields(o).some((f) => f.id === "trustee"));
   assert.equal(finalReadiness(s, o).ready, true);
 });
+
+for (const stage of ["Pending review", "Exception", "Approved"]) {
+  test(`an unresolved external proposal in ${stage} blocks final readiness and actual policy preparation`, () => {
+    const { s, o } = finalCase(), owner = policy(s, o);
+    assert.equal(finalReadiness(s, o).ready, true);
+    const proposal = externalChange(s, o, stage === "Exception" ? { matchStatus: "Unknown" } : {});
+    if (stage === "Approved") OR.reviewExternalProposal(s, proposal.id, { decision: "Approved", note: "Reviewed source and requested change" });
+    assert.equal(proposal.status, stage);
+    const readiness = finalReadiness(s, o);
+    assert.equal(readiness.ready, false);
+    assert.ok(readiness.missingContext.includes("unresolved external change proposal"));
+    assert.throws(() => preparePolicy(s, owner.id, "Final review completed"), /final source review/);
+    assert.equal(owner.status, "Draft");
+    assert.equal(business(s).handoffs.filter(h => h.kind === "SoftPro final policy" && h.sourceId === owner.id).length, 0);
+  });
+}
+
+test("rejecting an external revision closes its gate while retaining the reviewed history", () => {
+  const { s, o } = finalCase(), owner = policy(s, o), proposal = externalChange(s, o);
+  OR.reviewExternalProposal(s, proposal.id, { decision: "Rejected", note: "Sender confirmed this change does not apply to this file" });
+  assert.equal(finalReadiness(s, o).ready, true);
+  preparePolicy(s, owner.id, "Final evidence reviewed after resolving the request");
+  assert.equal(owner.status, "Prepared");
+  assert.equal(s.orchestration.proposals[0].review.decision, "Rejected");
+});
+
+test("a reviewed Not applied outcome releases the final gate even while proposal controls are paused", () => {
+  const { s, o } = finalCase(), owner = policy(s, o), proposal = externalChange(s, o);
+  OR.reviewExternalProposal(s, proposal.id, { decision: "Approved", note: "Change initially approved" });
+  OR.setOrchestrationControl(s, { companyId: o.companyId, mode: "Propose", paused: true, reason: "Sender withdrew the request" });
+  OR.recordExternalOutcome(s, proposal.id, { result: "Not applied", reference: "Withdrawal confirmation", note: "No external change was made" });
+  assert.equal(finalReadiness(s, o).ready, true);
+  preparePolicy(s, owner.id, "Final evidence reviewed after request withdrawal");
+  assert.equal(owner.status, "Prepared");
+});
+
+test("an external proposal for another company or another order does not block this file", () => {
+  const { s, o } = finalCase(), owner = policy(s, o);
+  for (const sameCompany of [false, true]) {
+    const other = structuredClone(o); other.id = crypto.randomUUID();
+    if (!sameCompany) other.companyId = s.companies.find(c => c.id !== o.companyId).id;
+    s.orders.push(other);
+    externalChange(s, other);
+  }
+  assert.equal(finalReadiness(s, o).ready, true);
+  preparePolicy(s, owner.id, "This file remains clear");
+  assert.equal(owner.status, "Prepared");
+});
+
+test("a late external proposal also blocks issuance of an already prepared policy", () => {
+  const { s, o } = finalCase(), owner = policy(s, o);
+  preparePolicy(s, owner.id, "Final review complete");
+  const output = policyDoc(s, o, owner), proposal = externalChange(s, o);
+  assert.equal(proposal.status, "Exception");
+  assert.equal(finalReadiness(s, o).ready, false);
+  const handoff = business(s).handoffs.find(h => h.kind === "SoftPro final policy" && h.sourceId === owner.id);
+  assert.equal(handoffCurrent(s, handoff), false);
+  assert.throws(() => recordHandoff(s, handoff.id, "Vendor reference", "Claimed complete"), /current|changed|review/i);
+  assert.throws(() => issuePolicy(s, owner.id, { reference: "Issued-1", documentId: output.id, month: "2026-09" }), /final evidence or policy changed/);
+  assert.equal(owner.status, "Prepared");
+  assert.equal(owner.policyNumber, "");
+});
+
+test("a late external exception preserves the historical handoff of an already issued policy", () => {
+  const { s, o } = finalCase(), owner = policy(s, o);
+  preparePolicy(s, owner.id, "Final review complete");
+  const output = policyDoc(s, o, owner);
+  issuePolicy(s, owner.id, { reference: "Historical-1", documentId: output.id, month: "2026-09" });
+  const handoff = business(s).handoffs.find(h => h.kind === "SoftPro final policy" && h.sourceId === owner.id);
+  assert.equal(handoffCurrent(s, handoff), true);
+  externalChange(s, o);
+  assert.equal(handoffCurrent(s, handoff), true);
+  assert.equal(owner.status, "Issued");
+  assert.equal(owner.policyNumber, "Historical-1");
+});
+
 test("each policy issues and delivers independently with identical filenames", () => {
   const { s, o } = finalCase();
   const owner = policy(s, o),

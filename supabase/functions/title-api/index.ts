@@ -2,6 +2,9 @@ import { assistantContext } from "../../../web/lib/backend/assistant-context.ts"
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { accountSecurity, requireAccountReady } from "../../../web/lib/backend/account-security.ts";
 import { missiveSetup, checkMissiveConnection } from "../../../web/lib/backend/missive.ts";
+import { missiveAttachmentsEnabled, existingMissiveAttachment, downloadMissiveAttachment,
+  attachMissiveAttachment } from "../../../web/lib/backend/missive-attachments.ts";
+import { webhookConfigured } from "../../../web/lib/backend/missive-webhook.ts";
 import { listMissiveConversations, listMissiveMessages, readMissiveMessage, previewMissiveMessage,
   importMissiveText, existingMissiveImport, requireMissiveDestination, providerId,
   type MissiveMapping } from "../../../web/lib/backend/missive-import.ts";
@@ -174,7 +177,7 @@ async function checkAssets(state: any, id: string) {
   const assets = checked(
     await service
       .from("title_assets")
-      .select("id,company_id,document_id")
+      .select("id,company_id,document_id,sha256,byte_size,mime,filename")
       .eq("workspace_id", id),
   );
   for (const d of state.documents)
@@ -184,11 +187,14 @@ async function checkAssets(state: any, id: string) {
         (a: any) =>
           a.id === d.assetId &&
           a.company_id === d.companyId &&
-          a.document_id === d.id,
+          a.document_id === d.id && (!d.providerSource ||
+            (a.sha256 === d.providerSource.sha256 && a.byte_size === d.providerSource.bytes &&
+             a.mime === d.providerSource.mime && a.filename === d.providerSource.filename)),
       )
     )
       error("A document refers to an unavailable or differently owned upload.");
 }
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS")
@@ -580,11 +586,13 @@ Deno.serve(async (req) => {
       // The single explicitly bootstrapped workspace is the default token owner.
       // A server override can bind a different workspace during a reviewed move.
       const bootstrap = checked(await service.from("title_bootstrap").select("workspace_id").eq("singleton", true).maybeSingle());
-      const config = { token: Deno.env.get("MISSIVE_API_TOKEN"), workspaceId: Deno.env.get("MISSIVE_WORKSPACE_ID") || bootstrap?.workspace_id };
+      const config = { token: Deno.env.get("MISSIVE_API_TOKEN"), workspaceId: Deno.env.get("MISSIVE_WORKSPACE_ID") || bootstrap?.workspace_id,
+        attachmentOrigins: (Deno.env.get("MISSIVE_ATTACHMENT_ORIGINS") || "").split(",").map(v => v.trim()).filter(Boolean) };
       const integration = checked(await service.from("title_integrations").select("config,status").eq("workspace_id", wid).eq("provider", "missive").maybeSingle());
       const mapping = integration?.config?.mapping as MissiveMapping | undefined;
       const setup = missiveSetup(config, wid, a);
-      if (pathname === "/integrations/missive" && req.method === "GET") return response({ ...setup, mapping: mapping || null });
+      if (pathname === "/integrations/missive" && req.method === "GET") return response({ ...setup, mapping: mapping || null,
+        attachmentDownloadEnabled: setup.importEnabled && missiveAttachmentsEnabled(config) });
       if (pathname === "/integrations/missive/check" && req.method === "POST") return response(await checkMissiveConnection(config, wid, a));
       if (pathname === "/integrations/missive/mapping" && req.method === "POST") {
         if (!Number.isSafeInteger(input.expectedMappingVersion) || input.expectedMappingVersion < 0) error("Invalid mapping version.");
@@ -602,6 +610,56 @@ Deno.serve(async (req) => {
       if (mapping.version !== input.expectedMappingVersion) error("Inbox mapping changed. Refresh and review it again.", 409);
       const w = await workspace(wid);
       requireMissiveDestination(w.state, mapping);
+      if (pathname === "/integrations/missive/events" && req.method === "POST") {
+        const offset = input.offset ?? 0;
+        if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) error("Invalid event page.");
+        const jobs = checked(await service.rpc("title_pending_missive_events", { p_workspace: wid, p_offset: offset }));
+        return response({ events: jobs.slice(0, 100).map((j: any) => ({ id: j.id, messageId: j.payload.messageId,
+            conversationId: j.payload.conversationId, subject: j.payload.subject, receivedAt: j.payload.receivedAt,
+            mappingVersion: j.payload.mappingVersion, status: j.status, companyId: j.payload.companyId,
+            teamId: j.payload.teamId, currentMapping: j.payload.companyId === mapping.companyId &&
+              j.payload.organizationId === mapping.organizationId && j.payload.teamId === mapping.teamId })),
+          nextOffset: jobs.length > 100 ? offset + 100 : null,
+          webhookConfigured: Deno.env.get("MISSIVE_WORKSPACE_ID") === wid && webhookConfigured({ workspaceId: Deno.env.get("MISSIVE_WORKSPACE_ID"),
+            secret: Deno.env.get("MISSIVE_WEBHOOK_SECRET"), validationOnly: Deno.env.get("MISSIVE_WEBHOOK_VALIDATION_ONLY") === "true",
+            ruleIds: (Deno.env.get("MISSIVE_WEBHOOK_RULE_IDS") || "").split(",").map(v => v.trim()).filter(Boolean) }) });
+      }
+      if (pathname === "/integrations/missive/attachments/import" && req.method === "POST") {
+        const requestId = uuid(input.requestId), messageId = providerId(input.messageId), attachmentId = providerId(input.attachmentId);
+        const hash = await digest(new TextEncoder().encode(JSON.stringify({ action: "importMissiveAttachment", messageId, attachmentId,
+          expectedRevision: input.expectedRevision, expectedMappingVersion: input.expectedMappingVersion })));
+        const receipt = checked(await service.from("title_command_receipts").select("actor_id,payload_hash").eq("workspace_id", wid).eq("request_id", requestId).maybeSingle());
+        if (receipt) {
+          if (receipt.actor_id !== user.id || receipt.payload_hash !== hash) error("This request ID already represents a different change.", 409);
+          return response({ ...(await stateResponse(wid, a)), replayed: true });
+        }
+        if (existingMissiveAttachment(w.state, a, mapping, messageId, attachmentId))
+          return response({ ...(await stateResponse(wid, a)), alreadyImported: true });
+        if (w.revision !== input.expectedRevision) error("Someone saved a newer version. Refresh before importing.", 409);
+        const artifact = await downloadMissiveAttachment(config, wid, a, mapping, w.state, messageId, attachmentId);
+        let asset = checked(await service.from("title_assets").select("*").eq("workspace_id", wid).eq("id", artifact.assetId).maybeSingle());
+        if (!asset) {
+          const objectPath = `${wid}/${crypto.randomUUID()}`;
+          checked(await service.storage.from("title-documents").upload(objectPath, artifact.bytes, { contentType: artifact.mime, upsert: false }));
+          const inserted = await service.from("title_assets").insert({ workspace_id: wid, id: artifact.assetId,
+            company_id: artifact.companyId, document_id: artifact.documentId, object_path: objectPath, mime: artifact.mime,
+            filename: artifact.filename, byte_size: artifact.bytes.length, sha256: artifact.sha256, uploaded_by: user.id });
+          if (inserted.error) {
+            await service.storage.from("title-documents").remove([objectPath]);
+            if (inserted.error.code !== "23505") checked(inserted);
+          }
+          asset = checked(await service.from("title_assets").select("*").eq("workspace_id", wid).eq("id", artifact.assetId).single());
+        }
+        if (asset.sha256 !== artifact.sha256 || asset.company_id !== artifact.companyId || asset.document_id !== artifact.documentId ||
+            asset.byte_size !== artifact.bytes.length || asset.filename !== artifact.filename || asset.mime !== artifact.mime)
+          error("This attachment's saved bytes no longer match its source. Review before continuing.", 409);
+        const next = await attachMissiveAttachment(w.state, a, mapping, artifact, requestId);
+        await checkAssets(next, wid);
+        checked(await service.rpc("title_import_missive_attachment", { p_workspace: wid, p_actor: user.id, p_email: user.email,
+          p_access_version: a.version, p_expected: input.expectedRevision, p_request: requestId, p_hash: hash, p_state: next,
+          p_mapping_version: mapping.version, p_company: mapping.companyId }));
+        return response({ ...(await stateResponse(wid, a)), imported: true });
+      }
       if (pathname === "/integrations/missive/conversations" && req.method === "POST")
         return response(await listMissiveConversations(config, wid, a, mapping, input.until));
       if (pathname === "/integrations/missive/messages" && req.method === "POST")
@@ -620,7 +678,9 @@ Deno.serve(async (req) => {
           return response({ ...(await stateResponse(wid, a)), replayed: true });
         }
         const existing = existingMissiveImport(w.state, mapping.organizationId, messageId, mapping.companyId, orderId);
-        if (existing) return response({ ...(await stateResponse(wid, a)), alreadyImported: true });
+        if (existing) {
+          return response({ ...(await stateResponse(wid, a)), alreadyImported: true });
+        }
         if (w.revision !== input.expectedRevision) error("Someone saved a newer version. Refresh and review before importing.", 409);
         requireMissiveDestination(w.state, mapping, orderId);
         const message = await readMissiveMessage(config, wid, a, mapping, messageId);

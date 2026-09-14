@@ -16,6 +16,7 @@ import { isValidStatementDeliveryWorkspace } from "./statement-delivery";
 import { isValidDeliveries } from "./delivery-ledger";
 import { isValidOwnershipHistory } from "./ownership-history";
 import { isValidTaskFields } from "./task-clock";
+import { isValidOrchestration, validateOrchestrationMutation } from "./orchestration";
 import { captureCommands } from "./command-log";
 import { BackendAccess } from "@/components/title/backend-access";
 import {
@@ -70,8 +71,14 @@ function isWorkspaceShape(data: unknown): data is Workspace {
     isValidStatementDeliveryWorkspace(data) &&
     isValidDeliveries((data as { deliveries?: unknown }).deliveries) &&
     isValidOwnershipHistory((data as { ownershipHistory?: unknown }).ownershipHistory) &&
+    isValidOrchestration((data as Workspace).orchestration) &&
+    validOrchestrationSnapshot(data as Workspace) &&
     (data as Workspace).tasks.every(isValidTaskFields)
   );
+}
+function validOrchestrationSnapshot(data: Workspace) {
+  try { validateOrchestrationMutation(data, data); return true; }
+  catch { return false; }
 }
 type Store = {
   s: Workspace;

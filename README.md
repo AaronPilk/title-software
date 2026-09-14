@@ -31,6 +31,8 @@ For shared sign-in, copy `web/.env.example` to `web/.env.local` and configure th
 - **Documents:** upload and preview a synthetic or redacted PDF, text file, CSV, PNG, or JPEG. Up to 10 files per batch, 25 MB per file and 100 MB per batch. Link title documents to the correct company and order; same filenames are versioned within that scope.
 - **Financials → Company closes:** freeze one company/month’s policy rows and ownership, enter expenses/reserves/adjustments, reconcile references and publish a reviewed revision. Preview the frozen member statement in **Partner portal → Statements**.
 - **Handoffs:** review version-bound commitment, policy, CPL, reply and application preparations; record manual outcomes. Changed sources place pending handoffs on hold.
+- **Connections:** configure verified company/field/file identities, compare source-backed proposed changes, record named approvals and manual outcomes, and track production-readiness evidence. SoftPro remains external; saved references do not establish a live connection.
+- **Documents → Read document text:** extract selectable PDF text locally and copy document/version/page citations for review.
 - **Tasks / Automations / Settings:** assign work, run repeatable local rules, review the disconnected SoftPro Select and Missive integration plans, plan state expansion, or export workspace metadata.
 
 ## Scope and data
@@ -45,12 +47,19 @@ SoftPro, Missive, signature, underwriter, AI extraction, accounting and payment 
 cd web
 npm run typecheck
 npm test
+npm run test:backend
+npm run test:missive
+npm run test:pdf
+npm run test:workflows
+npm run test:assistant
 npm run build
 ```
 
-The suite currently contains 109 domain tests, 30 backend/security/recovery tests and 24 Missive tests. Run `npm run test:backend` for command/permission replay coverage, or `node scripts/backend/verify-five.mjs` to repeat both suites five times. Five live Supabase integration rounds and the connected browser walkthrough are documented in the backend report.
+The current verification results and limitations are in the [requirements implementation guide](docs/REQUIREMENTS_IMPLEMENTATION.md). Run `npm run test:missive:sql` with local PostgreSQL tools installed to exercise isolated attachment/event transactions across five rounds; it never connects to an existing database.
 
 ## Documentation
+
+- [September 14 PDF requirements implementation and remaining inputs](docs/REQUIREMENTS_IMPLEMENTATION.md)
 
 - [Private Cloudflare pilot and first sign-in](docs/cloudflare-pilot.md)
 - [Shared backend, account setup and verification](docs/supabase-backend.md)

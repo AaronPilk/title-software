@@ -1,5 +1,6 @@
 "use client";
 import { DeliveryManager } from "./deliveries";
+import { DocumentTextReview } from "./document-text-review";
 import {
   sourceRoles,
   outputRoles,
@@ -635,6 +636,7 @@ export function DocumentPreview({
             </small>
           </div>
         )}
+        {!partner && <DocumentTextReview key={`${doc.id}:${doc.version}:${doc.assetId}:text`} doc={doc} />}
         {!partner && <PublicationManager key={doc.id} documentId={doc.id} />}
         {!partner && doc.orderId && (
           <DeliveryManager key={`${doc.id}:delivery`} documentId={doc.id} />

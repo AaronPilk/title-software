@@ -1,5 +1,7 @@
 # Shared Supabase backend
 
+**September 14 source update:** Connections, reviewed attachment bytes, signed event intake and local PDF text review are implemented and described in the [requirements implementation guide](REQUIREMENTS_IMPLEMENTATION.md). Its release status supersedes feature-status statements below; earlier hosted verification remains historical.
+
 Implemented September 12, 2026 for the existing Ballantyne Title application and its recorded-call workflows. The active project is **Title Software**, `yhneskzvmtcmbsknidlt`, in **us-east-2 (Ohio)**. The frontend now also runs as a [private Cloudflare pilot](cloudflare-pilot.md), deployed September 13. No SoftPro, Missive, DocuSign, accounting, underwriter, AI or payment account is connected by this change.
 
 ## What is implemented

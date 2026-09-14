@@ -25,6 +25,7 @@ export type Page =
   | "Financials"
   | "Partner portal"
   | "Automations"
+  | "Connections"
   | "Settings";
 export type OrderStatus =
   | "New"
@@ -105,6 +106,13 @@ export type Order = {
   exception: string;
 };
 export type VaultDoc = {
+  /** Immutable source attribution assigned only by the reviewed server importer. */
+  providerSource?: {
+    provider: "Missive"; organizationId: string; teamId: string; conversationId: string;
+    messageId: string; attachmentId: string; sourceMailId: string; sourceDocumentId: string;
+    mappingVersion: number; importedAt: string; importedBy: string; sha256: string;
+    bytes: number; filename: string; mime: string;
+  };
   publicationBlocked?: boolean;
   policyId?: string;
   policyVersion?: number;
@@ -220,6 +228,7 @@ export type PartnerOperationalSummary = {
   rows: PartnerCompanyPeriodSummary[];
 };
 export type Workspace = {
+  orchestration?: import("./orchestration").OrchestrationState;
   /** Read-only projection; never an authoritative source or a saved approval. */
   partnerSummary?: PartnerOperationalSummary;
   statementDeliveries?: import("./statement-delivery").StatementDelivery[];

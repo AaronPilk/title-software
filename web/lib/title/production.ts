@@ -460,6 +460,15 @@ export function finalReadiness(s: Workspace, order: Order) {
   const p = titleFile(order);
   const missingContext = [
     ...referencedSourceProblems(s, order).map(r => `referenced source: ${r.wording}`),
+    ...((s.orchestration?.proposals || []).some(
+      (proposal) =>
+        proposal.companyId === order.companyId &&
+        proposal.orderId === order.id &&
+        ["Pending review", "Exception", "Approved"].includes(proposal.status) &&
+        !proposal.outcome,
+    )
+      ? ["unresolved external change proposal"]
+      : []),
     ...((s.business?.followups || []).some(
       (r) =>
         r.orderId === order.id && !["Resolved", "Cancelled"].includes(r.status),

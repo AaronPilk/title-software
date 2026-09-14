@@ -1,5 +1,7 @@
 # Reviewed Missive import
 
+**September 14 source update:** Connections, reviewed attachment bytes, signed event intake and local PDF text review are implemented and described in the [requirements implementation guide](REQUIREMENTS_IMPLEMENTATION.md). Its release status supersedes feature-status statements below; earlier hosted verification remains historical.
+
 Settings → Shared workspace → Missive now supports a manual incoming-email pilot: verify the connection, approve one team inbox → company mapping, browse conversations, preview a message, choose an existing open title file and request type, and import after review. The backend is deployed as `title-api` version 5.
 
 ## Current live status — September 12, 2026

@@ -77,6 +77,7 @@ import {
   UploadDocument,
 } from "@/components/title/documents";
 import { InboxView, Tasks, Automations } from "@/components/title/operations";
+import { OrchestrationWorkspace } from "@/components/title/orchestration";
 import { Revisions } from "@/components/title/revisions";
 import { Financials } from "@/components/title/financials";
 import { Handoffs } from "@/components/title/handoffs";
@@ -102,6 +103,7 @@ const navigation: { label: Page; icon: typeof LayoutGrid }[] = [
   { label: "Partner portal", icon: UsersRound },
   { label: "Handoffs", icon: ArrowRight },
   { label: "Automations", icon: Workflow },
+  { label: "Connections", icon: Workflow },
 ];
 const pageNames: Page[] = [...navigation.map((n) => n.label), "Settings"];
 const slug = (p: string) => p.toLowerCase().replaceAll(" ", "-");
@@ -362,6 +364,9 @@ function Workspace() {
       break;
     case "Automations":
       content = <Automations />;
+      break;
+    case "Connections":
+      content = <OrchestrationWorkspace />;
       break;
     case "Settings":
       content = <Settings />;
