@@ -1539,7 +1539,15 @@ export function refreshClose(s: Workspace, closeId: string) {
     if (!p || !c || p.status !== "Draft")
       throw new Error("Only draft source records can be refreshed.");
     p.rows = structuredClone(ledgerLines(s, c.id, p.month));
-    p.members = c.members.map(({ name, share }) => ({ name, share }));
+    // One resolution drives the captured members, the recorded provenance and
+    // the hash. Copying c.members here instead would leave the draft holding
+    // today's ownership behind a hash that says the period's ownership is
+    // current, and review and publication would then accept it.
+    const governing = ownershipForMonth(s, c, p.month);
+    p.members = governing.members;
+    p.ownershipSource = governing.record
+      ? { recordId: governing.record.id, effectiveFrom: governing.record.effectiveFrom }
+      : null;
     p.sourceHash = closeFingerprint(s, c, p.month);
     p.expenses = s.expenses[`${p.month}:${c.id}`] || 0;
     p.totals = closeCalculations(p);

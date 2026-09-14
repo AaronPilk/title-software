@@ -6,6 +6,7 @@ import {
   newClose,
   reviewClose,
   publishClose,
+  refreshClose,
   closeFingerprint,
 } from "../.local-test/business.js";
 import {
@@ -346,4 +347,182 @@ test("history is per company and older workspaces stay valid", () => {
   assert.deepEqual(ownershipHistory(older), []);
   assert.doesNotThrow(() => validateOwnershipMutation(older, older));
   assert.equal(ownershipForMonth(older, older.companies[0], "2026-04").source, "current");
+});
+
+// ---------------------------------------------------------------------------
+// Regressions for Codex's September 14 QA findings (F01, C01, C03).
+// ---------------------------------------------------------------------------
+
+test("F01: refreshing a historical draft keeps the period's ownership, not today's", () => {
+  const { s, company } = seed();
+  // April drafted while 60/40 is all that is on file.
+  const p = newClose(s, company.id, "2026-04");
+  assert.deepEqual(p.members, [
+    { name: "Ada Cole", share: 60 },
+    { name: "Ben Ruiz", share: 40 },
+  ]);
+  assert.equal(p.ownershipSource, null);
+
+  // A January record is then produced, and current ownership moves on again.
+  recordOwnership(
+    s,
+    company.id,
+    {
+      effectiveFrom: "2026-01-01",
+      members: [
+        { name: "Ada Cole", share: 30 },
+        { name: "Ben Ruiz", share: 70 },
+      ],
+      reason: "Amended agreement produced at audit",
+    },
+    AT,
+  );
+  company.members = [
+    { name: "Ada Cole", share: 10 },
+    { name: "Ben Ruiz", share: 90 },
+  ];
+
+  refreshClose(s, p.id);
+  const refreshed = s.business.closes.find((x) => x.id === p.id);
+  // The bug wrote today's 10/90 here while the hash resolved January's 30/70.
+  assert.deepEqual(refreshed.members, [
+    { name: "Ada Cole", share: 30 },
+    { name: "Ben Ruiz", share: 70 },
+  ]);
+  assert.equal(refreshed.ownershipSource.effectiveFrom, "2026-01-01");
+  assert.equal(refreshed.sourceHash, closeFingerprint(s, company, "2026-04"));
+});
+
+test("F01: the refreshed draft survives review and publication with the right split", () => {
+  const { s, company } = seed();
+  const p = newClose(s, company.id, "2026-04");
+  recordOwnership(
+    s,
+    company.id,
+    {
+      effectiveFrom: "2026-01-01",
+      members: [
+        { name: "Ada Cole", share: 30 },
+        { name: "Ben Ruiz", share: 70 },
+      ],
+      reason: "Amended agreement produced at audit",
+    },
+    AT,
+  );
+  company.members = [
+    { name: "Ada Cole", share: 10 },
+    { name: "Ben Ruiz", share: 90 },
+  ];
+  refreshClose(s, p.id);
+
+  const draft = structuredClone(s.business.closes.find((x) => x.id === p.id));
+  draft.adjustment = 1000;
+  draft.booksReference = "QB-April";
+  draft.agreementReference = "OA-2026-amended";
+  draft.note = "Reviewed April on the January ownership record";
+  reviewClose(s, draft);
+  publishClose(s, p.id);
+
+  const published = s.business.closes.find((x) => x.id === p.id);
+  assert.equal(published.status, "Published");
+  assert.equal(published.ownershipSource.effectiveFrom, "2026-01-01");
+  const byName = Object.fromEntries(published.allocations.map((a) => [a.name, a.share]));
+  assert.equal(byName["Ada Cole"], 30);
+  assert.equal(byName["Ben Ruiz"], 70);
+  // The whole point: the published split is not today's ownership.
+  assert.notEqual(byName["Ada Cole"], 10);
+});
+
+test("F01: refresh is unchanged for a legacy workspace with no ownership history", () => {
+  const { s, company } = seed();
+  const p = newClose(s, company.id, "2026-04");
+  company.members = [
+    { name: "Ada Cole", share: 25 },
+    { name: "Ben Ruiz", share: 75 },
+  ];
+  refreshClose(s, p.id);
+  const refreshed = s.business.closes.find((x) => x.id === p.id);
+  // With nothing dated on file, current members still govern, exactly as before.
+  assert.deepEqual(refreshed.members, [
+    { name: "Ada Cole", share: 25 },
+    { name: "Ben Ruiz", share: 75 },
+  ]);
+  assert.equal(refreshed.ownershipSource, null);
+  assert.equal(refreshed.sourceHash, closeFingerprint(s, company, "2026-04"));
+});
+
+test("F01: an intervening backdated record moves only the periods it covers", () => {
+  const { s, company } = seed();
+  recordOwnership(s, company.id, opening(), AT);
+  recordOwnership(
+    s,
+    company.id,
+    {
+      effectiveFrom: "2026-07-01",
+      members: [
+        { name: "Ada Cole", share: 20 },
+        { name: "Ben Ruiz", share: 80 },
+      ],
+      reason: "Later change",
+    },
+    AT,
+  );
+  const april = newClose(s, company.id, "2026-04");
+  const august = newClose(s, company.id, "2026-08");
+  recordOwnership(
+    s,
+    company.id,
+    {
+      effectiveFrom: "2026-03-01",
+      members: [
+        { name: "Ada Cole", share: 45 },
+        { name: "Ben Ruiz", share: 55 },
+      ],
+      reason: "Backdated March correction",
+    },
+    AT,
+  );
+  refreshClose(s, april.id);
+  refreshClose(s, august.id);
+  const a = s.business.closes.find((x) => x.id === april.id);
+  const g = s.business.closes.find((x) => x.id === august.id);
+  assert.equal(a.members[0].share, 45);
+  assert.equal(a.ownershipSource.effectiveFrom, "2026-03-01");
+  // August is still governed by the July record and must not move.
+  assert.equal(g.members[0].share, 20);
+  assert.equal(g.ownershipSource.effectiveFrom, "2026-07-01");
+});
+
+test("C01: member contact details on an older captured close are not ownership drift", () => {
+  const { s, company } = seed();
+  const p = newClose(s, company.id, "2026-04");
+  p.booksReference = "QB";
+  p.agreementReference = "OA";
+  p.note = "Reviewed";
+  reviewClose(s, p);
+  publishClose(s, p.id);
+  // A supported older snapshot carried contact details alongside name/share.
+  const published = s.business.closes.find((x) => x.id === p.id);
+  published.members = [
+    { name: "Ada Cole", share: 60, email: "ada@example.com", phone: "555-0100" },
+    { name: "Ben Ruiz", share: 40, email: "ben@example.com" },
+  ];
+  recordOwnership(s, company.id, opening(), AT);
+  assert.deepEqual(ownershipDrift(s), []);
+
+  // A real share change is still reported.
+  recordOwnership(
+    s,
+    company.id,
+    {
+      effectiveFrom: "2026-02-01",
+      members: [
+        { name: "Ada Cole", share: 35 },
+        { name: "Ben Ruiz", share: 65 },
+      ],
+      reason: "Real change",
+    },
+    AT,
+  );
+  assert.equal(ownershipDrift(s).length, 1);
 });

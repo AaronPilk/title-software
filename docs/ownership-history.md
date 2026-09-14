@@ -36,6 +36,18 @@ not exist in April.
   record and falls back to current members visibly (`source: "current"`,
   `beforeHistory: true`). The app does not invent what the shares used to be.
 
+## Refresh resolves the same way
+
+`refreshClose` resolves ownership through `ownershipForMonth` exactly as
+`newClose` does, and writes the members, the `ownershipSource` and the hash
+from that one resolution. An earlier version copied `c.members` here while the
+hash resolved the historical record, so a refreshed historical draft silently
+held today's ownership behind a hash claiming it was current — and review and
+publication then accepted it. Codex found this in QA on 2026-09-14 by driving
+the sequence through to publication (`$100/$900` published where `$300/$700`
+was owed). Any future writer of a close snapshot must take members and
+provenance from a single resolution, never from `c.members` directly.
+
 ## Rules
 
 - One record per company per effective date; a change cannot pre-date the

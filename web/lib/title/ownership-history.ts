@@ -179,9 +179,16 @@ export function ownershipDrift(s: Workspace) {
     if (!company) return [];
     const resolved = ownershipForMonth(s, company, p.month);
     if (resolved.source !== "record") return [];
-    const same =
-      JSON.stringify([...p.members].sort((a, b) => a.name.localeCompare(b.name))) ===
-      JSON.stringify([...resolved.members].sort((a, b) => a.name.localeCompare(b.name)));
+    // Compare only the fields that decide an allocation. A close captured
+    // from an older snapshot may carry member email/phone alongside the
+    // name and share; that is not a change in ownership.
+    const normalise = (members: OwnershipMember[]) =>
+      JSON.stringify(
+        [...members]
+          .map(({ name, share }) => ({ name, share }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      );
+    const same = normalise(p.members) === normalise(resolved.members);
     return same
       ? []
       : [

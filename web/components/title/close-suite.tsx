@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { TableRow, TableCell } from "@/components/ui/table";
 import { useWorkspace, download } from "@/lib/title/store";
 import { moneyCents as money } from "@/lib/title/model";
+import { ownershipForMonth } from "@/lib/title/ownership-history";
 import {
   business,
   newClose,
@@ -116,6 +117,9 @@ function CloseEditor({ period }: { period: ClosePeriod }) {
   const [checks, setChecks] = useState([false, false, false]);
   const [cancelNote, setCancelNote] = useState("");
   const c = s.companies.find((c) => c.id === period.companyId)!;
+  // What covers this period *now*, so the snapshot can say whether a record
+  // has appeared since capture rather than claiming none exists.
+  const governingNow = ownershipForMonth(s, c, period.month);
   const changed = period.sourceHash !== closeFingerprint(s, c, period.month),
     editable = period.status === "Draft",
     totals = closeCalculations(p);
@@ -366,7 +370,9 @@ function CloseEditor({ period }: { period: ClosePeriod }) {
         <p className="form-note">
           {period.ownershipSource
             ? `Allocated on the ownership recorded effective ${period.ownershipSource.effectiveFrom} — the position at the end of ${period.month}, not today's.`
-            : "Allocated on the company's current member interests: no dated ownership record covers this period."}
+            : governingNow.source === "record"
+              ? `Allocated on the member interests on file when this close was captured; no dated ownership record covered ${period.month} at that time. A record effective ${governingNow.record!.effectiveFrom} covers it now.`
+              : "Allocated on the company's current member interests: no dated ownership record covers this period."}
         </p>
         <DataTable headers={["Member", "Interest", "Approved allocation"]}>
           {period.members.map((m) => (
