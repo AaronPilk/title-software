@@ -1,4 +1,5 @@
 "use client";
+import { OwnershipHistoryPanel } from "./ownership";
 import { OnboardingCasePanel, CredentialCenter } from "./onboarding-suite";
 import { CompanyMaterials } from "./materials";
 import { useState } from "react";
@@ -720,6 +721,7 @@ function CompanyMembers({ company }: { company: Company }) {
     }
   }
   return (
+    <>
     <form onSubmit={save} className="form-stack">
       <p className="inline-note">
         Keep member contact details with the company. Ownership interests are
@@ -829,5 +831,7 @@ function CompanyMembers({ company }: { company: Company }) {
         Save members
       </Button>
     </form>
+    <OwnershipHistoryPanel companyId={company.id} />
+    </>
   );
 }

@@ -224,6 +224,7 @@ export type Workspace = {
   partnerSummary?: PartnerOperationalSummary;
   statementDeliveries?: import("./statement-delivery").StatementDelivery[];
   deliveries?: import("./delivery-ledger").DocumentDelivery[];
+  ownershipHistory?: import("./ownership-history").OwnershipRecord[];
   materials?: import("./materials").MaterialsState;
   business?: BusinessState;
   revisions: RevisionRequest[];

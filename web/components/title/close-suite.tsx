@@ -363,6 +363,11 @@ function CloseEditor({ period }: { period: ClosePeriod }) {
       </section>
       <section className="panel business-panel">
         <h2>Ownership snapshot</h2>
+        <p className="form-note">
+          {period.ownershipSource
+            ? `Allocated on the ownership recorded effective ${period.ownershipSource.effectiveFrom} — the position at the end of ${period.month}, not today's.`
+            : "Allocated on the company's current member interests: no dated ownership record covers this period."}
+        </p>
         <DataTable headers={["Member", "Interest", "Approved allocation"]}>
           {period.members.map((m) => (
             <TableRow key={m.name}>

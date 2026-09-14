@@ -4820,3 +4820,82 @@ h2 {
   flex-wrap: wrap;
   align-items: center;
 }
+.ownership-panel {
+  border-top: 1px solid var(--brand-bg-tint);
+  margin-top: 20px;
+  padding-top: 16px;
+  display: grid;
+  gap: 10px;
+}
+.ownership-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ownership-head small {
+  display: block;
+  color: var(--brand-muted);
+  margin-top: 3px;
+  font-size: 12px;
+  max-width: 62ch;
+}
+.ownership-form {
+  background: var(--brand-bg-tint);
+  border-radius: 12px;
+  padding: 14px;
+}
+.ownership-preview {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.ownership-preview li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--brand-bg-tint);
+}
+.ownership-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.ownership-row {
+  border: 1px solid var(--brand-bg-tint);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+}
+.ownership-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ownership-reason {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ownership-drift {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--brand-bg-tint);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.ownership-drift p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}

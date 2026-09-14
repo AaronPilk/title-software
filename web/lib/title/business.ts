@@ -11,6 +11,7 @@ import { enrichMaterials, validateMaterialsMutation } from "./materials";
 import { validateStatementDeliveryMutation } from "./statement-delivery";
 import { validateTaskClock } from "./task-clock";
 import { validateDeliveryMutation } from "./delivery-ledger";
+import { ownershipForMonth, validateOwnershipMutation } from "./ownership-history";
 import {
   titleFile,
   orderSources,
@@ -188,6 +189,8 @@ export type ClosePeriod = {
     available: number;
   };
   allocations: { name: string; share: number; amount: number }[];
+  /** Which dated ownership record governed this close, or null when current members did. */
+  ownershipSource?: { recordId: string; effectiveFrom: string } | null;
   reviewedAt: string;
   reviewedBy: string;
   publishedAt: string;
@@ -1388,7 +1391,11 @@ export function ledgerLines(
 export function closeFingerprint(s: Workspace, c: Company, month: string) {
   return JSON.stringify({
     rows: ledgerLines(s, c.id, month),
-    members: c.members.map(({ name, share }) => ({ name, share })),
+    // The ownership that governs this reporting period, which is today's
+    // member list only when no dated record covers the month. Editing current
+    // members therefore no longer disturbs a close governed by an earlier
+    // dated record — but a new record that changes which one governs does.
+    members: ownershipForMonth(s, c, month).members,
     expense: s.expenses[`${month}:${c.id}`] || 0,
   });
 }
@@ -1410,6 +1417,7 @@ export function newClose(s: Workspace, companyId: string, month: string) {
     const rows = ledgerLines(s, c.id, month),
       premium = round(rows.reduce((n, r) => n + r.premium, 0)),
       remittance = round(rows.reduce((n, r) => n + r.remittance, 0));
+    const governing = ownershipForMonth(s, c, month);
     const p: ClosePeriod = {
       id: id("close"),
       companyId,
@@ -1425,7 +1433,10 @@ export function newClose(s: Workspace, companyId: string, month: string) {
       status: "Draft",
       sourceHash: closeFingerprint(s, c, month),
       rows: structuredClone(rows),
-      members: c.members.map(({ name, share }) => ({ name, share })),
+      members: governing.members,
+      ownershipSource: governing.record
+        ? { recordId: governing.record.id, effectiveFrom: governing.record.effectiveFrom }
+        : null,
       expenses: s.expenses[`${month}:${companyId}`] || 0,
       adjustment: 0,
       reserve: 0,
@@ -1734,6 +1745,7 @@ export function validateBusinessMutation(before: Workspace, after: Workspace) {
   validateMaterialsMutation(before, after);
   validateTaskClock(before, after);
   validateDeliveryMutation(before, after);
+  validateOwnershipMutation(before, after);
   for (const r of business(before).followups || []) {
     for (const messageId of [
       r.messageId,

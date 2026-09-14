@@ -48,6 +48,7 @@ const tables = [
   "importTemplates",
   "statementDeliveries",
   "deliveries",
+  "ownershipHistory",
   "business.policies",
   "business.commitments",
   "business.cpls",

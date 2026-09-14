@@ -107,6 +107,7 @@ export function Status({ value }: { value: string }) {
           "Due today",
           "Due soon",
           "Prepared",
+          "Change",
         ].includes(value)
       ? "blue"
       : [
@@ -120,7 +121,9 @@ export function Status({ value }: { value: string }) {
             "Source changed",
           ].includes(value)
         ? "amber"
-        : ["Onboarding", "Internal", "Pending", "Waiting"].includes(value)
+        : ["Onboarding", "Internal", "Pending", "Waiting", "Opening"].includes(
+              value,
+            )
           ? "violet"
           : "neutral";
   return <span className={`status ${color}`}>{value}</span>;
