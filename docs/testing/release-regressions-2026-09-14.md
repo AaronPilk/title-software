@@ -15,6 +15,8 @@ This pass investigated the released multi-company routing, workspace Missive con
 | Inbox serves companies A/B, then A is paused before receiving an event | New source context retains both configured companies and no automatic company assignment. Active routes alone are offered; re-enabling A restores that choice. Historical single-company/imported events are preserved. |
 | An ordinary scanned document is sideways or upside down | Staff can rotate the OCR raster by 90/180/270 degrees. Citations retain the applied orientation; changing orientation clears review acknowledgement. Original bytes stay unchanged. |
 
+The final production-build smoke found and fixed a further mobile navigation issue: selecting a page left the sidebar drawer covering the destination. The sidebar provider now exposes its close action to shared navigation, including same-page choices, Settings, the brand button and hash changes. The rebuilt app passed 18 desktop routes, eight mobile routes at 390 × 844, the sample-case flow and five drawer navigation cases, with no runtime/console errors, failed local requests or horizontal document overflow. This supplements the 546 tests below. Typecheck, production/pilot builds and deployment dry-run passed again after this UI fix.
+
 ## Automated verification
 
 All commands run from `web/`; shared temporary-bundle suites run sequentially.
@@ -45,7 +47,7 @@ Web and assistant TypeScript checks, both Edge bundles, production/pilot builds,
 
 ## Deployment and live checks
 
-- Cloudflare pilot: `e693fbd0-1cd6-4cc1-993d-7d8df38fb589`.
+- Cloudflare pilot: `7f29f5e4-6f4c-4c3a-be42-9865575b5c2d`.
 - Supabase `title-api`: version 11, JWT verification enabled.
 - Supabase `title-missive-events`: version 3, existing custom signed-event authentication retained.
 - Migration: `20260914222408_title_preserve_shared_inbox_context.sql`; 15 migrations applied.

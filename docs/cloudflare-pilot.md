@@ -6,7 +6,7 @@ Deployed September 13, 2026 at **https://title-software-pilot.aaron-9c3.workers.
 
 Updated September 14 with the [PDF requirements implementation](REQUIREMENTS_IMPLEMENTATION.md). That guide records the current feature scope, 2,465 automated test passes, existing 224 database assertions plus five routing and five credential transaction rounds and the limits of live verification.
 
-- Cloudflare Worker: `title-software-pilot`; current version `e693fbd0-1cd6-4cc1-993d-7d8df38fb589`.
+- Cloudflare Worker: `title-software-pilot`; current version `7f29f5e4-6f4c-4c3a-be42-9865575b5c2d`.
 - Private assistant Worker: `title-personal-assistant`; version `deaaa4ea-6e0c-412c-a9d7-46ed5c557f03`. It is reached through the application service binding, with public Worker and preview URLs disabled.
 - Supabase project: `yhneskzvmtcmbsknidlt`; `title-api` version 10, JWT verification enabled; bundle SHA-256 `2c12bc8486b52ec5573255286c2d329fe19d45b147cccf7d260e0a78440c3b4e`. Fourteen migrations are applied. The latest update adds multiple-company routing and encrypted workspace Missive credential settings.
 - Dedicated `title-missive-events` version 2 uses raw-body HMAC authentication and has JWT verification disabled for Missive's webhook delivery. Its bundle SHA-256 is `3695364a053e7bbb0f5e8ccc0d1a47d5a85726fb36627fee471476a9330dcb0f`. The deployed receiver remains inactive until its workspace, signing secret and rule IDs are configured.

@@ -31,6 +31,7 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
@@ -110,13 +111,16 @@ const slug = (p: string) => p.toLowerCase().replaceAll(" ", "-");
 export default function Home() {
   return (
     <WorkspaceProvider>
-      <Workspace />
+      <SidebarProvider style={{ "--sidebar-width": "248px" } as CSSProperties}>
+        <Workspace />
+      </SidebarProvider>
       <Toaster richColors theme="light" position="bottom-right" />
     </WorkspaceProvider>
   );
 }
 function Workspace() {
   const { s, ready, connection } = useWorkspace();
+  const { setOpenMobile } = useSidebar();
   const [page, setPage] = useState<Page>("Overview");
   const [search, setSearch] = useState(false);
   const [notifications, setNotifications] = useState(false);
@@ -133,6 +137,7 @@ function Workspace() {
   storeRef.current = s;
   useEffect(() => {
     const read = () => {
+      setOpenMobile(false);
       const found = pageNames.find(
         (p) => slug(p) === window.location.hash.slice(1),
       );
@@ -155,8 +160,9 @@ function Workspace() {
       window.removeEventListener("hashchange", read);
       window.removeEventListener("keydown", key);
     };
-  }, []);
+  }, [connection?.access.role, setOpenMobile]);
   function navigate(p: Page) {
+    setOpenMobile(false);
     setPage(p);
     window.location.hash = slug(p);
     setSearch(false);
@@ -372,7 +378,7 @@ function Workspace() {
       content = <Settings />;
   }
   return (
-    <SidebarProvider style={{ "--sidebar-width": "248px" } as CSSProperties}>
+    <>
       <a
         href="#main-content"
         className="skip-link"
@@ -661,7 +667,7 @@ function Workspace() {
           onClose={() => setUploadOpen(false)}
         />
       )}
-    </SidebarProvider>
+    </>
   );
 }
 function FileTextIcon() {
