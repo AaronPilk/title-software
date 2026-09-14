@@ -1,4 +1,5 @@
 "use client";
+import { DeliveryManager } from "./deliveries";
 import {
   sourceRoles,
   outputRoles,
@@ -635,6 +636,9 @@ export function DocumentPreview({
           </div>
         )}
         {!partner && <PublicationManager key={doc.id} documentId={doc.id} />}
+        {!partner && doc.orderId && (
+          <DeliveryManager key={`${doc.id}:delivery`} documentId={doc.id} />
+        )}
       </DialogContent>
     </Dialog>
   );

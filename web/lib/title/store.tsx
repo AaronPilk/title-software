@@ -13,6 +13,7 @@ import { referencedSourcesShapeValid } from "./production";
 import { enrichWorkspace } from "./production";
 import { enrichBusiness, validateBusinessMutation } from "./business";
 import { isValidStatementDeliveryWorkspace } from "./statement-delivery";
+import { isValidDeliveries } from "./delivery-ledger";
 import { captureCommands } from "./command-log";
 import { BackendAccess } from "@/components/title/backend-access";
 import {
@@ -64,7 +65,8 @@ function isWorkspaceShape(data: unknown): data is Workspace {
     ) &&
     (data as Workspace).orders.every(o => !!o && referencedSourcesShapeValid(o.production?.referencedSources)) &&
     isValidOptionalMaterials((data as { materials?: unknown }).materials) &&
-    isValidStatementDeliveryWorkspace(data)
+    isValidStatementDeliveryWorkspace(data) &&
+    isValidDeliveries((data as { deliveries?: unknown }).deliveries)
   );
 }
 type Store = {

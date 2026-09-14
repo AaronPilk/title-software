@@ -47,6 +47,7 @@ const tables = [
   "replyDrafts",
   "importTemplates",
   "statementDeliveries",
+  "deliveries",
   "business.policies",
   "business.commitments",
   "business.cpls",

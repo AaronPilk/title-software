@@ -9,6 +9,7 @@ try {
       "lib/title/engine.ts",
       "lib/title/csv.ts",
       "lib/title/task-clock.ts",
+      "lib/title/delivery-ledger.ts",
       "--module",
       "esnext",
       "--target",
@@ -47,6 +48,7 @@ try {
       "tests/revision-boundaries.test.mjs",
       "tests/statement-delivery.test.mjs",
       "tests/task-clock.test.mjs",
+      "tests/delivery-ledger.test.mjs",
     ],
     {
       stdio: "inherit",

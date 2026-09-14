@@ -223,6 +223,7 @@ export type Workspace = {
   /** Read-only projection; never an authoritative source or a saved approval. */
   partnerSummary?: PartnerOperationalSummary;
   statementDeliveries?: import("./statement-delivery").StatementDelivery[];
+  deliveries?: import("./delivery-ledger").DocumentDelivery[];
   materials?: import("./materials").MaterialsState;
   business?: BusinessState;
   revisions: RevisionRequest[];

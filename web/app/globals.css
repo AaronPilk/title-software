@@ -4764,3 +4764,59 @@ h2 {
   display: block;
   margin-top: 2px;
 }
+.delivery-manager {
+  border-top: 1px solid var(--brand-bg-tint);
+  margin-top: 18px;
+  padding-top: 16px;
+  display: grid;
+  gap: 10px;
+}
+.delivery-manager-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.delivery-manager-head small {
+  display: block;
+  color: var(--brand-muted);
+  margin-top: 3px;
+  font-size: 12px;
+}
+.delivery-form {
+  background: var(--brand-bg-tint);
+  border-radius: 12px;
+  padding: 14px;
+}
+.delivery-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.delivery-row {
+  border: 1px solid var(--brand-bg-tint);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+}
+.delivery-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.delivery-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.delivery-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}

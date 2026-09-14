@@ -94,6 +94,7 @@ export function Status({ value }: { value: string }) {
     "Delivered",
     "Completed",
     "On track",
+    "Recorded",
   ].includes(value)
     ? "green"
     : [
@@ -105,6 +106,7 @@ export function Status({ value }: { value: string }) {
           "Awaiting response",
           "Due today",
           "Due soon",
+          "Prepared",
         ].includes(value)
       ? "blue"
       : [
@@ -114,6 +116,8 @@ export function Status({ value }: { value: string }) {
             "Needs attention",
             "Lost",
             "Overdue",
+            "Failed",
+            "Source changed",
           ].includes(value)
         ? "amber"
         : ["Onboarding", "Internal", "Pending", "Waiting"].includes(value)
