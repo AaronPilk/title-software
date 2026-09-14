@@ -39,9 +39,13 @@ export function selectMissiveRoute(routing: MissiveRouting, expected: unknown, r
   if (!route) throw new ApiError('Choose an active inbox and destination company before reviewing this message.', 409);
   return route;
 }
+/** Configured companies remain part of an inbox's identity while a route is paused. */
+export function missiveInboxRoutes(routing: MissiveRouting, scope: { organizationId?: unknown; teamId?: unknown }): MissiveRoute[] {
+  return routing.mappings.filter(m => m.organizationId === scope.organizationId && m.teamId === scope.teamId);
+}
 export function missiveEventRoutes(routing: MissiveRouting, event: { organizationId?: unknown; teamId?: unknown; companyId?: unknown; candidateRoutes?: unknown }): MissiveRoute[] {
   // Events captured with one approved destination preserve that choice even if
   // the inbox later becomes shared. Only genuinely shared events have no company.
   const legacyCompany = typeof event.companyId === 'string' ? event.companyId : null;
-  return routing.mappings.filter(m => m.enabled && m.organizationId === event.organizationId && m.teamId === event.teamId && (!legacyCompany || m.companyId === legacyCompany));
+  return missiveInboxRoutes(routing, event).filter(m => m.enabled && (!legacyCompany || m.companyId === legacyCompany));
 }

@@ -11,6 +11,10 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    "dist/**",
+    ".local-test/**",
+    ".local-api-test/**",
+    "public/ocr/**",
     "next-env.d.ts",
   ]),
   {

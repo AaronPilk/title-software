@@ -1,4 +1,4 @@
-import { missiveRouting, missiveEventRoutes, type MissiveRouting } from "./missive-routing";
+import { missiveRouting, missiveEventRoutes, missiveInboxRoutes, type MissiveRouting } from "./missive-routing";
 /** Missive signed event intake. Queues metadata for review; never changes a title file. */
 export type MissiveWebhookConfig = { workspaceId?: string; secret?: string; ruleIds?: string[]; validationOnly?: boolean };
 export type WebhookMapping = { version: number; organizationId: string; teamId: string; companyId: string };
@@ -66,8 +66,9 @@ export async function handleMissiveWebhook(req: Request, config: MissiveWebhookC
     const saved = await store.mapping(config.workspaceId!);
     if (!saved) return json({ error: 'Event inbox is outside the approved mapping.' }, 409);
     const routing = 'schemaVersion' in saved ? missiveRouting(saved) : null;
-    const candidates = routing ? missiveEventRoutes(routing, { organizationId: organization.id, teamId: team.id }) : [];
-    const mapping = routing ? candidates[0] : saved as WebhookMapping;
+    const scope = { organizationId: organization.id, teamId: team.id };
+    const candidates = routing ? missiveInboxRoutes(routing, scope) : [];
+    const mapping = routing ? missiveEventRoutes(routing, scope)[0] : saved as WebhookMapping;
     if (!mapping || mapping.organizationId !== organization.id || mapping.teamId !== team.id)
       return json({ error: 'Event inbox is outside the approved mapping.' }, 409);
     const event: MissiveWebhookEvent = {

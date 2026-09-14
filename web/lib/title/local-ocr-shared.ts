@@ -1,7 +1,8 @@
 export const OCR_ASSET_PATH = "/ocr/v7-eng1";
 export const OCR_LIMITS = { bytes: 26_214_400, pages: 120, sourcePixels: 12_000_000, rasterPixels: 4_000_000, dimension: 10_000, milliseconds: 90_000, characters: 50_000, words: 10_000 } as const;
 export type OcrWord = { text: string; confidence: number; box: { x0: number; y0: number; x1: number; y1: number } };
-export type OcrResult = { text: string; confidence: number; words: OcrWord[]; page: number; language: "English"; engine: "Tesseract.js 7.0.0"; width: number; height: number };
+export type OcrRotation = 0 | 90 | 180 | 270;
+export type OcrResult = { text: string; confidence: number; words: OcrWord[]; page: number; language: "English"; engine: "Tesseract.js 7.0.0"; width: number; height: number; rotation?: OcrRotation };
 export type OcrProgress = { phase: "Opening document" | "Rendering page" | "Loading OCR engine" | "Reading scanned text"; progress: number };
 export class OcrError extends Error {
   constructor(public readonly code: "cancelled" | "timeout" | "unsupported" | "size" | "unreadable" | "password" | "page" | "engine", message: string) { super(message); this.name = "OcrError"; }
@@ -15,7 +16,8 @@ export function boundedRaster(width: number, height: number, scale = 1): { width
 export function ocrCitation(doc: { id: string; name: string; version: number; mime?: string }, result: OcrResult, text: string): string {
   if (!text.trim() || !result.text.includes(text) || !Number.isSafeInteger(result.page) || result.page < 1)
     throw new Error("Select an excerpt from this OCR result first.");
-  return `${doc.name} · version ${doc.version} · ${doc.mime === "application/pdf" ? "PDF page" : "Image"} ${result.page}\nDocument: ${doc.id}\nOCR: ${result.engine} · ${result.language} · confidence ${Math.round(result.confidence)}/100 (engine estimate, not an accuracy guarantee)\nVerify against the original before use.\n\n${text.trim()}`;
+  const orientation = result.rotation ? `\nOCR orientation: rotated ${result.rotation}° clockwise from the stored page.` : "";
+  return `${doc.name} · version ${doc.version} · ${doc.mime === "application/pdf" ? "PDF page" : "Image"} ${result.page}\nDocument: ${doc.id}\nOCR: ${result.engine} · ${result.language} · confidence ${Math.round(result.confidence)}/100 (engine estimate, not an accuracy guarantee)${orientation}\nVerify against the original before use.\n\n${text.trim()}`;
 }
 export function imageDimensions(bytes: Uint8Array, mime: string): { width: number; height: number } {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);

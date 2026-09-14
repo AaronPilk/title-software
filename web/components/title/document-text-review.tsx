@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { getAsset, useWorkspace } from "@/lib/title/store";
 import type { VaultDoc } from "@/lib/title/model";
 import type { PdfTextReview } from "@/lib/title/pdf-text";
-import type { OcrResult } from "@/lib/title/local-ocr";
+import type { OcrResult, OcrRotation } from "@/lib/title/local-ocr";
 
 const textStyle = { width: "100%", boxSizing: "border-box" as const, resize: "vertical" as const, minHeight: 160, maxHeight: 320, padding: 12, border: "1px solid #dfe7ef", borderRadius: 8, lineHeight: 1.6, color: "#18354b" };
 const rowStyle = { display: "flex", gap: 8, flexWrap: "wrap" as const };
@@ -17,6 +17,7 @@ export function DocumentTextReview({ doc }: { doc: VaultDoc }) {
   const [busy, setBusy] = useState<"text" | "ocr" | null>(null), [notice, setNotice] = useState("");
   const [progress, setProgress] = useState("");
   const [pageNumber, setPageNumber] = useState(1), [selected, setSelected] = useState(""), [ocrSelected, setOcrSelected] = useState("");
+  const [rotation, setRotation] = useState<OcrRotation>(0);
   const [verified, setVerified] = useState(false);
   const controller = useRef<AbortController | null>(null);
   const alive = useRef(true);
@@ -25,8 +26,10 @@ export function DocumentTextReview({ doc }: { doc: VaultDoc }) {
     return () => { alive.current = false; controller.current?.abort(); };
   }, [current?.id, current?.version, current?.assetId]);
   if (!current?.assetId || !["application/pdf", "image/png", "image/jpeg"].includes(current.mime || "")) return null;
-  const pdf = current.mime === "application/pdf", page = review?.pages.find(p => p.page === pageNumber), ocr = ocrPages[pageNumber];
-  function changePage(value: number) { setPageNumber(value); setSelected(""); setOcrSelected(""); setNotice(""); setVerified(false); }
+  const pdf = current.mime === "application/pdf", page = review?.pages.find(p => p.page === pageNumber);
+  const savedOcr = ocrPages[pageNumber], ocr = savedOcr && (savedOcr.rotation || 0) === rotation ? savedOcr : undefined;
+  function changePage(value: number) { setPageNumber(value); setRotation(0); setSelected(""); setOcrSelected(""); setNotice(""); setVerified(false); }
+  function changeRotation(value: OcrRotation) { setRotation(value); setOcrSelected(""); setNotice(""); setVerified(false); }
   function begin(kind: "text" | "ocr") {
     controller.current?.abort(); const abort = new AbortController(); controller.current = abort;
     setBusy(kind); setNotice(""); setSelected(""); setOcrSelected(""); setVerified(false); setProgress("Opening document…"); return abort;
@@ -38,7 +41,7 @@ export function DocumentTextReview({ doc }: { doc: VaultDoc }) {
       const { extractPdfText } = await import("@/lib/title/pdf-text");
       const result = await extractPdfText(blob, { signal: abort.signal,
         onProgress: (completed, total) => { if (alive.current && !abort.signal.aborted) setProgress(`Read ${completed} of ${total} pages`); } });
-      if (alive.current && !abort.signal.aborted) { setReview(result); setPageNumber(result.pages[0]?.page || 1); }
+      if (alive.current && !abort.signal.aborted) { setReview(result); setPageNumber(result.pages[0]?.page || 1); setRotation(0); }
     } catch { if (alive.current && !abort.signal.aborted) setNotice("The stored file could not be opened. Check that the original document is available."); }
     finally { if (alive.current && controller.current === abort) { setBusy(null); setProgress(""); } }
   }
@@ -50,7 +53,7 @@ export function DocumentTextReview({ doc }: { doc: VaultDoc }) {
       // The stored MIME is part of the document's immutable asset record.
       const typed = blob.type === current!.mime ? blob : new Blob([blob], { type: current!.mime });
       try {
-        const result = await recognizeDocumentPage(typed, targetPage, { signal: abort.signal, onProgress: update => {
+        const result = await recognizeDocumentPage(typed, targetPage, { signal: abort.signal, rotation, onProgress: update => {
           if (alive.current && !abort.signal.aborted) setProgress(`${update.phase}… ${Math.round(update.progress * 100)}%`);
         } });
         if (alive.current && !abort.signal.aborted) { setOcrPages(previous => ({ ...previous, [targetPage]: result })); setNotice(result.text ? "OCR is ready. Compare names, amounts and legal wording with the original before copying." : "No text was recognized. Review the original or try a clearer scan."); }
@@ -85,6 +88,10 @@ export function DocumentTextReview({ doc }: { doc: VaultDoc }) {
       </div>
     </div>}
     {page?.status === "empty" && <p className="form-note">This page has no selectable text. Use OCR below to read its scanned image.</p>}
+    <label className="field-label">Page orientation for OCR<select aria-label="Page orientation for OCR" disabled={!!busy} value={rotation} onChange={event => changeRotation(Number(event.target.value) as OcrRotation)} style={{ padding: "8px 10px", border: "1px solid #dfe7ef", borderRadius: 8, background: "white", color: "#18354b" }}>
+      <option value="0">As stored</option><option value="90">Turn right (90°)</option><option value="180">Turn upside down (180°)</option><option value="270">Turn left (90°)</option>
+    </select></label>
+    <p className="form-note">If a scan is upside down or reads incorrectly, choose the turn needed to make it upright, then run OCR. The stored original stays unchanged.</p>
     <div style={rowStyle}>
       <Button variant="outline" size="sm" disabled={!!busy || !Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > 120} onClick={() => void scan()}><ScanText size={15} />{busy === "ocr" ? "Recognizing text…" : ocr ? "Run OCR again" : pdf ? "Read this page with OCR" : "Read image with OCR"}</Button>
       {busy && <Button variant="ghost" size="sm" onClick={() => { controller.current?.abort(); setBusy(null); setProgress(""); setNotice("Document text review was cancelled."); }}><X size={15} />Cancel</Button>}
@@ -92,14 +99,14 @@ export function DocumentTextReview({ doc }: { doc: VaultDoc }) {
     {progress && <p role="status" className="form-note" aria-live="polite">{progress}</p>}
     {notice && <p role="status" className="form-note">{notice}</p>}
     {ocr && <div className="form-stack" aria-label="OCR review result">
-      <p className="form-note"><strong>OCR result · {Math.round(ocr.confidence)}/100 engine confidence</strong><br />This score is an engine estimate, not an accuracy guarantee. Review each excerpt against the original.</p>
+      <p className="form-note"><strong>OCR result · {Math.round(ocr.confidence)}/100 engine confidence</strong>{ocr.rotation ? <> · Rotated {ocr.rotation}° clockwise</> : null}<br />This score is an engine estimate, not an accuracy guarantee. Review each excerpt against the original.</p>
       {ocr.text && <>
         <label className="field-label">Recognized text<textarea aria-label="Recognized OCR page text" value={ocr.text} readOnly rows={8} style={textStyle} onSelect={event => { const target = event.currentTarget; setOcrSelected(target.value.slice(target.selectionStart, target.selectionEnd)); }} /></label>
         <details><summary style={{ cursor: "pointer", fontSize: 13 }}>Word confidence ({ocr.words.filter(word => word.confidence < 80).length} below 80)</summary>
           <p className="form-note">Lowest-confidence words first. Position is measured in the rendered {ocr.width} × {ocr.height} pixel page. Showing up to 200 words.</p>
           <div style={{ maxHeight: 220, overflow: "auto" }}><table style={{ width: "100%", fontSize: 12 }}><thead><tr><th align="left">Word</th><th align="left">Confidence</th><th align="left">Position</th></tr></thead><tbody>{[...ocr.words].sort((a,b) => a.confidence - b.confidence).slice(0,200).map((word,index) => <tr key={index}><td>{word.text}</td><td>{Math.round(word.confidence)}/100</td><td>{word.box.x0}, {word.box.y0}</td></tr>)}</tbody></table></div>
         </details>
-        <label className="form-note" style={{ display: "flex", alignItems: "flex-start", gap: 8 }}><input type="checkbox" checked={verified} onChange={event => setVerified(event.target.checked)} />I compared the OCR text I plan to use with the original document.</label>
+        <label className="form-note" style={{ display: "flex", alignItems: "flex-start", gap: 8 }}><input type="checkbox" checked={verified} onChange={event => setVerified(event.target.checked)} />I compared this OCR result with the original document.</label>
         <div style={rowStyle}><Button variant="outline" size="sm" disabled={!verified || !ocrSelected.trim()} onClick={() => void copy(ocrSelected, true)}><Copy size={15} />Copy reviewed OCR excerpt with source</Button><Button variant="ghost" size="sm" disabled={!verified} onClick={() => void copy(ocr.text, true)}>Copy reviewed OCR page with source</Button></div>
       </>}
     </div>}

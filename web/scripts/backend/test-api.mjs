@@ -1,0 +1,15 @@
+import { build } from "esbuild";
+import { mkdir, rm } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+const dir = ".local-api-test";
+await mkdir(dir, { recursive: true });
+try {
+  await build({ entryPoints: ["../supabase/functions/title-api/index.ts"], outfile: `${dir}/handler.mjs`,
+    bundle: true, format: "esm", platform: "node", target: "es2022",
+    plugins: [{ name: "synthetic-supabase-transport", setup(build) {
+      build.onResolve({ filter: /^npm:@supabase\/supabase-js@/ }, () => ({ path: "fixture", namespace: "test-client" }));
+      build.onLoad({ filter: /.*/, namespace: "test-client" }, () => ({ contents: "export const createClient = () => globalThis.__titleHttpClient;", loader: "js" }));
+    } }],
+  });
+  execFileSync(process.execPath, ["--test", "tests/title-api-http.test.mjs"], { stdio: "inherit" });
+} finally { await rm(dir, { recursive: true, force: true }); }

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Mail, RefreshCw } from "lucide-react";
 import styles from "./missive-settings.module.css";
 import { Button } from "../ui/button";
@@ -15,18 +15,22 @@ import type { MissiveRouting } from "@/lib/backend/missive-routing";
 type Setup = MissiveSetup & { routing: MissiveRouting; attachmentDownloadEnabled?: boolean };
 type MissiveEvent = { id: string; messageId: string; conversationId: string; subject: string; receivedAt: string; status: "queued" | "completed"; mappingVersion: number; companyId: string | null; organizationId: string; teamId: string; candidateRouteIds: string[]; originallyShared: boolean };
 type Events = { events: MissiveEvent[]; webhookConfigured: boolean; nextOffset: number | null };
+class StaleMissiveResponse extends Error {}
 export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
   const { s, connection } = useWorkspace();
   const [setup, setSetup] = useState<Setup | null>(null);
   const [check, setCheck] = useState<MissiveCheck | null>(null);
-  const [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
+  const [working, setWorking] = useState(false), [credentialBusy, setCredentialBusy] = useState(false);
+  const [error, setError] = useState(""), [notice, setNotice] = useState("");
+  const generation = useRef(0), mounted = useRef(false), workflow = useRef(false), credentialOperation = useRef(false);
+  const busy = working || credentialBusy;
   const [teamId, setTeamId] = useState(""), [companyId, setCompanyId] = useState("");
   const [conversations, setConversations] = useState<MissivePage | null>(null);
   const [messages, setMessages] = useState<MissivePage | null>(null);
   const [conversationId, setConversationId] = useState("");
   const [preview, setPreview] = useState<MissivePreview | null>(null);
   const [orderId, setOrderId] = useState(""), [kind, setKind] = useState("");
-  const [reviewed, setReviewed] = useState(false);
+  const [reviewedRevision, setReviewedRevision] = useState<number | null>(null);
   const [sourceMailId, setSourceMailId] = useState("");
   const [events, setEvents] = useState<Events | null>(null);
   const [mappingId, setMappingId] = useState("");
@@ -38,22 +42,59 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
   const sourceMail = importedSources.find(m => m.id === sourceMailId);
   const sourceOrder = s.orders.find(o => o.id === sourceMail?.orderId);
   const sourceLocked = !sourceOrder || productionLocked(s, sourceOrder);
+  const destination = s.orders.find(o => o.id === orderId && o.companyId === mapping?.companyId && !productionLocked(s, o));
+  const reviewed = reviewedRevision !== null && reviewedRevision === connection?.revision && !!destination && !!preview && !!kind;
   useEffect(() => {
-    let cancelled = false;
+    mounted.current = true;
+    const current = ++generation.current;
     backendRequest<Setup>("/integrations/missive")
-      .then(value => { if (!cancelled) setSetup(value); })
-      .catch(reason => { if (!cancelled) setError(reason instanceof Error ? reason.message : "Unable to load Missive settings."); });
-    return () => { cancelled = true; };
+      .then(value => { if (mounted.current && current === generation.current) setSetup(value); })
+      .catch(reason => { if (mounted.current && current === generation.current) setError(reason instanceof Error ? reason.message : "Unable to load Missive settings."); });
+    return () => { mounted.current = false; };
   }, [workspaceId]);
-  async function run(fn: () => Promise<void>) {
-    setBusy(true); setError(""); setNotice("");
-    try { await fn(); } catch (reason) { setError(reason instanceof Error ? reason.message : "Missive request failed."); }
-    finally { setBusy(false); }
+  async function guarded<T,>(pending: Promise<T>): Promise<T> {
+    const current = generation.current;
+    try {
+      const value = await pending;
+      if (!mounted.current || current !== generation.current) throw new StaleMissiveResponse();
+      return value;
+    } catch (reason) {
+      if (!mounted.current || current !== generation.current) throw new StaleMissiveResponse();
+      throw reason;
+    }
   }
-  function resetReview() { setPreview(null); setOrderId(""); setKind(""); setReviewed(false); }
-  const request = <T,>(path: string, input: Record<string, unknown> = {}, timeoutMs = 30000) => backendRequest<T>(`/integrations/missive/${path}`, {
+  async function run(fn: (current: () => boolean) => Promise<void>) {
+    if (workflow.current || credentialOperation.current) return;
+    const current = ++generation.current;
+    const stillCurrent = () => mounted.current && current === generation.current;
+    workflow.current = true;
+    setWorking(true); setError(""); setNotice("");
+    try { await fn(stillCurrent); }
+    catch (reason) { if (stillCurrent() && !(reason instanceof StaleMissiveResponse)) setError(reason instanceof Error ? reason.message : "Missive request failed."); }
+    finally { if (stillCurrent()) { workflow.current = false; setWorking(false); } }
+  }
+  function resetReview() { setPreview(null); setOrderId(""); setKind(""); setReviewedRevision(null); }
+  function clearReads() {
+    setCheck(null); resetReview(); setConversations(null); setMessages(null); setEvents(null);
+    setSourceMailId(""); setConversationId(""); setNotice("");
+  }
+  function credentialBusyChanged(next: boolean) {
+    credentialOperation.current = next;
+    if (next) {
+      generation.current++; workflow.current = false; setWorking(false);
+      clearReads(); setError("");
+    }
+    setCredentialBusy(next);
+  }
+  async function connectionChanged() {
+    const current = generation.current;
+    clearReads(); setSetup(null); setMappingId(""); setTeamId(""); setCompanyId("");
+    try { setSetup(await guarded(backendRequest<Setup>("/integrations/missive"))); }
+    catch (reason) { if (mounted.current && current === generation.current && !(reason instanceof StaleMissiveResponse)) setError(reason instanceof Error ? reason.message : "Unable to refresh Missive settings."); }
+  }
+  const request = <T,>(path: string, input: Record<string, unknown> = {}, timeoutMs = 30000) => guarded(backendRequest<T>(`/integrations/missive/${path}`, {
     workspaceId, expectedRoutingRevision: setup?.routing.revision || 0, mappingId: mapping?.id, ...input,
-  }, "POST", timeoutMs);
+  }, "POST", timeoutMs));
   async function loadConversations(until?: number) {
     resetReview(); setMessages(null); setConversationId("");
     setConversations(await request<MissivePage>("conversations", { until }));
@@ -61,16 +102,13 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
   return (
     <div className={`backend-settings-section ${styles.root}`}>
       <h3><Mail size={18} /> Missive</h3>
-      <MissiveCredentialSettings key={workspaceId} workspaceId={workspaceId} onChanged={() => {
-        setCheck(null); resetReview(); setConversations(null); setMessages(null); setEvents(null); setMappingId("");
-        void run(async () => { setSetup(await backendRequest<Setup>("/integrations/missive")); });
-      }} />
+      <MissiveCredentialSettings key={workspaceId} workspaceId={workspaceId} onChanged={connectionChanged} onBusyChange={credentialBusyChanged} />
       <p>Review incoming emails, save the original message, then import selected attachments into the same title file.</p>
       {setup?.status === "workspace_required" && <p className="form-note">Connect this workspace to its Missive account above.</p>}
       {setup?.status === "token_required" && <p className="form-note">Connect a working Missive API token above to review your inboxes.</p>}
       <Button variant="outline" disabled={busy} onClick={() => void run(async () => {
         setCheck(null); resetReview(); setConversations(null); setMessages(null); setEvents(null);
-        const current = await backendRequest<Setup>("/integrations/missive"); setSetup(current);
+        const current = await guarded(backendRequest<Setup>("/integrations/missive")); setSetup(current);
         if (current.status === "ready") setCheck(await request<MissiveCheck>("check"));
       })}><RefreshCw size={16} /> {busy ? "Working…" : "Check Missive connection"}</Button>
       {error && <p role="alert" className="form-note">{error}</p>}
@@ -111,7 +149,7 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
           })}>{route.enabled ? "Pause" : "Enable"}</Button>
         </div>)}
         </div></details>
-        <Button variant="ghost" disabled={busy || setup.status !== "ready"} onClick={() => void run(async () => setEvents(await request<Events>("events")))}>Refresh incoming events</Button>
+        <Button variant="ghost" disabled={busy} onClick={() => void run(async () => setEvents(await request<Events>("events")))}>Refresh incoming events</Button>
       </section>}
       {mapping && <div>
         <p><strong>{mapping.teamName}</strong> → {s.companies.find(c => c.id === mapping.companyId)?.name || "Company unavailable"}</p>
@@ -126,7 +164,7 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
         {events.events.filter(e => e.status === "queued").map(event => <div key={event.id}>
           <p><strong>{event.subject || "Incoming email"}</strong> · {new Date(event.receivedAt).toLocaleString()}</p>
           {event.companyId && <p className="form-note">Company recorded when received: {s.companies.find(c => c.id === event.companyId)?.name || event.companyId}.</p>}
-          {event.candidateRouteIds.length > 1 && <p className="form-note">Shared inbox: choose the destination company above before reviewing. No company has been assigned automatically.</p>}
+          {event.originallyShared && <p className="form-note">Shared inbox: choose the destination company above before reviewing. No company has been assigned automatically.</p>}
           {!event.candidateRouteIds.length && <p className="form-note">This event has no active route for inbox {event.teamId}. Enable or add its company route above to review it. Its original source stays in this queue.</p>}
           {!!event.candidateRouteIds.length && <p className="form-note">Available companies: {activeRoutes.filter(m => event.candidateRouteIds.includes(m.id)).map(m => s.companies.find(c => c.id === m.companyId)?.name || m.companyId).join(", ")}</p>}
           <Button variant="outline" disabled={busy || !mapping || !event.candidateRouteIds.includes(mapping.id)} onClick={() => void run(async () => {
@@ -163,25 +201,30 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
         <p className="form-note">The original message will be preserved. {preview.attachments.length} attachments are listed by Missive. Save the message first, then select the attachments you need below.</p>
         {preview.attachments.map(a => <p key={a.id}>{a.name} · {a.bytes.toLocaleString()} bytes · Not downloaded</p>)}
         <div className="form-grid">
-          <label>Title file<select aria-label="Missive title file" value={orderId} disabled={busy} onChange={e => { setOrderId(e.target.value); setReviewed(false); }}>
+          <label>Title file<select aria-label="Missive title file" value={destination ? orderId : ""} disabled={busy} onChange={e => { setOrderId(e.target.value); setReviewedRevision(null); }}>
             <option value="">Select an open title file</option>{s.orders.filter(o => o.companyId === mapping?.companyId && !productionLocked(s, o)).map(o => <option key={o.id} value={o.id}>{o.id} · {o.address}</option>)}
           </select></label>
-          <label>Request type<select aria-label="Missive request type" value={kind} disabled={busy} onChange={e => { setKind(e.target.value); setReviewed(false); }}>
+          <label>Request type<select aria-label="Missive request type" value={kind} disabled={busy} onChange={e => { setKind(e.target.value); setReviewedRevision(null); }}>
             <option value="">Choose after reviewing</option>{["Commitment", "Revision", "Finals"].map(k => <option key={k}>{k}</option>)}
           </select></label>
         </div>
-        <label className="form-note"><input type="checkbox" checked={reviewed} disabled={busy || !orderId || !kind} onChange={e => setReviewed(e.target.checked)} /> I reviewed this message and its company, file, and request type.</label>
-        <Button disabled={busy || !reviewed || !orderId || !kind || !connection} onClick={() => void run(async () => {
+        {reviewedRevision !== null && !reviewed && <p role="status" className="form-note">Workspace records changed after your review. Review the current file and confirm again.</p>}
+        {orderId && !destination && <p className="form-note">The selected file is no longer open in this company. Choose an available title file.</p>}
+        <label className="form-note"><input type="checkbox" checked={reviewed} disabled={busy || !destination || !kind || !connection} onChange={e => setReviewedRevision(e.target.checked ? connection!.revision : null)} /> I reviewed this message and its company, file, and request type.</label>
+        <Button disabled={busy || !reviewed || !destination || !connection || setup?.status !== "ready"} onClick={() => void run(async current => {
+          if (!reviewed || !destination || !connection || reviewedRevision === null) return;
           const result = await request<{ alreadyImported?: boolean; replayed?: boolean }>("import", {
-            requestId: crypto.randomUUID(), expectedRevision: connection!.revision, messageId: preview.id,
+            requestId: crypto.randomUUID(), expectedRevision: reviewedRevision, messageId: preview.id,
             orderId, kind, fingerprint: preview.fingerprint,
           });
           resetReview();
           setNotice(result.alreadyImported || result.replayed ? "This message is already saved in the inbox. Select its source below to save attachments." : "Message and original source saved. Select the imported source below to save its attachments.");
           try {
-            await connection!.refresh();
+            const refreshed = await connection.refresh();
+            if (!current()) return;
+            if (refreshed === false) { setError("The message is saved, but this view could not refresh. Refresh the workspace to see the saved source."); return; }
             if (events) setEvents(await request<Events>("events"));
-          } catch { setError("The message is saved, but this view could not refresh. Refresh the workspace to see the saved source."); }
+          } catch { if (current()) setError("The message is saved, but this view could not refresh. Refresh the workspace to see the saved source."); }
         })}>Import reviewed message text</Button>
       </div>}
       {mapping && <section aria-label="Imported Missive attachments">
@@ -202,15 +245,16 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
             return <div key={attachment.id}>
               <p><strong>{attachment.name}</strong> · {attachment.bytes.toLocaleString()} bytes · {doc ? "Saved to documents" : "Not saved"}</p>
               {doc?.assetId ? <Button variant="outline" disabled={busy} onClick={() => void run(async () => {
-                download(doc.name, await downloadRemoteAsset(doc.assetId!));
+                download(doc.name, await guarded(downloadRemoteAsset(doc.assetId!)));
                 setNotice(`${doc.name} downloaded.`);
-              })}>Download {attachment.name}</Button> : <Button variant="outline" disabled={busy || !connection || !setup?.attachmentDownloadEnabled || sourceLocked} onClick={() => void run(async () => {
+              })}>Download {attachment.name}</Button> : <Button variant="outline" disabled={busy || !connection || !setup?.attachmentDownloadEnabled || sourceLocked} onClick={() => void run(async current => {
                 const result = await request<{ alreadyImported?: boolean; replayed?: boolean }>("attachments/import", {
                   requestId: crypto.randomUUID(), expectedRevision: connection!.revision,
                   messageId: sourceMail.missive!.messageId, attachmentId: attachment.id,
                 }, 120000);
-                await connection!.refresh();
                 setNotice(result.alreadyImported || result.replayed ? `${attachment.name} is already saved.` : `${attachment.name} saved to Documents. Review its source role before using it as title evidence.`);
+                const refreshed = await connection!.refresh();
+                if (current() && refreshed === false) setError("The attachment is saved, but this view could not refresh. Refresh the workspace to see the saved document.");
               })}>Save {attachment.name} to documents</Button>}
             </div>;
           })}

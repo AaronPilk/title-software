@@ -52,3 +52,5 @@ next-env.d.ts
 
 # Reproducible OCR runtime/model assets from lockfile-pinned packages.
 /public/ocr/
+
+/.local-api-test/

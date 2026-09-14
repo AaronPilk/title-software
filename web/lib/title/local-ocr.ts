@@ -1,8 +1,8 @@
-import { OCR_LIMITS, OcrError, type OcrResult, type OcrProgress } from "./local-ocr-shared";
+import { OCR_LIMITS, OcrError, type OcrResult, type OcrProgress, type OcrRotation } from "./local-ocr-shared";
 import { prepareOcrRaster } from "./ocr-raster";
 export { OCR_LIMITS, OcrError, ocrCitation } from "./local-ocr-shared";
-export type { OcrResult, OcrProgress } from "./local-ocr-shared";
-type Options = { signal?: AbortSignal; onProgress?: (progress: OcrProgress) => void; timeoutMs?: number };
+export type { OcrResult, OcrProgress, OcrRotation } from "./local-ocr-shared";
+type Options = { signal?: AbortSignal; onProgress?: (progress: OcrProgress) => void; timeoutMs?: number; rotation?: OcrRotation };
 
 export async function recognizeDocumentPage(file: Blob, page: number, options: Options = {}): Promise<OcrResult> {
   if (options.signal?.aborted) throw new OcrError("cancelled", "OCR was cancelled.");
@@ -16,7 +16,7 @@ export async function recognizeDocumentPage(file: Blob, page: number, options: O
     options.signal?.addEventListener("abort", cancel, { once: true });
     const run = async (): Promise<OcrResult> => {
       options.onProgress?.({ phase: "Opening document", progress: 0 });
-      const raster = await prepareOcrRaster(file, page, abort.signal, () => options.onProgress?.({ phase: "Rendering page", progress: 1 }));
+      const raster = await prepareOcrRaster(file, page, abort.signal, () => options.onProgress?.({ phase: "Rendering page", progress: 1 }), options.rotation);
       if (abort.signal.aborted) throw new OcrError("cancelled", "OCR was cancelled.");
       const image = new Uint8Array(await raster.image.arrayBuffer());
       if (abort.signal.aborted) throw new OcrError("cancelled", "OCR was cancelled.");
@@ -33,7 +33,7 @@ export async function recognizeDocumentPage(file: Blob, page: number, options: O
           if (data.type === "progress") options.onProgress?.({ phase: data.phase, progress: data.progress });
           if (data.type === "error") reject(new OcrError("engine", "OCR could not read this page. Review the original or try a clearer scan."));
           if (data.type === "result") resolve({ text: data.text, confidence: data.confidence, words: data.words,
-            page, width: raster.width, height: raster.height, language: "English", engine: "Tesseract.js 7.0.0" });
+            page, width: raster.width, height: raster.height, rotation: raster.rotation, language: "English", engine: "Tesseract.js 7.0.0" });
         };
         worker!.postMessage({ type: "start", image }, [image.buffer]);
       });

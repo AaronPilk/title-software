@@ -185,6 +185,9 @@ try {
   if (credentialMigration.split(vaultExtension).length !== 2) throw new Error("Credential migration extension statement changed; review the local Vault stub loader.");
   sql(credentialMigration.replace(vaultExtension, "-- Local Vault API stub loaded above; all remaining migration SQL is unchanged."));
   console.log(sql(fs.readFileSync(path.join(root, "web/tests/missive-credentials-sql.test.sql"), "utf8")).trim());
+  sql(fs.readFileSync(path.join(root, "supabase/migrations/20260914222408_title_preserve_shared_inbox_context.sql"), "utf8"));
+  console.log(sql(fs.readFileSync(path.join(root, "web/tests/missive-queue-pause.test.sql"), "utf8")).trim());
+
 
 } finally {
   try { if (started) command("pg_ctl", ["-D", data, "-m", "fast", "-w", "stop"]); }

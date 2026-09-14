@@ -27,6 +27,16 @@ before(async () => {
       const ctx=canvas.getContext("2d"); ctx.fillStyle="white"; ctx.fillRect(0,0,1200,260); ctx.fillStyle="black"; ctx.font="bold 54px Arial"; ctx.fillText(text,55,115); ctx.font="36px Arial"; ctx.fillText("SYNTHETIC TEST DOCUMENT",55,180);
       return await new Promise(done => canvas.toBlob(done,type,0.96));
     };
+    window.makeOfficeScan=async (rotation=0) => {
+      const canvas=document.createElement("canvas"); canvas.width=2550; canvas.height=3300;
+      const ctx=canvas.getContext("2d"); ctx.fillStyle="white"; ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle="black"; ctx.font="bold 100px Arial"; ctx.fillText("LOAN AMOUNT 250000",150,240);
+      ctx.font="72px Arial"; ctx.fillText("SYNTHETIC OFFICE SCAN",150,390);ctx.fillText("END OF PAGE 12345",150,3020);
+      if(!rotation)return await new Promise(done=>canvas.toBlob(done,"image/png"));
+      const rotated=document.createElement("canvas");rotated.width=rotation===180?2550:3300;rotated.height=rotation===180?3300:2550;
+      const r=rotated.getContext("2d");r.translate(rotated.width/2,rotated.height/2);r.rotate(rotation*Math.PI/180);r.drawImage(canvas,-canvas.width/2,-canvas.height/2);
+      return await new Promise(done=>rotated.toBlob(done,"image/png"));
+    };
     window.makeScannedPdf=async () => {
       const encoder=new TextEncoder(), objects=[], offsets=[0]; let length=0; const chunks=[];
       const append=part => { const b=typeof part === "string" ? encoder.encode(part) : part; chunks.push(b); length+=b.length; };
@@ -42,6 +52,15 @@ before(async () => {
       append(`xref\n0 ${objects.length+1}\n0000000000 65535 f \n`); offsets.slice(1).forEach(n=>append(`${String(n).padStart(10,"0")} 00000 n \n`)); append(`trailer\n<< /Size ${objects.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
       return new Blob(chunks,{type:"application/pdf"});
     };
+    window.makeSelectablePdf=() => {
+      const content="BT /F1 28 Tf 40 130 Td (LOAN AMOUNT 250000) Tj ET";
+      const objects=["<< /Type /Catalog /Pages 2 0 R >>","<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 500 220] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",`<< /Length ${content.length} >>\nstream\n${content}\nendstream`];
+      let pdf="%PDF-1.7\n";const offsets=[0];objects.forEach((object,i)=>{offsets.push(pdf.length);pdf+=`${i+1} 0 obj\n${object}\nendobj\n`;});const xref=pdf.length;
+      pdf+=`xref\n0 6\n0000000000 65535 f \n`+offsets.slice(1).map(n=>`${String(n).padStart(10,"0")} 00000 n \n`).join("")+`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+      return new Blob([pdf],{type:"application/pdf"});
+    };
   });
 });
 after(async () => { await context?.close(); await browser?.close(); });
@@ -52,6 +71,30 @@ test("real browser OCR reads a synthetic PNG with word confidence using local as
 test("real scanned PDF OCR reads only the selected physical page", {timeout:100000}, async () => {
   const { text, result }=await page.evaluate(async () => {const file=await window.makeScannedPdf();return {text:await window.ocrApi.extractPdfText(file),result:await window.ocrApi.recognizeDocumentPage(file,2)};});
   assert.equal(text.reason,"empty"); assert.equal(result.page,2); assert.match(result.text,/LOAN AMOUNT 250000/); assert.doesNotMatch(result.text,/IGNORE FIRST PAGE/);
+});
+test("ordinary generated PDF text can also be rendered and recognized locally",{timeout:100000},async()=>{
+  const result=await page.evaluate(async()=>window.ocrApi.recognizeDocumentPage(window.makeSelectablePdf(),1));
+  assert.match(result.text,/LOAN AMOUNT 250000/);
+});
+test("ordinary 300-DPI office scans retain top and bottom wording after bounded rendering", {timeout:100000}, async () => {
+  const result=await page.evaluate(async()=>window.ocrApi.recognizeDocumentPage(await window.makeOfficeScan(),1));
+  assert.match(result.text,/LOAN AMOUNT 250000/);assert.match(result.text,/END OF PAGE 12345/);assert.ok(result.width*result.height<=OCR_LIMITS.rasterPixels);
+});
+test("sideways office scans preserve wording through ordinary OCR", {timeout:100000}, async () => {
+  const result=await page.evaluate(async()=>window.ocrApi.recognizeDocumentPage(await window.makeOfficeScan(90),1));
+  assert.match(result.text,/LOAN AMOUNT 250000/);assert.match(result.text,/END OF PAGE 12345/);
+});
+test("upside-down office scans can be corrected explicitly without changing the original", {timeout:100000}, async () => {
+  const {result,unchanged}=await page.evaluate(async()=>{const file=await window.makeOfficeScan(180),before=new Uint8Array(await file.arrayBuffer());const result=await window.ocrApi.recognizeDocumentPage(file,1,{rotation:180});const after=new Uint8Array(await file.arrayBuffer());return {result,unchanged:before.every((n,i)=>n===after[i])};});
+  assert.match(result.text,/LOAN AMOUNT 250000/);assert.match(result.text,/END OF PAGE 12345/);assert.equal(result.rotation,180);assert.equal(unchanged,true);
+  assert.match(ocrCitation({id:"scan",name:"Scan.png",version:2,mime:"image/png"},result,result.text),/rotated 180° clockwise/);
+});
+test("quarter-turn correction swaps the rendered coordinates while retaining the physical page", {timeout:100000}, async()=>{
+  const result=await page.evaluate(async()=>window.ocrApi.recognizeDocumentPage(await window.makeOfficeScan(90),1,{rotation:270}));
+  assert.match(result.text,/LOAN AMOUNT 250000/);assert.equal(result.page,1);assert.equal(result.rotation,270);assert.ok(result.height>result.width);assert.ok(result.width*result.height<=OCR_LIMITS.rasterPixels);
+});
+test("unsupported orientation fails visibly instead of silently reading a different page view",async()=>{
+  const code=await page.evaluate(async()=>{try{await window.ocrApi.recognizeDocumentPage(await window.makeScan(),1,{rotation:45});}catch(error){return error.code;}});assert.equal(code,"page");
 });
 test("unsupported, malformed, excessive size and out-of-range pages fail before recognition", async () => {
   const results=await page.evaluate(async () => {
@@ -72,6 +115,14 @@ test("cancellation during engine startup terminates supervisor and child workers
   await page.waitForTimeout(350);
   const cdp=await context.newCDPSession(page); const {targetInfos}=await cdp.send("Target.getTargets"); await cdp.detach();
   assert.equal(targetInfos.filter(target=>target.type==="worker" && /local-ocr|ocr\/v7/.test(target.url)).length,0);
+});
+test("cancelling active recognition leaves the next document read usable",{timeout:100000},async()=>{
+  const result=await page.evaluate(async()=>{
+    const abort=new AbortController(),file=await window.makeOfficeScan();let code;
+    try{await window.ocrApi.recognizeDocumentPage(file,1,{signal:abort.signal,onProgress:progress=>{if(progress.phase==="Reading scanned text")abort.abort();}});}catch(error){code=error.code;}
+    return {code,next:await window.ocrApi.recognizeDocumentPage(await window.makeScan("NEW DOCUMENT 987654"),1)};
+  });
+  assert.equal(result.code,"cancelled");assert.match(result.next.text,/NEW DOCUMENT 987654/);assert.doesNotMatch(result.next.text,/LOAN AMOUNT/);
 });
 test("OCR makes no requests to third parties and leaves no text in persistent browser storage", async () => {
   assert.ok(requests.some(url=>url.includes("eng.traineddata.gz"))); assert.ok(requests.some(url=>url.includes("tesseract-core"))); assert.deepEqual(errors,[]);

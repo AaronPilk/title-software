@@ -67,3 +67,13 @@ test('a queued single-company event cannot silently move when its inbox later be
  assert.deepEqual(missiveEventRoutes(routing,event).map(m=>m.companyId),['company-a']);
  assert.deepEqual(missiveEventRoutes({...routing,mappings:[{...routing.mappings[0],enabled:false},routing.mappings[1]]},event),[]);
 });
+test('temporarily pausing one company does not turn a shared-inbox email into another company source',async()=>{
+ const paused={...routing,revision:9,mappings:[{...routing.mappings[0],enabled:false,version:9},routing.mappings[1]]};
+ let event;
+ assert.equal((await handleMissiveWebhook(await signed(),config,{async mapping(){return paused},async enqueue(w,e){event=e;return true}})).status,202);
+ assert.equal(event.payload.companyId,null);
+ assert.deepEqual(event.payload.candidateRoutes.map(m=>m.companyId),['company-a','company-b']);
+ assert.deepEqual(missiveEventRoutes(paused,event.payload).map(m=>m.companyId),['company-b']);
+ const restored={...paused,revision:10,mappings:[{...paused.mappings[0],enabled:true,version:10},paused.mappings[1]]};
+ assert.deepEqual(missiveEventRoutes(restored,event.payload).map(m=>m.companyId),['company-a','company-b']);
+});

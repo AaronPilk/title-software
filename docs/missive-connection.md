@@ -74,3 +74,13 @@ An older backup can intentionally remove an imported record. A fresh reviewed im
 Run `npm run test:missive` and `npm run test:missive:sql` from `web/`, plus the repository's backend/domain/browser checks. The disposable SQL runner requires local PostgreSQL tools and removes its synthetic database afterward. Current OCR has its separate real-raster browser suite, `npm run test:ocr`.
 
 Still unimplemented: scheduled mailbox polling, automatic mail classification/structured field extraction, provider-side notes/labels/reply drafts, outbound sending, OneDrive automation, accounting-provider connections and actual SoftPro reads/writes. The signed event receiver and reviewed import are implemented capabilities; they must not be described as autonomous title processing or a completed vendor integration.
+
+## Connection and review recovery
+
+A failed connection-settings load now has its own retry control. If another administrator changes the credential, the form clears the entered token and confirmation, loads current metadata, and requires a fresh deliberate action. Connection changes discard delayed directory/message responses so an old preview cannot reappear after disconnect.
+
+Message acknowledgement is tied to the workspace revision and an open file belonging to the selected company. A refreshed revision or unavailable file requires another review. If an import commits but the workspace refresh fails, the screen reports that the message or attachment is saved and asks for a refresh; it does not describe that committed import as unsaved.
+
+Saved incoming events and route pausing remain usable without decrypting a token or reaching Missive. A shared inbox retains all configured company context while individual routes are paused; only active routes are offered for review. Pausing one JV does not assign its incoming work to the surviving JV.
+
+Run `npm run test:api`, `npm run test:missive:ui`, and `npm run test:workspace:ui` for the new handler/component/provider regressions. These use synthetic transport and cannot replace one approved live staff walkthrough. See the [follow-up regression report](testing/release-regressions-2026-09-14.md).

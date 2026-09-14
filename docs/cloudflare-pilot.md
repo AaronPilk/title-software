@@ -6,7 +6,7 @@ Deployed September 13, 2026 at **https://title-software-pilot.aaron-9c3.workers.
 
 Updated September 14 with the [PDF requirements implementation](REQUIREMENTS_IMPLEMENTATION.md). That guide records the current feature scope, 2,465 automated test passes, existing 224 database assertions plus five routing and five credential transaction rounds and the limits of live verification.
 
-- Cloudflare Worker: `title-software-pilot`; current version `f0593c60-70ec-485e-92a9-bb333066e56c`.
+- Cloudflare Worker: `title-software-pilot`; current version `e693fbd0-1cd6-4cc1-993d-7d8df38fb589`.
 - Private assistant Worker: `title-personal-assistant`; version `deaaa4ea-6e0c-412c-a9d7-46ed5c557f03`. It is reached through the application service binding, with public Worker and preview URLs disabled.
 - Supabase project: `yhneskzvmtcmbsknidlt`; `title-api` version 10, JWT verification enabled; bundle SHA-256 `2c12bc8486b52ec5573255286c2d329fe19d45b147cccf7d260e0a78440c3b4e`. Fourteen migrations are applied. The latest update adds multiple-company routing and encrypted workspace Missive credential settings.
 - Dedicated `title-missive-events` version 2 uses raw-body HMAC authentication and has JWT verification disabled for Missive's webhook delivery. Its bundle SHA-256 is `3695364a053e7bbb0f5e8ccc0d1a47d5a85726fb36627fee471476a9330dcb0f`. The deployed receiver remains inactive until its workspace, signing secret and rule IDs are configured.
@@ -120,3 +120,7 @@ Server recovery points reference immutable files in the same Supabase project. T
 ## September 13 sign-in follow-up
 
 A reported invalid-credentials error was investigated using the intended owner account. The current temporary credential signed in successfully and the account required personal password setup. No account reset was needed. The login form now clears its password after successful authentication and sign-out, so a later sign-in cannot reuse an obsolete temporary password retained by React state. TypeScript, nine recovery tests, production build and deployment passed.
+
+## September 14 follow-up regression release
+
+The deployed frontend includes scan orientation controls, Missive stale-response/conflict recovery and accurate saved-versus-refresh-failed messages. The matching API/event functions are versions 11/3, with 15 applied migrations. The follow-up pass passed 546 tests plus disposable database transaction rounds. Existing repository-wide lint debt remains (52 baseline errors); see the [regression report](testing/release-regressions-2026-09-14.md). Owner Missive activation and a signed-in staff acceptance case remain pending.

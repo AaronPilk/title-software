@@ -95,7 +95,7 @@ type Store = {
     access: RemoteState["access"];
     revision: number;
     saving: boolean;
-    refresh: () => Promise<void>;
+    refresh: () => Promise<boolean>;
   };
 };
 const Context = createContext<Store | null>(null);
@@ -149,22 +149,25 @@ function ConnectedWorkspaceProvider({
 }) {
   const [remote, setRemote] = useState(initial),
     [saving, setSaving] = useState(false),
-    [failure, setFailure] = useState("");
+    [failure, setFailure] = useState<{ kind: "read" | "write"; message: string } | null>(null);
   const latest = useRef(initial),
     busy = useRef(false);
   function accept(next: RemoteState) {
     if (next.revision < latest.current.revision) return;
     latest.current = next;
     setRemote(next);
-    setFailure("");
+    setFailure(null);
   }
   async function refresh() {
     try {
       accept(await backendRequest<RemoteState>("/state"));
+      return true;
     } catch (e) {
-      setFailure(e instanceof Error ? e.message : "Unable to refresh.");
+      const message = e instanceof Error ? e.message : "Unable to refresh.";
+      setFailure(current => current?.kind === "write" ? current : { kind: "read", message });
       if ([401, 403].includes((e as { status?: number }).status || 0))
-        await supabase?.auth.signOut();
+        await supabase?.auth.signOut().catch(() => undefined);
+      return false;
     }
   }
   useEffect(() => {
@@ -207,7 +210,7 @@ function ConnectedWorkspaceProvider({
     if (!commands.length) return true;
     busy.current = true;
     setSaving(true);
-    setFailure("");
+    setFailure(null);
     const request = {
       workspaceId: before.workspaceId,
       expectedRevision: before.revision,
@@ -233,7 +236,7 @@ function ConnectedWorkspaceProvider({
     } catch (e) {
       const message =
         e instanceof Error ? e.message : "The change was not saved.";
-      setFailure(message);
+      setFailure({ kind: "write", message });
       toast.error(message);
       if ([401, 403, 409].includes((e as { status?: number }).status || 0))
         await refresh();
@@ -269,7 +272,7 @@ function ConnectedWorkspaceProvider({
       <div className="shared-mode-bar" role="status">
         {saving
           ? "Saving securely…"
-          : failure ? "Changes not saved" : "All changes saved"}
+          : failure ? failure.kind === "read" ? "Could not refresh records" : "Changes not saved" : "All changes saved"}
         {failure && (
           <button type="button" onClick={() => void refresh()}>
             Refresh connection
@@ -278,7 +281,7 @@ function ConnectedWorkspaceProvider({
       </div>
       {failure && (
         <div className="backend-save-error" role="alert">
-          {failure}
+          {failure.message}
         </div>
       )}
       <div style={{ display: "contents" }} inert={saving || undefined}>

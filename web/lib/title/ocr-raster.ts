@@ -1,20 +1,22 @@
 import type { PDFDocumentLoadingTask, RenderTask } from "pdfjs-dist";
-import { boundedRaster, imageDimensions, OCR_LIMITS, OcrError } from "./local-ocr-shared";
-export type OcrRaster = { image: Blob; width: number; height: number; page: number };
+import { boundedRaster, imageDimensions, OCR_LIMITS, OcrError, type OcrRotation } from "./local-ocr-shared";
+export type OcrRaster = { image: Blob; width: number; height: number; page: number; rotation: OcrRotation };
 class NoExternalData { async fetch(): Promise<never> { throw Error("External PDF resources are unavailable."); } }
 function check(signal: AbortSignal) { if (signal.aborted) throw new OcrError("cancelled", "OCR was cancelled."); }
 function png(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new OcrError("unreadable", "The image could not be prepared for OCR.")), "image/png"));
 }
 /** Render exactly one selected physical page; all bytes remain in this browser. */
-export async function prepareOcrRaster(file: Blob, pageNumber: number, signal: AbortSignal, onRendering?: () => void): Promise<OcrRaster> {
+export async function prepareOcrRaster(file: Blob, pageNumber: number, signal: AbortSignal, onRendering?: () => void, rotation: OcrRotation = 0): Promise<OcrRaster> {
   check(signal);
   if (!file.size || file.size > OCR_LIMITS.bytes) throw new OcrError("size", "Choose a nonempty PDF, PNG or JPEG up to 25 MB.");
   if (!["application/pdf", "image/png", "image/jpeg"].includes(file.type)) throw new OcrError("unsupported", "Local OCR supports PDF, PNG and JPEG files.");
   if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > OCR_LIMITS.pages || (file.type !== "application/pdf" && pageNumber !== 1))
     throw new OcrError("page", "Choose a valid physical page for OCR.");
+  if (![0, 90, 180, 270].includes(rotation)) throw new OcrError("page", "Choose one of the available page orientations.");
   const bytes = new Uint8Array(await file.arrayBuffer()); check(signal);
   const canvas = document.createElement("canvas");
+  let rotated: HTMLCanvasElement | undefined;
   let task: PDFDocumentLoadingTask | undefined, render: RenderTask | undefined, bitmap: ImageBitmap | undefined;
   const cancel = () => { render?.cancel(); void task?.destroy().catch(() => undefined); };
   signal.addEventListener("abort", cancel, { once: true });
@@ -46,8 +48,17 @@ export async function prepareOcrRaster(file: Blob, pageNumber: number, signal: A
       context.fillStyle = "white"; context.fillRect(0, 0, canvas.width, canvas.height);
       context.drawImage(bitmap, 0, 0, canvas.width, canvas.height); onRendering?.();
     }
-    const image = await png(canvas); check(signal);
-    return { image, width: canvas.width, height: canvas.height, page: pageNumber };
+    let rendered = canvas;
+    if (rotation) {
+      rotated = document.createElement("canvas");
+      rotated.width = rotation === 180 ? canvas.width : canvas.height;
+      rotated.height = rotation === 180 ? canvas.height : canvas.width;
+      const context = rotated.getContext("2d"); if (!context) throw Error("Canvas unavailable.");
+      context.translate(rotated.width / 2, rotated.height / 2); context.rotate(rotation * Math.PI / 180);
+      context.drawImage(canvas, -canvas.width / 2, -canvas.height / 2); rendered = rotated;
+    }
+    const image = await png(rendered); check(signal);
+    return { image, width: rendered.width, height: rendered.height, page: pageNumber, rotation };
   } catch (error) {
     if (signal.aborted) throw new OcrError("cancelled", "OCR was cancelled.");
     if (error instanceof OcrError) throw error;
@@ -55,6 +66,7 @@ export async function prepareOcrRaster(file: Blob, pageNumber: number, signal: A
     throw new OcrError("unreadable", "This page could not be rendered reliably. Review the original or use a smaller, readable copy.");
   } finally {
     signal.removeEventListener("abort", cancel); bitmap?.close(); canvas.width = canvas.height = 0;
+    if (rotated) rotated.width = rotated.height = 0;
     if (task) await task.destroy().catch(() => undefined);
   }
 }
