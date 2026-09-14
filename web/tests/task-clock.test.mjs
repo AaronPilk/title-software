@@ -14,13 +14,9 @@ import {
   waitingReasons,
   isValidTaskFields,
   completeTaskFromSource,
-  earliestWaitingStart,
-  taskCreatedOn,
 } from "../.local-test/task-clock.js";
 import { businessDay, nextWeekday } from "../.local-test/business-date.js";
 
-/** A pristine copy of a workspace, for validating a mutation against its own start. */
-const seedWith = (s) => structuredClone(s);
 
 const day = (offsetDays, from = "2026-09-14") =>
   new Date(Date.parse(`${from}T00:00:00Z`) + offsetDays * 86_400_000)
