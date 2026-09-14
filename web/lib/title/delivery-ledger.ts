@@ -1,6 +1,6 @@
 import { traceMutation, commandUuid } from "./command-log";
 import type { VaultDoc, Workspace } from "./model";
-import { sameDocumentFamily } from "./production";
+import { sameDocumentFamily, currentOrderDocument } from "./production";
 
 /**
  * A per-recipient, per-document-version record of a delivery that a person
@@ -99,6 +99,16 @@ function latestInFamily(s: Workspace, doc: VaultDoc) {
 }
 
 /**
+ * The document a new delivery for this family should be prepared from: the
+ * current source on the order file. Null when the family has been superseded
+ * or dropped by the dependency rules.
+ */
+function currentForFamily(s: Workspace, doc: VaultDoc) {
+  const latest = latestInFamily(s, doc);
+  return latest && currentOrderDocument(s, latest) ? latest : null;
+}
+
+/**
  * True while the delivered document is still the current version of its
  * family. A superseded document means the recipient holds an out-of-date
  * copy, so the record goes stale rather than silently staying valid.
@@ -108,8 +118,10 @@ export function deliveryCurrent(s: Workspace, r: DocumentDelivery) {
   if (!doc) return false;
   if (doc.version !== r.snapshot.documentVersion || doc.name !== r.snapshot.documentName)
     return false;
-  const latest = latestInFamily(s, doc);
-  return !!latest && latest.id === doc.id;
+  // Shares the production dependency rule: a child source whose parent has
+  // been replaced is no longer current even though its own filename and
+  // version have not moved.
+  return currentOrderDocument(s, doc);
 }
 
 export function deliveryState(s: Workspace, r: DocumentDelivery) {
@@ -153,11 +165,14 @@ export function prepareDelivery(
     if (!doc) throw new Error("That document is no longer on file.");
     if (!doc.orderId)
       throw new Error("Deliveries are recorded against a document on an order file.");
-    const latest = latestInFamily(s, doc);
-    if (!latest || latest.id !== doc.id)
+    if (!currentOrderDocument(s, doc)) {
+      const latest = latestInFamily(s, doc);
       throw new Error(
-        "A newer version of this document exists. Prepare the delivery from the current version.",
+        latest && latest.id !== doc.id
+          ? "A newer version of this document exists. Prepare the delivery from the current version."
+          : "This document is no longer a current source on the file. Review the evidence before delivering it.",
       );
+    }
     const recipientName = input.recipientName.trim();
     const recipientEmail = input.recipientEmail.trim();
     const recipientRole = input.recipientRole.trim();
@@ -287,9 +302,21 @@ export function retryDelivery(
       throw new Error("Only a failed delivery can be retried.");
     const doc = s.documents.find((d) => d.id === failed.documentId);
     if (!doc) throw new Error("That document is no longer on file.");
-    const current = latestInFamily(s, doc);
+    const current = currentForFamily(s, doc);
     if (!current)
-      throw new Error("That document is no longer on file.");
+      throw new Error(
+        "This document is no longer a current source on the file. Review the evidence before delivering it.",
+      );
+    // Only the newest unresolved failure in a chain may be retried. Retrying
+    // an older one after a later attempt already succeeded, failed again or
+    // was cancelled would misrepresent the attempt sequence.
+    const successor = deliveries(s, { documentId: failed.documentId }).find(
+      (r) => r.previousDeliveryId === failed.id,
+    ) || (s.deliveries || []).find((r) => r.previousDeliveryId === failed.id);
+    if (successor)
+      throw new Error(
+        "This attempt has already been retried. Continue from the latest attempt, or prepare a new delivery.",
+      );
     const recipientEmail = input.recipientEmail.trim() || failed.recipientEmail;
     if (!emailValid(recipientEmail))
       throw new Error("Enter a valid email address for the recipient.");
@@ -350,6 +377,19 @@ export function cancelDelivery(s: Workspace, deliveryId: string, reason: string)
     r.status = "Cancelled";
     return r;
   });
+}
+
+/**
+ * Has this failed attempt already been followed by another? Only the newest
+ * unresolved failure in a chain offers a retry; earlier ones are history.
+ */
+export function deliveryRetried(s: Workspace, r: DocumentDelivery) {
+  return (s.deliveries || []).some((x) => x.previousDeliveryId === r.id);
+}
+
+/** May this record be retried right now? */
+export function canRetryDelivery(s: Workspace, r: DocumentDelivery) {
+  return r.status === "Failed" && !deliveryRetried(s, r);
 }
 
 /** Who holds a current copy of this document, and who is still outstanding. */
@@ -416,7 +456,32 @@ const deliveryShape = (v: unknown): v is DocumentDelivery => {
   );
 };
 
+const deliveryUsable = (r: DocumentDelivery) =>
+  Number.isInteger(r.attempt) &&
+  r.attempt >= 1 &&
+  (r.status !== "Recorded" || (!!r.deliveredOn && !!r.deliveryReference.trim())) &&
+  (r.status !== "Failed" || (!!r.failedOn && !!r.failureReason.trim())) &&
+  (r.status !== "Cancelled" || !!r.cancelReason.trim());
+
+/**
+ * What hydration and backup restore must agree is usable. Shape alone was not
+ * enough: a backup carrying attempt 0 was accepted, and then an unrelated edit
+ * elsewhere in the workspace failed the global mutation validator, leaving the
+ * operator stuck with no way to see why.
+ */
 export function isValidDeliveries(v: unknown) {
+  return (
+    v === undefined ||
+    (Array.isArray(v) && v.every(deliveryShape) && v.every(deliveryUsable))
+  );
+}
+
+/**
+ * Shape only. The mutation validator uses this so its own rules can report
+ * precisely which one a record breaks, rather than collapsing every problem
+ * into one unhelpful message.
+ */
+export function isValidDeliveryShapes(v: unknown) {
   return v === undefined || (Array.isArray(v) && v.every(deliveryShape));
 }
 
@@ -426,7 +491,7 @@ export function isValidDeliveries(v: unknown) {
  * identity it names is frozen at preparation.
  */
 export function validateDeliveryMutation(before: Workspace, after: Workspace) {
-  if (!isValidDeliveries(after.deliveries))
+  if (!isValidDeliveryShapes(after.deliveries))
     throw new Error("That delivery record is not in a shape this workspace can store.");
   const rows = after.deliveries || [];
   for (const r of rows) {
@@ -472,7 +537,28 @@ export function validateDeliveryMutation(before: Workspace, after: Workspace) {
       throw new Error("A prepared delivery keeps the document version it was prepared for.");
     if (prior.status !== "Prepared" && current.status !== prior.status)
       throw new Error("A recorded, failed or cancelled delivery stays as it is.");
-    if (prior.status === "Recorded" && current.deliveryReference !== prior.deliveryReference)
+    if (
+      current.recipientName !== prior.recipientName ||
+      current.recipientEmail !== prior.recipientEmail ||
+      current.recipientRole !== prior.recipientRole ||
+      current.method !== prior.method ||
+      current.reviewNote !== prior.reviewNote
+    )
+      throw new Error("A prepared delivery keeps the recipient it was prepared for.");
+    if (
+      prior.status !== "Prepared" &&
+      (current.deliveredOn !== prior.deliveredOn ||
+        current.deliveryReference !== prior.deliveryReference ||
+        current.deliveryNote !== prior.deliveryNote ||
+        current.recordedBy !== prior.recordedBy ||
+        current.recordedAt !== prior.recordedAt ||
+        current.failureReason !== prior.failureReason ||
+        current.failedOn !== prior.failedOn ||
+        current.failedBy !== prior.failedBy ||
+        current.cancelReason !== prior.cancelReason ||
+        current.cancelledBy !== prior.cancelledBy ||
+        current.cancelledAt !== prior.cancelledAt)
+    )
       throw new Error("Recorded delivery evidence cannot be rewritten.");
   }
 }

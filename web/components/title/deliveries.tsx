@@ -15,6 +15,8 @@ import {
   recordDeliveryFailure,
   retryDelivery,
   cancelDelivery,
+  canRetryDelivery,
+  deliveryRetried,
   recipientRoles,
   deliveryMethods,
 } from "@/lib/title/delivery-ledger";
@@ -295,7 +297,7 @@ export function DeliveryManager({ documentId }: { documentId: string }) {
                       Cancel
                     </Button>
                   )}
-                  {r.status === "Failed" && (
+                  {canRetryDelivery(s, r) && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -307,6 +309,9 @@ export function DeliveryManager({ documentId }: { documentId: string }) {
                       <RotateCcw size={14} />
                       Try again
                     </Button>
+                  )}
+                  {r.status === "Failed" && deliveryRetried(s, r) && (
+                    <span className="subtle">Already retried below</span>
                   )}
                 </div>
 

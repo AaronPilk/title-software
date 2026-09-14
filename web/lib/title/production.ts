@@ -269,6 +269,24 @@ export function orderSources(s: Workspace, id: string) {
   }
   return docs;
 }
+/**
+ * Is this document still a current source on its order file?
+ *
+ * For a role-bearing source this is exactly `orderSources` membership, which
+ * covers both "a newer version of this family exists" and the dependency rule
+ * that drops a child whose parent has since been replaced. A document with no
+ * source role is not part of that graph, so it is current while nothing newer
+ * in its family exists. Anything that asks "may this document still be acted
+ * on" — the delivery ledger included — must use this rather than re-deriving a
+ * second, weaker rule from the filename and version alone.
+ */
+export function currentOrderDocument(s: Workspace, doc: VaultDoc) {
+  if (!doc.orderId) return false;
+  if (doc.sourceRole)
+    return orderSources(s, doc.orderId).some((d) => d.id === doc.id);
+  const family = s.documents.filter((d) => sameDocumentFamily(d, doc));
+  return !family.some((d) => d.version > doc.version);
+}
 export function productionLocked(s: Workspace, order: Order) {
   return (
     order.status === "Issued" ||

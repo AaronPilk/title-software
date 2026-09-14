@@ -13,6 +13,8 @@ import {
   retryDelivery,
   cancelDelivery,
   isValidDeliveries,
+  canRetryDelivery,
+  deliveryRetried,
   validateDeliveryMutation,
   recipientRoles,
   deliveryMethods,
@@ -377,4 +379,161 @@ test("deliveries filter by company, order and document", () => {
   assert.equal(deliveries(s, { orderId: order.id }).length, 1);
   assert.equal(deliveries(s, { documentId: "doc-final-1" }).length, 1);
   assert.equal(deliveries(s, { documentId: "doc-other" }).length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Regressions for Codex's September 14 QA findings (F04 delivery, F08, F09, C02).
+// ---------------------------------------------------------------------------
+
+test("F08: a failure that has already been retried cannot be retried again", () => {
+  const { s } = seed();
+  const first = prepareDelivery(s, validInput());
+  recordDeliveryFailure(s, first.id, { failedOn: day(0), failureReason: "Bounced" }, NOW);
+  assert.equal(canRetryDelivery(s, deliveries(s)[0]), true);
+
+  const second = retryDelivery(s, first.id, { recipientEmail: "", method: "", reviewNote: "" });
+  recordDelivery(s, second.id, { deliveredOn: day(0), deliveryReference: "ref", deliveryNote: "" }, NOW);
+
+  // Codex's exact sequence: the original failure still offered Try again.
+  assert.equal(deliveryRetried(s, deliveries(s)[0]), true);
+  assert.equal(canRetryDelivery(s, deliveries(s)[0]), false);
+  assert.throws(
+    () => retryDelivery(s, first.id, { recipientEmail: "", method: "", reviewNote: "" }),
+    /already been retried/,
+  );
+  assert.equal(deliveries(s).length, 2);
+});
+
+test("F08: a retry that itself fails can be retried, and the chain keeps its order", () => {
+  const { s } = seed();
+  const first = prepareDelivery(s, validInput());
+  recordDeliveryFailure(s, first.id, { failedOn: day(0), failureReason: "Bounced" }, NOW);
+  const second = retryDelivery(s, first.id, { recipientEmail: "", method: "", reviewNote: "" });
+  recordDeliveryFailure(s, second.id, { failedOn: day(0), failureReason: "Bounced again" }, NOW);
+  assert.equal(canRetryDelivery(s, deliveries(s)[0]), false);
+  assert.equal(canRetryDelivery(s, deliveries(s)[1]), true);
+  const third = retryDelivery(s, second.id, { recipientEmail: "", method: "", reviewNote: "" });
+  assert.equal(third.attempt, 3);
+  assert.equal(third.previousDeliveryId, second.id);
+});
+
+test("F08: a cancelled retry still counts as this failure's successor", () => {
+  const { s } = seed();
+  const first = prepareDelivery(s, validInput());
+  recordDeliveryFailure(s, first.id, { failedOn: day(0), failureReason: "Bounced" }, NOW);
+  const second = retryDelivery(s, first.id, { recipientEmail: "", method: "", reviewNote: "" });
+  cancelDelivery(s, second.id, "Recipient asked us to hold");
+  assert.equal(canRetryDelivery(s, deliveries(s)[0]), false);
+  assert.throws(
+    () => retryDelivery(s, first.id, { recipientEmail: "", method: "", reviewNote: "" }),
+    /already been retried/,
+  );
+  // A genuinely new attempt is an explicit new preparation, which is allowed.
+  assert.doesNotThrow(() => prepareDelivery(s, validInput()));
+});
+
+test("F09: replacing a parent source stales its child's delivery", () => {
+  const { s, order } = seed();
+  // A child source captured from an uploaded parent.
+  const parent = {
+    id: "doc-parent",
+    companyId: order.companyId,
+    orderId: order.id,
+    name: "Deed package.pdf",
+    category: "Source",
+    visibility: "Internal",
+    date: "2026-09-10",
+    size: "1 MB",
+    version: 1,
+    sourceRole: "Deed",
+  };
+  const child = {
+    ...parent,
+    id: "doc-child",
+    name: "Deed of trust.pdf",
+    sourceRole: "Deed of trust",
+    parentDocumentId: "doc-parent",
+  };
+  s.documents.push(parent, child);
+  const r = prepareDelivery(s, validInput({ documentId: "doc-child" }));
+  assert.equal(deliveryCurrent(s, r), true);
+
+  // The parent is replaced by a newer version, which drops the child from the
+  // order's current sources even though the child's own version never moved.
+  s.documents.push({ ...parent, id: "doc-parent-2", version: 2, date: "2026-09-13" });
+  assert.equal(deliveryCurrent(s, r), false);
+  assert.equal(deliveryState(s, r), "Source changed");
+  assert.throws(
+    () => recordDelivery(s, r.id, { deliveredOn: day(0), deliveryReference: "x", deliveryNote: "" }, NOW),
+    /changed after the delivery was prepared/,
+  );
+  assert.throws(
+    () => prepareDelivery(s, validInput({ documentId: "doc-child", recipientEmail: "other@example.com" })),
+    /no longer a current source/,
+  );
+  // The stale preparation can still be cancelled with a reason.
+  assert.doesNotThrow(() => cancelDelivery(s, r.id, "Parent deed replaced"));
+});
+
+test("F09: an ordinary document with no source role is unaffected by the dependency rule", () => {
+  const { s, order } = seed();
+  s.documents.push({
+    id: "doc-plain",
+    companyId: order.companyId,
+    orderId: order.id,
+    name: "Closing instructions.pdf",
+    category: "Correspondence",
+    visibility: "Internal",
+    date: "2026-09-10",
+    size: "40 KB",
+    version: 1,
+  });
+  const r = prepareDelivery(s, validInput({ documentId: "doc-plain" }));
+  assert.equal(deliveryCurrent(s, r), true);
+  assert.equal(deliveryState(s, r), "Prepared");
+});
+
+test("F04: a backup carrying a semantically broken delivery is refused at import", () => {
+  const { s } = seed();
+  const r = prepareDelivery(s, validInput());
+  const base = structuredClone(s.deliveries[0]);
+  // Codex's case: attempt 0 passed the shape check, then an unrelated later
+  // edit failed the global validator with no way for the operator to see why.
+  assert.equal(isValidDeliveries([{ ...base, attempt: 0 }]), false);
+  assert.equal(isValidDeliveries([{ ...base, status: "Recorded" }]), false);
+  assert.equal(isValidDeliveries([{ ...base, status: "Failed" }]), false);
+  assert.equal(isValidDeliveries([{ ...base, status: "Cancelled" }]), false);
+  assert.equal(isValidDeliveries([base]), true);
+  assert.equal(isValidDeliveries(undefined), true);
+  // The mutation validator still reports precisely which rule a record breaks.
+  const broken = structuredClone(s);
+  broken.deliveries[0].status = "Recorded";
+  assert.throws(() => validateBusinessMutation(s, broken), /must carry its date and evidence/);
+  void r;
+});
+
+test("C02: a recorded delivery's recipient and evidence are both frozen", () => {
+  const { s } = seed();
+  const r = prepareDelivery(s, validInput());
+  recordDelivery(s, r.id, { deliveredOn: day(0), deliveryReference: "ref-1", deliveryNote: "" }, NOW);
+
+  for (const [field, value] of [
+    ["recipientName", "Someone Else"],
+    ["recipientEmail", "someone@else.example"],
+    ["recipientRole", "Buyer"],
+    ["method", "Mail or courier"],
+  ]) {
+    const edited = structuredClone(s);
+    edited.deliveries[0][field] = value;
+    assert.throws(
+      () => validateBusinessMutation(s, edited),
+      /keeps the recipient it was prepared for/,
+      `expected ${field} to be frozen`,
+    );
+  }
+  for (const field of ["deliveredOn", "deliveryNote", "recordedBy", "recordedAt"]) {
+    const edited = structuredClone(s);
+    edited.deliveries[0][field] = "tampered";
+    assert.throws(() => validateBusinessMutation(s, edited), /cannot be rewritten/, `expected ${field} frozen`);
+  }
 });

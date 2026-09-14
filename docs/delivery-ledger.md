@@ -43,9 +43,20 @@ history alongside it, and neither overwrites the other.
   delivered, only cancelled, because the recipient would otherwise be shown as
   holding a copy that is no longer current.
 - **A retry is a new attempt, not an edit.** Only a Failed record can be
-  retried. The retry is a fresh record linked to the failure it follows, with
-  an incremented attempt number, and it binds to whichever version is current
-  *at retry time* — which may not be the version the failed attempt carried.
+  retried, and only the newest unresolved failure in a chain: once an attempt
+  has a successor — delivered, failed again, or cancelled — it is history and
+  offers no retry, so the attempt sequence cannot fork. The retry is a fresh
+  record linked to the failure it follows, with an incremented attempt number,
+  and it binds to whichever version is current *at retry time* — which may not
+  be the version the failed attempt carried. A genuinely new send to the same
+  recipient is an explicit new preparation.
+- **Current means current on the file, not just newest by name.** Preparation,
+  recording and retry all share `currentOrderDocument` from `production.ts`,
+  the same predicate `orderSources` uses. A child source whose parent has been
+  replaced is no longer current even though its own filename and version never
+  moved, and a delivery prepared from it goes stale accordingly. Deriving a
+  second, weaker rule from the filename and version alone is what allowed a
+  superseded dependency to look deliverable.
 - **History is kept.** Records are never deleted. Recorded, Failed and
   Cancelled are terminal; the document identity, attempt number, preparer and
   preparation time are frozen at preparation, and recorded evidence cannot be
