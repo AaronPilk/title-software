@@ -26,7 +26,7 @@ try {
   sql(`create role anon; create role authenticated; create role service_role bypassrls;
     create schema auth; create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,is_anonymous boolean default false);
     create schema storage; create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint);`);
-  for (const file of ["20260912142734_title_backend_foundation.sql", "20260912145505_title_explicit_conflicts.sql", "20260912163349_title_missive_reviewed_import.sql", "20260914200453_title_reviewed_attachment_commit.sql", "20260914202646_title_missive_event_transactions.sql"])
+  for (const file of ["20260912142734_title_backend_foundation.sql", "20260912145505_title_explicit_conflicts.sql", "20260912163349_title_missive_reviewed_import.sql", "20260914204132_title_reviewed_attachment_commit.sql", "20260914204134_title_missive_event_transactions.sql"])
     sql(fs.readFileSync(path.join(root, "supabase/migrations", file), "utf8"));
   const result = sql(`
     create function pg_temp.check_true(ok boolean,label text) returns integer language plpgsql as $$

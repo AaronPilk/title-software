@@ -88,4 +88,4 @@ Verification on the combined source tree: **339/339 automated tests** (179 domai
 
 A production-build browser pass submitted ten command batches through the real connected provider, command capture, gateway execution and projection. It created a task, started/resolved waiting, recorded opening ownership, prepared/failed/retried/recorded delivery, cancelled another preparation and reloaded saved history, with zero console/runtime errors. Auth and API transport were intercepted with synthetic fixtures; this verifies application integration, not hosted authentication or database execution.
 
-These September 14 fixes are committed source changes only. They require redeploying `title-api` to reach the hosted pilot. No migration, live-data changes, push or deployment was performed for this fix.
+The F02/F03 commit was initially source-only. It is now included in `title-api` version 9 and the September 14 private-pilot deployment; see the [current requirements and release report](REQUIREMENTS_IMPLEMENTATION.md). No GitHub push was performed.
