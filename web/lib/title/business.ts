@@ -9,6 +9,7 @@ import type {
 import { uid } from "./model";
 import { enrichMaterials, validateMaterialsMutation } from "./materials";
 import { validateStatementDeliveryMutation } from "./statement-delivery";
+import { validateTaskClock } from "./task-clock";
 import {
   titleFile,
   orderSources,
@@ -1730,6 +1731,7 @@ export function validateBusinessMutation(before: Workspace, after: Workspace) {
   validateReferencedSourcesMutation(before, after);
   validateStatementDeliveryMutation(before, after);
   validateMaterialsMutation(before, after);
+  validateTaskClock(before, after);
   for (const r of business(before).followups || []) {
     for (const messageId of [
       r.messageId,

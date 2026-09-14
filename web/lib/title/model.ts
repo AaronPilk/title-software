@@ -137,6 +137,10 @@ export type Task = {
   due: string;
   done: boolean;
   priority: "High" | "Normal";
+  /** Absent on tasks saved before creation dates were recorded; age stays unknown rather than guessed. */
+  createdAt?: string;
+  /** Append-only record of what this task waited on, and for how long. */
+  waiting?: import("./task-clock").TaskWaitingPeriod[];
 };
 export type MissiveProvenance = {
   organizationId: string; teamId: string; conversationId: string; messageId: string;

@@ -92,6 +92,8 @@ export function Status({ value }: { value: string }) {
     "Ready for jacket",
     "Partner",
     "Delivered",
+    "Completed",
+    "On track",
   ].includes(value)
     ? "green"
     : [
@@ -101,13 +103,20 @@ export function Status({ value }: { value: string }) {
           "In progress",
           "Not yet contacted",
           "Awaiting response",
+          "Due today",
+          "Due soon",
         ].includes(value)
       ? "blue"
-      : ["Rejected", "Restricted", "High", "Needs attention", "Lost"].includes(
-            value,
-          )
+      : [
+            "Rejected",
+            "Restricted",
+            "High",
+            "Needs attention",
+            "Lost",
+            "Overdue",
+          ].includes(value)
         ? "amber"
-        : ["Onboarding", "Internal", "Pending"].includes(value)
+        : ["Onboarding", "Internal", "Pending", "Waiting"].includes(value)
           ? "violet"
           : "neutral";
   return <span className={`status ${color}`}>{value}</span>;
@@ -238,8 +247,12 @@ export function DataTable({
     <Table className="data-table">
       <TableHeader>
         <TableRow>
-          {headers.map((h) => (
-            <TableHead key={h}>{h}</TableHead>
+          {/* Keyed by position, not label: a table may legitimately carry two
+              blank or two identical headers (a checkbox column and an actions
+              column, say), and a shared key silently duplicates or drops one
+              of them in the live DOM. The list is fixed and never reordered. */}
+          {headers.map((h, i) => (
+            <TableHead key={`${i}:${h}`}>{h}</TableHead>
           ))}
         </TableRow>
       </TableHeader>

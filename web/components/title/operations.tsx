@@ -50,6 +50,14 @@ import {
 } from "./shared";
 import { toast } from "sonner";
 import { executeRules } from "@/lib/title/engine";
+import {
+  taskClock,
+  taskWaiting,
+  openWaiting,
+  startWaiting,
+  resolveWaiting,
+  waitingReasons,
+} from "@/lib/title/task-clock";
 export function InboxView({
   onReview,
   onRevision,
@@ -422,13 +430,36 @@ export function Tasks() {
   const [filter, setFilter] = useState("Open");
   const [owner, setOwner] = useState("Everyone");
   const [newTask, setNewTask] = useState(false);
+  const [waitingFor, setWaitingFor] = useState("");
+  const [reason, setReason] = useState<string>(waitingReasons[0]);
+  const [expanded, setExpanded] = useState("");
   const [company, setCompany] = useState(s.companies[0]?.id || "");
   const [assignee, setAssignee] = useState(s.user);
-  const rows = s.tasks.filter(
-    (t) =>
-      (filter === "All tasks" || (filter === "Completed" ? t.done : !t.done)) &&
-      (owner === "Everyone" || t.owner === owner),
-  );
+  const today = new Date().toISOString().slice(0, 10);
+  const clocks = new Map(s.tasks.map((t) => [t.id, taskClock(t)]));
+  const rows = s.tasks.filter((t) => {
+    const clock = clocks.get(t.id)!;
+    const matchesView =
+      filter === "All tasks"
+        ? true
+        : filter === "Completed"
+          ? t.done
+          : filter === "Waiting"
+            ? !t.done && clock.state === "Waiting"
+            : filter === "Overdue"
+              ? !t.done && (clock.dueInDays ?? 0) < 0
+              : !t.done;
+    return matchesView && (owner === "Everyone" || t.owner === owner);
+  });
+  const openTasks = s.tasks.filter((t) => !t.done);
+  const waitingCount = openTasks.filter(
+    (t) => clocks.get(t.id)!.state === "Waiting",
+  ).length;
+  const overdueCount = openTasks.filter(
+    (t) => (clocks.get(t.id)!.dueInDays ?? 0) < 0,
+  ).length;
+  const activeTask = s.tasks.find((t) => t.id === waitingFor);
+  const activeOpen = activeTask ? openWaiting(activeTask) : null;
   async function create(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget),
@@ -445,6 +476,7 @@ export function Tasks() {
             due: String(f.get("due")),
             priority: "Normal",
             done: false,
+            createdAt: new Date().toISOString(),
           }),
         "Task created",
         title,
@@ -453,11 +485,52 @@ export function Tasks() {
       return;
     setNewTask(false);
   }
+  async function beginWaiting(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!activeTask) return;
+    const f = new FormData(e.currentTarget);
+    const input = {
+      reason,
+      detail: String(f.get("detail") || ""),
+      since: String(f.get("since") || ""),
+    };
+    if (
+      !(await update(
+        (d) => {
+          startWaiting(d, activeTask.id, input);
+        },
+        "Task marked waiting",
+        `${activeTask.title} · ${input.reason}`,
+      ))
+    )
+      return;
+    setWaitingFor("");
+  }
+  async function endWaiting(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!activeTask) return;
+    const f = new FormData(e.currentTarget);
+    const input = {
+      until: String(f.get("until") || ""),
+      resolution: String(f.get("resolution") || ""),
+    };
+    if (
+      !(await update(
+        (d) => {
+          resolveWaiting(d, activeTask.id, input);
+        },
+        "Waiting resolved",
+        `${activeTask.title} · ${input.resolution}`,
+      ))
+    )
+      return;
+    setWaitingFor("");
+  }
   return (
     <>
       <Heading
         title="Tasks"
-        description="Clear ownership. Fewer things falling through the cracks."
+        description="Clear ownership, and a visible reason whenever something is not moving."
       >
         <Button onClick={() => setNewTask(true)}>
           <Plus />
@@ -468,7 +541,7 @@ export function Tasks() {
         <Segments
           value={filter}
           onChange={setFilter}
-          items={["Open", "Completed", "All tasks"]}
+          items={["Open", "Waiting", "Overdue", "Completed", "All tasks"]}
         />
         <Picker
           value={owner}
@@ -477,61 +550,246 @@ export function Tasks() {
           options={["Everyone", "Stephenie", "Tyler", "John"]}
         />
       </div>
+      {!!openTasks.length && (
+        <p className="subtle task-clock-summary">
+          {openTasks.length} open ·{" "}
+          {overdueCount ? `${overdueCount} past due` : "none past due"} ·{" "}
+          {waitingCount
+            ? `${waitingCount} waiting on someone else`
+            : "none waiting"}
+        </p>
+      )}
       <section className="panel">
         <DataTable
-          headers={["", "Task", "Company", "Owner", "Priority", "Due date"]}
+          headers={[
+            "",
+            "Task",
+            "Company",
+            "Owner",
+            "Priority",
+            "Due date",
+            "Status",
+            "",
+          ]}
         >
-          {rows.map((t) => (
-            <TableRow key={t.id} className={t.done ? "completed-row" : ""}>
-              <TableCell>
-                <Checkbox
-                  aria-label={`Complete ${t.title}`}
-                  checked={t.done}
-                  onCheckedChange={async (v) =>
-                    await update(
-                      (d) => {
-                        d.tasks.find((x) => x.id === t.id)!.done = v === true;
-                      },
-                      v ? "Task completed" : "Task reopened",
-                      t.title,
-                    )
-                  }
-                />
-              </TableCell>
-              <TableCell>
-                <strong>{t.title}</strong>
-              </TableCell>
-              <TableCell>{companyById(s, t.companyId).name}</TableCell>
-              <TableCell>
-                <Picker
-                  value={t.owner}
-                  label={`Assign ${t.title}`}
-                  options={["Stephenie", "Tyler", "John"]}
-                  onChange={async (v) =>
-                    await update(
-                      (d) => {
-                        d.tasks.find((x) => x.id === t.id)!.owner = v;
-                      },
-                      "Task reassigned",
-                      `${t.title} · ${v}`,
-                    )
-                  }
-                />
-              </TableCell>
-              <TableCell>
-                <Status value={t.priority} />
-              </TableCell>
-              <TableCell>{t.due}</TableCell>
-            </TableRow>
-          ))}
+          {rows.flatMap((t) => {
+            const clock = clocks.get(t.id)!;
+            const open = clock.openWaiting;
+            const history = taskWaiting(t);
+            const isOpen = expanded === t.id;
+            const main = (
+              <TableRow key={`${t.id}:row`} className={t.done ? "completed-row" : ""}>
+                <TableCell>
+                  <Checkbox
+                    aria-label={`Complete ${t.title}`}
+                    checked={t.done}
+                    onCheckedChange={async (v) =>
+                      await update(
+                        (d) => {
+                          d.tasks.find((x) => x.id === t.id)!.done = v === true;
+                        },
+                        v ? "Task completed" : "Task reopened",
+                        t.title,
+                      )
+                    }
+                  />
+                </TableCell>
+                <TableCell>
+                  <strong>{t.title}</strong>
+                  {open && (
+                    <span className="subtle task-waiting-note">
+                      {open.reason}
+                      {open.detail ? ` — ${open.detail}` : ""} ·{" "}
+                      {clock.openWaitingDays} day
+                      {clock.openWaitingDays === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell>{companyById(s, t.companyId).name}</TableCell>
+                <TableCell>
+                  <Picker
+                    value={t.owner}
+                    label={`Assign ${t.title}`}
+                    options={["Stephenie", "Tyler", "John"]}
+                    onChange={async (v) =>
+                      await update(
+                        (d) => {
+                          d.tasks.find((x) => x.id === t.id)!.owner = v;
+                        },
+                        "Task reassigned",
+                        `${t.title} · ${v}`,
+                      )
+                    }
+                  />
+                </TableCell>
+                <TableCell>
+                  <Status value={t.priority} />
+                </TableCell>
+                <TableCell>
+                  {t.due}
+                  {!t.done && clock.dueInDays !== null && (
+                    <span className="subtle task-due-note">
+                      {clock.dueInDays < 0
+                        ? `${Math.abs(clock.dueInDays)} day${Math.abs(clock.dueInDays) === 1 ? "" : "s"} past due`
+                        : clock.dueInDays === 0
+                          ? "due today"
+                          : `in ${clock.dueInDays} day${clock.dueInDays === 1 ? "" : "s"}`}
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <Status value={clock.state} />
+                </TableCell>
+                <TableCell>
+                  <div className="task-actions">
+                    {!t.done && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          if (!open) setReason(waitingReasons[0]);
+                          setWaitingFor(t.id);
+                        }}
+                      >
+                        <Clock3 />
+                        {open ? "Resolve waiting" : "Mark waiting"}
+                      </Button>
+                    )}
+                    {!!history.length && (
+                      <Button
+                        variant="ghost"
+                        aria-expanded={isOpen}
+                        onClick={() => setExpanded(isOpen ? "" : t.id)}
+                      >
+                        {history.length} waiting record
+                        {history.length === 1 ? "" : "s"}
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            );
+            if (!isOpen || !history.length) return [main];
+            return [
+              main,
+              <TableRow key={`${t.id}:history`}>
+                <TableCell colSpan={8}>
+                  <div className="task-history">
+                    <p className="subtle">
+                      Waited {clock.waitingDays} day
+                      {clock.waitingDays === 1 ? "" : "s"} in total
+                      {clock.activeDays !== null
+                        ? ` · ${clock.activeDays} day${clock.activeDays === 1 ? "" : "s"} of that time the work was ours`
+                        : " · age unknown for tasks saved before creation dates were recorded"}
+                      .
+                    </p>
+                    {history.map((p) => (
+                      <div key={p.id} className="task-history-row">
+                        <strong>{p.reason}</strong>
+                        {p.detail && <span> — {p.detail}</span>}
+                        <span className="subtle">
+                          {" "}
+                          {p.since} → {p.until || "open"} · recorded by {p.by}
+                        </span>
+                        {p.until && (
+                          <span className="subtle task-history-note">
+                            Resolved by {p.resolvedBy}: {p.resolution}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </TableCell>
+              </TableRow>,
+            ];
+          })}
         </DataTable>
         {!rows.length && (
           <Empty
-            title={filter === "Open" ? "Nothing outstanding" : "No tasks here"}
+            title={
+              filter === "Open"
+                ? "Nothing outstanding"
+                : filter === "Waiting"
+                  ? "Nothing is waiting on anyone"
+                  : filter === "Overdue"
+                    ? "Nothing is past due"
+                    : "No tasks here"
+            }
             text="Change the view or add a new task."
           />
         )}
       </section>
+      <Dialog
+        open={!!waitingFor}
+        onOpenChange={(v) => !v && setWaitingFor("")}
+      >
+        <DialogContent className="modal">
+          <DialogHeader>
+            <DialogTitle>
+              {activeOpen ? "Resolve waiting" : "What is this waiting on?"}
+            </DialogTitle>
+            <DialogDescription>
+              {activeOpen
+                ? "Record what unblocked this task. The waiting period stays on the task as history."
+                : "Waiting time is tracked separately from the work, so a slow reply from someone else does not read as a missed deadline."}
+            </DialogDescription>
+          </DialogHeader>
+          {activeOpen ? (
+            <form className="form-stack" onSubmit={endWaiting}>
+              <p className="form-note">
+                Waiting on {activeOpen.reason.toLowerCase()} since{" "}
+                {activeOpen.since}.
+              </p>
+              <FieldLabel label="Stopped waiting on">
+                <Input
+                  name="until"
+                  type="date"
+                  required
+                  min={activeOpen.since}
+                  max={today}
+                  defaultValue={today}
+                />
+              </FieldLabel>
+              <FieldLabel label="What unblocked it">
+                <Textarea
+                  name="resolution"
+                  required
+                  maxLength={400}
+                  placeholder="The attorney sent the corrected deed."
+                />
+              </FieldLabel>
+              <Button type="submit">Record resolution</Button>
+            </form>
+          ) : (
+            <form className="form-stack" onSubmit={beginWaiting}>
+              <FieldLabel label="Waiting on">
+                <Picker
+                  value={reason}
+                  onChange={setReason}
+                  label="What this task is waiting on"
+                  options={[...waitingReasons]}
+                />
+              </FieldLabel>
+              <FieldLabel label="Detail">
+                <Textarea
+                  name="detail"
+                  maxLength={400}
+                  placeholder="Who, and what you asked them for. Required when the reason is Other."
+                />
+              </FieldLabel>
+              <FieldLabel label="Waiting since">
+                <Input
+                  name="since"
+                  type="date"
+                  required
+                  max={today}
+                  defaultValue={today}
+                />
+              </FieldLabel>
+              <Button type="submit">Mark waiting</Button>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
       <Dialog open={newTask} onOpenChange={setNewTask}>
         <DialogContent className="modal">
           <DialogHeader>
