@@ -225,10 +225,34 @@ Deno.serve(async (req) => {
       if (!changed.ok) return response({ error: result.msg || result.message || "Password change failed.",
         code: result.error_code || result.code }, changed.status);
       if (result.id !== user.id) error("Password change could not be verified.", 500);
-      checked(await service.rpc("title_complete_password_change", {
+      const completionArgs = {
         p_user: user.id, p_session: user.sessionId, p_expected_rotation: user.credentialVersion,
-      }));
-      return response({ updated: true });
+      };
+      let completionStatus = 503;
+      // Auth already accepted the new password. Retry only the idempotent setup
+      // confirmation, bound to the original session and credential rotation.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        let completed;
+        try {
+          completed = await service.rpc("title_complete_password_change", completionArgs)
+            .abortSignal(AbortSignal.timeout(4000));
+        } catch {
+          continue;
+        }
+        if (!completed.error) return response({ updated: true });
+        const code = completed.error.code || "";
+        if (code === "PT409" || code === "42501") {
+          completionStatus = code === "PT409" ? 409 : 403;
+          break;
+        }
+        const transient = !code || code.startsWith("08") ||
+          ["40001", "40P01", "55P03", "57014", "57P01", "57P02", "57P03", "PGRST000", "PGRST001", "PGRST002"].includes(code) ||
+          completed.status >= 500;
+        if (!transient) break;
+      }
+      return response({ code: "password_setup_incomplete",
+        error: "Your password change was accepted, but setup could not be confirmed. Sign out and sign in again. If password setup is still required, choose another new password; contact the workspace owner if sign-in fails.",
+      }, completionStatus);
     }
     requireAccountReady(user.security);
     if (pathname === "/session" && req.method === "GET") {
@@ -503,7 +527,7 @@ Deno.serve(async (req) => {
       const existing = checked(
         await service
           .from("title_invitations")
-          .select("id")
+          .select("id,role,company_ids,all_companies,restricted_access,partner_members")
           .eq("workspace_id", wid)
           .eq("email", input.email.trim().toLowerCase())
           .is("accepted_at", null)
@@ -511,11 +535,28 @@ Deno.serve(async (req) => {
           .gt("expires_at", new Date().toISOString())
           .maybeSingle(),
       );
-      if (existing)
+      if (existing) {
+        const sameSet = (left: string[], right: string[]) =>
+          JSON.stringify([...new Set(left)].sort()) === JSON.stringify([...new Set(right)].sort());
+        const memberKeys = (members: { companyId: string; memberName: string }[]) =>
+          members.map((m) => JSON.stringify([m.companyId, m.memberName]));
+        // Generated partner IDs and selection order do not change a grant.
+        if (
+          existing.role !== input.role ||
+          existing.all_companies !== !!input.allCompanies ||
+          existing.restricted_access !== !!input.restricted ||
+          !sameSet(existing.company_ids, companies) ||
+          !sameSet(memberKeys(existing.partner_members), memberKeys(partners))
+        )
+          error(
+            "A pending invitation already has a different role or company access. It was not changed. Review the existing invitation before preparing different access.",
+            409,
+          );
         return response({
           id: existing.id,
           status: "Access invitation already prepared; no email sent",
         });
+      }
       const row = checked(
         await service
           .from("title_invitations")

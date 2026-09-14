@@ -103,6 +103,7 @@ export function BackendAccess({
       } else if (event === "SIGNED_OUT") {
         rememberRecoverySession(null);
         generation.current++;
+        setLoading(false);
         setPassword("");
         setSecurity(null);
         setRemote(null);

@@ -20,6 +20,8 @@
     "backend:build": "node scripts/backend/build.mjs",
     "test:backend": "node scripts/backend/test.mjs",
     "test:api": "node scripts/backend/test-api.mjs",
+    "test:auth:ui": "node scripts/test-auth-setup-ui.mjs",
+    "test:members:ui": "node --test tests/member-invitation-ui.test.mjs",
     "test:missive:ui": "node scripts/test-missive-settings-ui.mjs",
     "test:workspace:ui": "node scripts/test-workspace-refresh.mjs",
     "test:cloud": "node scripts/backend/test-cloud.mjs",

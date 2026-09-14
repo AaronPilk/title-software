@@ -15,7 +15,7 @@ import { MissiveSettings } from "./missive-settings";
 
 export type BackendSettingsSection = "Account" | "Connections" | "Team & access" | "Recovery";
 type Membership = { user_id: string; role: string; company_ids: string[]; all_companies: boolean; active: boolean };
-type Invitation = { id: string; email: string; role: string; revoked_at: string | null; accepted_at: string | null };
+type Invitation = { id: string; email: string; role: string; company_ids: string[]; all_companies: boolean; restricted_access: boolean; revoked_at: string | null; accepted_at: string | null };
 type RecoveryPoint = { id: string; revision: number; created_at: string };
 type SettingsData = { members?: Membership[]; invitations?: Invitation[]; backups?: RecoveryPoint[] };
 
@@ -35,6 +35,13 @@ export function BackendSettings({ section = "Account" }: { section?: BackendSett
     connection &&
     (connection.access.role === "owner" ||
       (connection.access.role === "admin" && connection.access.allCompanies));
+  const owner = connection?.access.role === "owner";
+  const invitationRoles = owner
+    ? ["operations", "onboarding", "finance", "viewer", "partner", "admin"]
+    : ["operations", "finance", "viewer", "partner"];
+  const invitationRole = invitationRoles.includes(role) ? role : "operations";
+  const needsCompany = !owner || invitationRole === "partner";
+  const validCompany = s.companies.some((c) => c.id === company);
   const workspaceId = activeWorkspace();
   const readSettings = useCallback(async (): Promise<SettingsData> => {
     if (!admin) return {};
@@ -107,26 +114,29 @@ export function BackendSettings({ section = "Account" }: { section?: BackendSett
               Assign a role and company scope. Access invitations are recorded here;
               share sign-in instructions with the person separately.
             </p>
+            {!owner && <p className="form-note">Choose one company for this invitation. The owner manages all-company access, onboarding evidence access and administrator roles.</p>}
             <form
               className="form-grid"
               onSubmit={(e) => {
                 e.preventDefault();
                 void act(async () => {
-                  await backendRequest("/members/invite", {
+                  if ((needsCompany && !validCompany) || (company && !validCompany))
+                    throw new Error("Choose an existing company for this invitation.");
+                  const result = await backendRequest<{ status: string }>("/members/invite", {
                     workspaceId: activeWorkspace(),
                     email,
-                    role,
+                    role: invitationRole,
                     companyIds: company ? [company] : [],
-                    allCompanies: company === "" && role !== "partner",
-                    restricted: role === "onboarding",
+                    allCompanies: owner && company === "" && invitationRole !== "partner",
+                    restricted: owner && invitationRole === "onboarding",
                     partnerMembers:
-                      role === "partner"
+                      invitationRole === "partner"
                         ? [{ companyId: company, memberName }]
                         : [],
                   });
                   setEmail("");
                   toast.success(
-                    "Access invitation prepared. Share account setup and sign-in instructions separately.",
+                    `${result.status}. Share account setup and sign-in instructions separately.`,
                   );
                 });
               }}
@@ -145,16 +155,9 @@ export function BackendSettings({ section = "Account" }: { section?: BackendSett
                 Role
                 <Picker
                   label="Invitation role"
-                  value={role}
+                  value={invitationRole}
                   onChange={(value) => { setRole(value); setMemberName(""); }}
-                  options={[
-                    "operations",
-                    "onboarding",
-                    "finance",
-                    "viewer",
-                    "partner",
-                    ...(connection.access.role === "owner" ? ["admin"] : []),
-                  ]}
+                  options={invitationRoles}
                 />
               </label>
               <label>
@@ -164,12 +167,12 @@ export function BackendSettings({ section = "Account" }: { section?: BackendSett
                   value={company}
                   onChange={(value) => { setCompany(value); setMemberName(""); }}
                   options={[
-                    { value: "", label: "All companies (staff only)" },
+                    { value: "", label: needsCompany ? "Choose a company" : "All companies (staff only)" },
                     ...s.companies.map((c) => ({ value: c.id, label: c.name })),
                   ]}
                 />
               </label>
-              {role === "partner" && (
+              {invitationRole === "partner" && (
                 <label>
                   Member identity
                   <Picker
@@ -185,7 +188,8 @@ export function BackendSettings({ section = "Account" }: { section?: BackendSett
               <Button
                 type="submit"
                 disabled={
-                  busy || (role === "partner" && (!company || !memberName))
+                  busy || (needsCompany && !validCompany) || (!!company && !validCompany) ||
+                  (invitationRole === "partner" && !memberName)
                 }
               >
                 Prepare access invitation
@@ -230,6 +234,9 @@ export function BackendSettings({ section = "Account" }: { section?: BackendSett
               .map((i) => (
                 <p className="form-note" key={i.id}>
                   {i.email} · {i.role} · awaiting verified sign-in
+                  <br />
+                  {i.all_companies ? "All companies" : (i.company_ids || []).map((id) => s.companies.find((company) => company.id === id)?.name || "Unavailable company").join(", ") || "No company access assigned"}
+                  {i.restricted_access ? " · Restricted evidence access enabled" : ""}
                 </p>
               ))}
           </div>}
