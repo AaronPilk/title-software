@@ -17,7 +17,7 @@ No orders, documents, approvals, ownership changes or provider imports were crea
 
 All six existing non-owner accounts still have Operations roles with no company assignments. They require their own personal password/authenticator setup. The owner session cannot substitute for a real non-owner acceptance check.
 
-A proposed Operations invitation for Stephenie, limited to the fictional QA company, was filled into the hosted form for review. It has **not been submitted** and no staff permissions changed. It grants no Ballantyne Title access and sends no email. Once approved, the normal account sign-in/reconnect claims the invitation; there is no separate acceptance button. The non-owner test must then confirm that the QA company and its task are visible while the unrelated real company and its task are absent.
+Aaron subsequently clicked **Prepare access invitation** himself. The hosted form confirmed Stephenie's Operations invitation, limited to the fictional QA company, is awaiting verified sign-in. It grants no Ballantyne Title access and sends no email. The normal account sign-in/reconnect claims the invitation after personal setup and MFA; there is no separate acceptance button. The non-owner test must then confirm that the QA company and its task are visible while the unrelated real company and its task are absent.
 
 The browser-control tool requires action-time confirmation for staff access changes, and personal credential entry remains a user handoff. No new test credentials, privileged test routes or temporary Access bypass were created.
 
@@ -39,8 +39,14 @@ TypeScript, focused lint, Edge bundles, ordinary and pilot production builds, de
 
 Commits `d1a52c7` (stable delivery fixture clock) and `be54d1c` (staff identities, regression tests and this report) were integrated fast-forward and pushed to GitHub. The deployed frontend is `33ec2e2f-1bbd-4550-ac77-e77f109103c5`; `title-api` is version 13 with JWT verification enabled, SHA-256 `4122ba57b9121fa00b9d871876ba1b4333a557c91031d3baa1e4a0180c426f3d`. The event receiver, assistant service and 15 applied migrations are unchanged.
 
-The refreshed hosted owner session loaded the workspace and Team & access displayed all seven real account emails successfully. All six staff entries still explicitly showed **No company access assigned**. The prepared invitation remains unsubmitted; live non-owner isolation remains pending.
+The refreshed hosted owner session loaded the workspace and Team & access displayed all seven real account emails successfully. All six staff entries still explicitly showed **No company access assigned**. The invitation had not yet been submitted at this release check; Aaron submitted it afterward as recorded above. Live non-owner isolation remains pending.
 
 Cloudflare Access still protects both hostname and Worker through the existing seven-person policy; preview URLs remain disabled. Anonymous requests received HTTP 302 at the application and HTTP 401 at the member API. These checks did not create new permissions or read client documents.
 
 Private evidence: `.local/coordination/hosted-acceptance-2026-09-15/`.
+
+## Stephenie sign-in follow-up
+
+At Aaron's request, a separate Chrome sign-in page was prepared for Stephenie, preserving the owner's existing in-app browser session. Read-only live status confirmed her account is active, requires a personal password, has no verified authenticator, and has a valid, unexpired, unaccepted invitation for only the QA company. No login email was sent by Codex, credentials changed, session impersonated or access bypass created.
+
+Aaron confirmed Stephenie is unavailable. Her live acceptance test is paused at the normal login/setup prerequisite. Next checks after her setup: Account identifies Operations with access to one company; Companies and Tasks show only the QA company and its task after reload; search and company pickers contain only permitted records; administrator-only settings remain unavailable. These are pending checks, not passed results.

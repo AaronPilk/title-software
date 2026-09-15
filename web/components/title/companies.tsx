@@ -65,7 +65,8 @@ export function Companies({
   onOpen: (id: string) => void;
   onNew: () => void;
 }) {
-  const { s } = useWorkspace();
+  const { s, connection } = useWorkspace();
+  const canAddCompany = !connection || (connection.access.allCompanies && ["owner", "admin", "onboarding"].includes(connection.access.role));
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("All companies");
   const rows = s.companies.filter(
@@ -81,10 +82,10 @@ export function Companies({
         title="Companies"
         description="A home for every company in your portfolio."
       >
-        <Button onClick={onNew}>
+        {canAddCompany && <Button onClick={onNew}>
           <Plus />
           Add company
-        </Button>
+        </Button>}
       </Heading>
       <div className="toolbar">
         <Segments
@@ -140,13 +141,13 @@ export function Companies({
             </div>
           </button>
         ))}
-        <button className="add-company-card" onClick={onNew}>
+        {canAddCompany && <button className="add-company-card" onClick={onNew}>
           <span>
             <Plus size={22} />
           </span>
           <strong>A new beginning</strong>
           <p>Add your next title company</p>
-        </button>
+        </button>}
       </div>
       {!rows.length && <Empty />}
     </>
@@ -159,7 +160,8 @@ export function NewCompany({
   open: boolean;
   onClose: () => void;
 }) {
-  const { s, update } = useWorkspace();
+  const { s, update, connection } = useWorkspace();
+  const canAddCompany = !connection || (connection.access.allCompanies && ["owner", "admin", "onboarding"].includes(connection.access.role));
   const [state, setState] = useState("NC");
   const [name, setName] = useState("");
   const [contact, setContact] = useState("");
@@ -185,6 +187,10 @@ export function NewCompany({
   const reviewed = !!signature && reviewedSignature === signature;
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!canAddCompany) {
+      toast.error("Your account cannot add companies. Ask your workspace administrator.");
+      return;
+    }
     const trimmedName = name.trim(),
       trimmedContact = contact.trim();
     if (!trimmedName || !trimmedContact) {
@@ -241,6 +247,7 @@ export function NewCompany({
       return;
     onClose();
   }
+  if (!canAddCompany) return null;
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="modal">
@@ -515,7 +522,8 @@ export function Onboarding({
   onOpen: (id: string) => void;
   onNew: () => void;
 }) {
-  const { s } = useWorkspace();
+  const { s, connection } = useWorkspace();
+  const canAddCompany = !connection || (connection.access.allCompanies && ["owner", "admin", "onboarding"].includes(connection.access.role));
   const active = s.companies.filter((c) => c.stage === "Onboarding");
   const buckets = [
     { name: "Application", test: (n: number) => n < 1, color: "blue" },
@@ -533,10 +541,10 @@ export function Onboarding({
         title="Company onboarding"
         description="Bring the next company on board, one clear step at a time."
       >
-        <Button onClick={onNew}>
+        {canAddCompany && <Button onClick={onNew}>
           <Plus />
           Add company
-        </Button>
+        </Button>}
       </Heading>
       <div className="onboarding-summary">
         <span>

@@ -51,7 +51,8 @@ export function OnboardingHub({
   onOpen: (id: string) => void;
   onNew: () => void;
 }) {
-  const { s } = useWorkspace();
+  const { s, connection } = useWorkspace();
+  const canAddCompany = !connection || (connection.access.allCompanies && ["owner", "admin", "onboarding"].includes(connection.access.role));
   const [selected, setSelected] = useState(
     s.companies.find((c) => c.stage === "Onboarding")?.id ||
       s.companies[0]?.id ||
@@ -66,10 +67,10 @@ export function OnboardingHub({
         title="Company onboarding"
         description="Application, evidence and approvals in one shared case."
       >
-        <Button onClick={onNew}>
+        {canAddCompany && <Button onClick={onNew}>
           <Plus />
           Add company
-        </Button>
+        </Button>}
       </Heading>
       <div className="metrics">
         <Metric
