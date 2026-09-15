@@ -60,6 +60,10 @@ import {
 import { WorkspaceProvider, useWorkspace } from "@/lib/title/store";
 import type { Page, VaultDoc } from "@/lib/title/model";
 import { Overview } from "@/components/title/overview";
+import { AgencyOverview } from "@/components/title/agency-overview";
+import { WorkspaceSwitcher } from "@/components/title/workspace-switcher";
+import { useWorkspaceView } from "@/components/title/use-workspace-view";
+import { pageVisibleInWorkspace, workspaceViewPages, type WorkspaceView } from "@/lib/title/workspace-view";
 import {
   Orders,
   NewOrder,
@@ -70,7 +74,6 @@ import {
   Companies,
   NewCompany,
   CompanyDetail,
-  Onboarding,
 } from "@/components/title/companies";
 import {
   Documents,
@@ -86,7 +89,7 @@ import { OnboardingHub } from "@/components/title/onboarding-suite";
 import { ProductionSuite } from "@/components/title/production-suite";
 import { PartnerPortal, Settings } from "@/components/title/workspace";
 import { Assistant } from "@/components/title/assistant";
-import { hostedPilot } from "@/lib/backend/client";
+import { activeWorkspace, hostedPilot } from "@/lib/backend/client";
 const navigation: { label: Page; icon: typeof LayoutGrid }[] = [
   { label: "Overview", icon: LayoutGrid },
   { label: "Assistant", icon: Sparkles },
@@ -107,7 +110,6 @@ const navigation: { label: Page; icon: typeof LayoutGrid }[] = [
   { label: "Connections", icon: Workflow },
 ];
 const pageNames: Page[] = [...navigation.map((n) => n.label), "Settings"];
-const slug = (p: string) => p.toLowerCase().replaceAll(" ", "-");
 export default function Home() {
   return (
     <WorkspaceProvider>
@@ -121,7 +123,13 @@ export default function Home() {
 function Workspace() {
   const { s, ready, connection } = useWorkspace();
   const { setOpenMobile } = useSidebar();
-  const [page, setPage] = useState<Page>("Overview");
+  const workspaceLocation = useWorkspaceView(connection ? {
+    userId: connection.access.userId,
+    email: connection.access.email,
+    role: connection.access.role,
+    workspaceId: activeWorkspace(),
+  } : undefined, s.user, ready);
+  const { page, view } = workspaceLocation;
   const [search, setSearch] = useState(false);
   const [notifications, setNotifications] = useState(false);
   const [orderId, setOrderId] = useState("");
@@ -134,21 +142,9 @@ function Workspace() {
   const [uploadCompany, setUploadCompany] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const storeRef = useRef(s);
-  storeRef.current = s;
   useEffect(() => {
-    const read = () => {
-      setOpenMobile(false);
-      const found = pageNames.find(
-        (p) => slug(p) === window.location.hash.slice(1),
-      );
-      setPage(
-        connection?.access.role === "partner"
-          ? "Partner portal"
-          : found || "Overview",
-      );
-    };
-    read();
-    window.addEventListener("hashchange", read);
+    const closeDrawer = () => setOpenMobile(false);
+    window.addEventListener("hashchange", closeDrawer);
     const key = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
@@ -157,14 +153,23 @@ function Workspace() {
     };
     window.addEventListener("keydown", key);
     return () => {
-      window.removeEventListener("hashchange", read);
+      window.removeEventListener("hashchange", closeDrawer);
       window.removeEventListener("keydown", key);
     };
-  }, [connection?.access.role, setOpenMobile]);
+  }, [setOpenMobile]);
   function navigate(p: Page) {
     setOpenMobile(false);
-    setPage(p);
-    window.location.hash = slug(p);
+    workspaceLocation.navigate(p);
+    setSearch(false);
+    setNotifications(false);
+    setOrderId("");
+    setCompanyId("");
+    setDocId("");
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+  function switchView(next: WorkspaceView) {
+    setOpenMobile(false);
+    workspaceLocation.switchView(next);
     setSearch(false);
     setNotifications(false);
     setOrderId("");
@@ -173,7 +178,10 @@ function Workspace() {
     window.scrollTo({ top: 0, behavior: "instant" });
   }
   const navRef = useRef(navigate);
-  navRef.current = navigate;
+  useEffect(() => {
+    storeRef.current = s;
+    navRef.current = navigate;
+  });
   useEffect(() => {
     if (connection || hostedPilot) return;
     type Tool = {
@@ -284,8 +292,11 @@ function Workspace() {
   let content;
   switch (page) {
     case "Overview":
-      content = (
+      content = view === "agency" ? (
+        <AgencyOverview navigate={navigate} newCompany={() => setNewCompany(true)} openCompany={setCompanyId} />
+      ) : (
         <Overview
+          title="Production overview"
           navigate={navigate}
           newOrder={() => setNewOrder(true)}
           newCompany={() => setNewCompany(true)}
@@ -408,26 +419,25 @@ function Workspace() {
               <span className="brand-company">Title Company</span>
             </span>
           </button>
-          <div className="workspace-switch">
+          {connection?.access.role !== "partner" ? <WorkspaceSwitcher view={view} onChange={switchView} /> : <div className="workspace-switch">
             <span className="workspace-symbol">
               <Building2 size={17} />
             </span>
             <div>
-              <strong>Company operations</strong>
-              <small>North &amp; South Carolina</small>
+              <strong>Partner workspace</strong>
+              <small>Your company statements &amp; documents</small>
             </div>
-          </div>
+          </div>}
         </SidebarHeader>
         <SidebarContent>
-          <p className="nav-caption">WORKSPACE</p>
+          <p className="nav-caption">{connection?.access.role === "partner" ? "PARTNER" : view.toUpperCase()}</p>
           <SidebarMenu>
-            {navigation
+            {(connection?.access.role === "partner" ? navigation : workspaceViewPages[view].map(label => navigation.find(n => n.label === label)!))
               .filter(
                 (n) =>
-                  connection?.access.role !== "partner" ||
-                  n.label === "Partner portal",
+                  pageVisibleInWorkspace(n.label, connection?.access.role),
               )
-              .map(({ label, icon: Icon }, i) => (
+              .map(({ label, icon: Icon }) => (
                 <SidebarMenuItem
                   key={label}
                   className={
@@ -496,7 +506,7 @@ function Workspace() {
         <header className="topbar">
           <span>
             <SidebarTrigger className="mobile-menu" />
-            Workspace <ChevronRight size={13} />
+            {connection?.access.role === "partner" ? "Partner" : view === "agency" ? "Agency" : "Production"} <ChevronRight size={13} />
             <strong>{page}</strong>
           </span>
           <div>
@@ -547,14 +557,14 @@ function Workspace() {
             <CommandList>
               <CommandEmpty>No matching records found.</CommandEmpty>
               <CommandGroup heading="Workspace">
-                {pageNames.map((p) => (
+                {pageNames.filter(p => pageVisibleInWorkspace(p, connection?.access.role)).map((p) => (
                   <CommandItem key={p} onSelect={() => navigate(p)}>
                     {p}
                     <ChevronRight size={14} />
                   </CommandItem>
                 ))}
               </CommandGroup>
-              <CommandGroup heading="Companies">
+              {connection?.access.role !== "partner" && <CommandGroup heading="Companies">
                 {s.companies.map((c) => (
                   <CommandItem
                     key={c.id}
@@ -568,8 +578,8 @@ function Workspace() {
                     <small>{c.jurisdiction}</small>
                   </CommandItem>
                 ))}
-              </CommandGroup>
-              <CommandGroup heading="Orders">
+              </CommandGroup>}
+              {connection?.access.role !== "partner" && <CommandGroup heading="Orders">
                 {s.orders.map((o) => (
                   <CommandItem
                     key={o.id}
@@ -583,7 +593,7 @@ function Workspace() {
                     <small>{o.id}</small>
                   </CommandItem>
                 ))}
-              </CommandGroup>
+              </CommandGroup>}
               <CommandGroup heading="Documents">
                 {s.documents.map((d) => (
                   <CommandItem

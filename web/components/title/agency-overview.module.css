@@ -1,0 +1,70 @@
+.welcome {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 28px;
+  margin-bottom: 24px;
+  background: linear-gradient(115deg, var(--brand-primary-50), #fff 78%);
+}
+.welcomeIcon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 58px;
+  height: 58px;
+  background: white;
+  border: 1px solid #d8e2ee;
+  border-radius: 16px;
+  color: var(--brand-primary);
+}
+.welcomeCopy { flex: 1; min-width: 0; }
+.welcomeCopy h2 { margin: 0 0 6px; color: var(--brand-primary); font-size: 21px; font-weight: 600; letter-spacing: -0.45px; }
+.welcomeCopy p { max-width: 62ch; margin: 0; color: #536477; font-size: 13px; line-height: 1.65; }
+.welcome > button { flex-shrink: 0; }
+.mainGrid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr); gap: 24px; margin-bottom: 24px; }
+.mainGrid > section { min-width: 0; }
+.sectionNote { margin: -5px 23px 17px; color: #697689; font-size: 12px; line-height: 1.6; }
+.caseRow, .portfolioRow, .taskRow, .readinessRow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 18px 23px;
+  text-align: left;
+  border-top: 1px solid #edf0f4;
+  transition: background 130ms ease;
+  cursor: pointer;
+}
+.caseRow:hover, .portfolioRow:hover, .taskRow:hover, .readinessRow:hover { background: #f6f9fc; }
+.caseRow > svg, .portfolioRow > svg, .readinessRow > svg:last-child { flex-shrink: 0; color: #8c9aad; }
+.rowCopy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.rowCopy strong { font-size: 13px; font-weight: 600; color: #283d53; overflow-wrap: anywhere; }
+.rowCopy > span { color: #466888; font-size: 12px; line-height: 1.5; }
+.rowCopy small { color: #6c798a; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.readinessRow { align-items: flex-start; padding-top: 20px; padding-bottom: 20px; }
+.readinessRow > svg:first-child { margin-top: 2px; color: var(--brand-accent); flex-shrink: 0; }
+.readinessRow > span { flex: 1; min-width: 0; display: grid; gap: 5px; }
+.readinessRow strong { font-size: 12px; font-weight: 600; color: #283d53; }
+.readinessRow small { color: #6c798a; font-size: 11px; line-height: 1.6; }
+.taskRow { align-items: flex-start; }
+.panelFooter { padding: 14px 23px; color: #6c798a; font-size: 11px; line-height: 1.5; border-top: 1px solid #edf0f4; background: #fafbfd; }
+@media (max-width: 1120px) {
+  .mainGrid { grid-template-columns: 1fr; }
+  .welcome { flex-wrap: wrap; }
+  .welcome > button { margin-left: 80px; }
+}
+@media (max-width: 600px) {
+  .welcome { gap: 16px; padding: 20px; }
+  .welcomeIcon { flex-basis: 46px; height: 46px; border-radius: 13px; }
+  .welcomeCopy h2 { font-size: 18px; }
+  .welcomeCopy { flex-basis: calc(100% - 62px); }
+  .welcome > button { margin-left: 0; width: 100%; }
+  .caseRow, .portfolioRow, .taskRow, .readinessRow { padding: 17px; gap: 10px; }
+  .portfolioRow { flex-wrap: wrap; }
+  .portfolioRow .rowCopy { flex-basis: calc(100% - 55px); }
+  .portfolioRow > svg:last-child { margin-left: auto; }
+  .taskRow { flex-wrap: wrap; }
+  .taskRow .rowCopy { flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .caseRow, .portfolioRow, .taskRow, .readinessRow { transition: none; }
+}

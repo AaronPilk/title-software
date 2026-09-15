@@ -22,12 +22,14 @@ import {
 import { overviewPremium, reportingDate } from "./overview-summary";
 import styles from "./overview.module.css";
 export function Overview({
+  title = "Your title workspace",
   navigate,
   newOrder,
   newCompany,
   openOrder,
   openCompany,
 }: {
+  title?: string;
   navigate: (p: Page) => void;
   newOrder: () => void;
   newCompany?: () => void;
@@ -55,9 +57,9 @@ export function Overview({
   return (
     <>
       <Heading
-        title="Your title workspace"
+        title={title}
         eyebrow={date.label}
-        description="Here’s what’s happening across your title companies."
+        description="Your incoming requests, open files and policy work."
       >
         {canAddOrder && s.companies.length > 0 && <Button onClick={newOrder}>
           <Plus />

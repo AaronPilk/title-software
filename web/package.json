@@ -34,7 +34,8 @@
     "predev": "npm run ocr:prepare",
     "prebuild": "npm run ocr:prepare",
     "prebuild:pilot": "npm run ocr:prepare",
-    "test:ocr": "node scripts/test-local-ocr.mjs"
+    "test:ocr": "node scripts/test-local-ocr.mjs",
+    "test:workspace:views": "node --test --test-concurrency=1 tests/company-create-access-ui.test.mjs tests/agency-overview-ui.test.mjs tests/workspace-view-ui.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
