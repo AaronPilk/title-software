@@ -35,4 +35,12 @@ The first domain run exposed 12 date-dependent delivery fixture failures: prepar
 
 TypeScript, focused lint, Edge bundles, ordinary and pilot production builds, deployment dry-run and whitespace checks passed. The existing repository-wide lint debt and large-client-chunk warning remain; neither is claimed resolved by this bounded pass.
 
+## Released and checked on the hosted pilot
+
+Commits `d1a52c7` (stable delivery fixture clock) and `be54d1c` (staff identities, regression tests and this report) were integrated fast-forward and pushed to GitHub. The deployed frontend is `33ec2e2f-1bbd-4550-ac77-e77f109103c5`; `title-api` is version 13 with JWT verification enabled, SHA-256 `4122ba57b9121fa00b9d871876ba1b4333a557c91031d3baa1e4a0180c426f3d`. The event receiver, assistant service and 15 applied migrations are unchanged.
+
+The refreshed hosted owner session loaded the workspace and Team & access displayed all seven real account emails successfully. All six staff entries still explicitly showed **No company access assigned**. The prepared invitation remains unsubmitted; live non-owner isolation remains pending.
+
+Cloudflare Access still protects both hostname and Worker through the existing seven-person policy; preview URLs remain disabled. Anonymous requests received HTTP 302 at the application and HTTP 401 at the member API. These checks did not create new permissions or read client documents.
+
 Private evidence: `.local/coordination/hosted-acceptance-2026-09-15/`.

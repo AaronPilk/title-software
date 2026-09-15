@@ -4,12 +4,12 @@ Deployed September 13, 2026 at **https://title-software-pilot.aaron-9c3.workers.
 
 ## Deployment
 
-Updated September 14 with the [PDF requirements implementation](REQUIREMENTS_IMPLEMENTATION.md). That guide records the current feature scope, 2,465 automated test passes, existing 224 database assertions plus five routing and five credential transaction rounds and the limits of live verification.
+Updated September 15 with the [hosted owner/company acceptance pass](testing/hosted-acceptance-2026-09-15.md). The [PDF requirements implementation](REQUIREMENTS_IMPLEMENTATION.md) records the wider feature scope and earlier verification; the latest report distinguishes live checks from synthetic tests.
 
-- Cloudflare Worker: `title-software-pilot`; current version `7f29f5e4-6f4c-4c3a-be42-9865575b5c2d`.
+- Cloudflare Worker: `title-software-pilot`; current version `33ec2e2f-1bbd-4550-ac77-e77f109103c5`.
 - Private assistant Worker: `title-personal-assistant`; version `deaaa4ea-6e0c-412c-a9d7-46ed5c557f03`. It is reached through the application service binding, with public Worker and preview URLs disabled.
-- Supabase project: `yhneskzvmtcmbsknidlt`; `title-api` version 10, JWT verification enabled; bundle SHA-256 `2c12bc8486b52ec5573255286c2d329fe19d45b147cccf7d260e0a78440c3b4e`. Fourteen migrations are applied. The latest update adds multiple-company routing and encrypted workspace Missive credential settings.
-- Dedicated `title-missive-events` version 2 uses raw-body HMAC authentication and has JWT verification disabled for Missive's webhook delivery. Its bundle SHA-256 is `3695364a053e7bbb0f5e8ccc0d1a47d5a85726fb36627fee471476a9330dcb0f`. The deployed receiver remains inactive until its workspace, signing secret and rule IDs are configured.
+- Supabase project: `yhneskzvmtcmbsknidlt`; `title-api` version 13, JWT verification enabled; bundle SHA-256 `4122ba57b9121fa00b9d871876ba1b4333a557c91031d3baa1e4a0180c426f3d`. Fifteen migrations are applied. The latest update resolves staff account emails within the existing administrator/workspace boundary; it requires no migration.
+- Dedicated `title-missive-events` version 3 uses raw-body HMAC authentication and has JWT verification disabled for Missive's webhook delivery. Its bundle SHA-256 is `e9fd64ac43e1ae89b027c1b1ed8395b9d19013d246c8d5ac95d0c7172000c774`. The deployed receiver remains inactive until its workspace, signing secret and rule IDs are configured.
 - Cloudflare Access protects the hostname and the Worker itself. The sole remaining policy allows the seven explicitly approved staff emails with an eight-hour session. Preview URLs are disabled; there are no extra routes or custom domains.
 - Anonymous requests redirect to Cloudflare Access. Cloudflare's email-code gate is separate from the application's Supabase sign-in and authenticator check.
 - The deployed bundle has no sample-workspace entry or account registration button. Missing hosted backend configuration fails closed. Local builds retain explicit sample mode.
@@ -23,7 +23,7 @@ The owner is `aaron@pilk.ai`. All seven accounts received distinct temporary pas
 
 Private startup instructions and the temporary credentials are on the owner's Mac under the ignored `.local/pilot/` directory, with owner-only filesystem permissions. They must not be committed or published. No staff messages or credential emails were sent.
 
-The real Ballantyne workspace has no business records yet. The owner has full workspace access. The other six accounts retain operations roles with no company assignments until the owner grants the intended scope in Settings. The deployment does not infer company assignments from email addresses.
+The owner has completed personal password/authenticator setup and has full workspace access. The workspace now contains the owner's Ballantyne Title company and one clearly labeled fictional QA company retained for staff acceptance, each with an initial onboarding task. No live client files were created by the acceptance pass. The other six accounts retain Operations roles with no company assignments until the owner grants the intended scope in Settings. The deployment does not infer company assignments from email addresses.
 
 ## Password and recovery behavior
 
@@ -128,3 +128,9 @@ The deployed frontend includes scan orientation controls, Missive stale-response
 ## September 14 hosted setup follow-up
 
 The subsequent setup release is frontend `8e808a1e-4c7e-4305-9dab-e793d9d733a2`, API version 12, event version 3, with the same 15 migrations. It fixes connection/MFA recovery, partial password completion feedback and conflicting pending-invitation feedback. The [setup report](testing/hosted-setup-2026-09-14.md) records 539 passing tests, deployment checks and the exact acceptance boundary: the real owner credential signs in, but the owner must finish personal password and authenticator setup before the live company/staff walkthrough continues. No live business records or staff permissions were changed in this pass.
+
+## September 15 owner/company acceptance
+
+The owner has completed password and authenticator setup. The actual hosted walkthrough created one fictional QA company, verified persistence after reload, and checked its onboarding case and automatic task. The owner's existing Ballantyne Title company was preserved. A QA-only staff invitation is filled in but unsubmitted pending access confirmation; all six staff still have no company scope and need personal setup.
+
+The current release fixes the Team & access directory displaying opaque account IDs. A live check on the deployed build resolved all seven account emails. The [acceptance report](testing/hosted-acceptance-2026-09-15.md) records 417 passing focused tests, release versions and the remaining real non-owner isolation test. No complete staff acceptance or live provider integration is claimed.
