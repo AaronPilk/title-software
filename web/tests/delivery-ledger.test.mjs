@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createSeed } from "../.local-test/model.js";
 import { validateBusinessMutation } from "../.local-test/business.js";
@@ -21,6 +21,9 @@ import {
 } from "../.local-test/delivery-ledger.js";
 
 const NOW = new Date("2026-09-14T12:00:00Z");
+// Preparation uses the system clock; recording below uses the fixed NOW.
+// Keep both on the same day so these fixtures do not expire as time advances.
+beforeEach((t) => t.mock.timers.enable({ apis: ["Date"], now: NOW }));
 const day = (n) =>
   new Date(Date.parse("2026-09-14T00:00:00Z") + n * 86_400_000)
     .toISOString()
@@ -70,6 +73,7 @@ test("preparing a delivery freezes the document version, recipient and operator"
   assert.equal(r.attempt, 1);
   assert.equal(r.previousDeliveryId, "");
   assert.equal(r.preparedBy, "Tyler");
+  assert.equal(r.preparedAt, NOW.toISOString());
   assert.equal(r.snapshot.documentName, "Final policy.pdf");
   assert.equal(r.snapshot.documentVersion, 1);
   assert.equal(r.snapshot.sourceRole, "Final policy");
