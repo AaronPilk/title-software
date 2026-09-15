@@ -37,3 +37,9 @@ Typecheck, focused new/changed-code lint, normal build, pilot build and deployme
 The actual locally running app was checked in desktop and 390-pixel mobile views: Agency dashboard, Production switch/navigation, and mobile drawer dismissal after switching. The mobile page had no horizontal overflow; captured console warning/error logs were empty. No real company or staff permissions were changed during this UI pass.
 
 Stephenie's real account test remains paused because she is unavailable. Her valid QA-only invitation is saved but unclaimed; personal password/authenticator setup is still required. See the [hosted acceptance report](hosted-acceptance-2026-09-15.md).
+
+## Release
+
+Implementation commits `13d1c56` (company creation controls) and `d7be208` (Agency/Production views) were integrated fast-forward and pushed. Frontend version `58014f64-1360-49ca-a6ea-9a2e615fd1de` is deployed. The refreshed hosted owner session opened both Agency and Production successfully over the same two companies. The backend remains `title-api` 13, events 3, with 15 migrations; no backend redeployment was needed.
+
+Cloudflare Access continues to protect the hostname and Worker for seven staff, preview URLs remain disabled, and anonymous application access redirects with HTTP 302. Main's ordinary local build was restored and the Codex preview on port 5175 restarted; its saved sample records still load under the new navigation. Temporary test browser tabs and the 5176 preview were closed. Hosted and local review tabs were left on Agency overview.

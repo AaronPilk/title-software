@@ -6,7 +6,7 @@ Deployed September 13, 2026 at **https://title-software-pilot.aaron-9c3.workers.
 
 Updated September 15 with the [hosted owner/company acceptance pass](testing/hosted-acceptance-2026-09-15.md). The [PDF requirements implementation](REQUIREMENTS_IMPLEMENTATION.md) records the wider feature scope and earlier verification; the latest report distinguishes live checks from synthetic tests.
 
-- Cloudflare Worker: `title-software-pilot`; current version `33ec2e2f-1bbd-4550-ac77-e77f109103c5`.
+- Cloudflare Worker: `title-software-pilot`; current version `58014f64-1360-49ca-a6ea-9a2e615fd1de`.
 - Private assistant Worker: `title-personal-assistant`; version `deaaa4ea-6e0c-412c-a9d7-46ed5c557f03`. It is reached through the application service binding, with public Worker and preview URLs disabled.
 - Supabase project: `yhneskzvmtcmbsknidlt`; `title-api` version 13, JWT verification enabled; bundle SHA-256 `4122ba57b9121fa00b9d871876ba1b4333a557c91031d3baa1e4a0180c426f3d`. Fifteen migrations are applied. The latest update resolves staff account emails within the existing administrator/workspace boundary; it requires no migration.
 - Dedicated `title-missive-events` version 3 uses raw-body HMAC authentication and has JWT verification disabled for Missive's webhook delivery. Its bundle SHA-256 is `e9fd64ac43e1ae89b027c1b1ed8395b9d19013d246c8d5ac95d0c7172000c774`. The deployed receiver remains inactive until its workspace, signing secret and rule IDs are configured.
@@ -131,6 +131,12 @@ The subsequent setup release is frontend `8e808a1e-4c7e-4305-9dab-e793d9d733a2`,
 
 ## September 15 owner/company acceptance
 
-The owner has completed password and authenticator setup. The actual hosted walkthrough created one fictional QA company, verified persistence after reload, and checked its onboarding case and automatic task. The owner's existing Ballantyne Title company was preserved. A QA-only staff invitation is filled in but unsubmitted pending access confirmation; all six staff still have no company scope and need personal setup.
+The owner has completed password and authenticator setup. The actual hosted walkthrough created one fictional QA company, verified persistence after reload, and checked its onboarding case and automatic task. The owner's existing Ballantyne Title company was preserved. Aaron subsequently prepared Stephenie's QA-only invitation himself. It remains unclaimed while she is unavailable for personal password/authenticator setup; the six staff memberships still have no company scope.
 
 The current release fixes the Team & access directory displaying opaque account IDs. A live check on the deployed build resolved all seven account emails. The [acceptance report](testing/hosted-acceptance-2026-09-15.md) records 417 passing focused tests, release versions and the remaining real non-owner isolation test. No complete staff acceptance or live provider integration is claimed.
+
+## September 15 Agency and Production views
+
+The current frontend adds Agency and Production navigation and separate home screens, following both call transcripts and Aaron's confirmed preference: Stephenie and John start in Agency, Tyler in Production, and internal staff can switch views. Preferences are separate per workspace/account. Existing records and backend permissions are shared; current Operations memberships have not been promoted to management roles.
+
+The [workspace view report](testing/agency-production-2026-09-15.md) records 371 passing tests, desktop/mobile checks and real hosted owner acceptance. It also covers permission-aware company creation controls and accurate handling of application evidence hidden from an account. The backend, event receiver and migration count are unchanged.
