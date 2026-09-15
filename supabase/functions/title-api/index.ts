@@ -451,15 +451,46 @@ Deno.serve(async (req) => {
     }
     if (pathname === "/members" && req.method === "GET") {
       administrator(a);
+      const memberships = checked(
+        await service
+          .from("title_memberships")
+          .select(
+            "user_id,role,company_ids,all_companies,restricted_access,partner_members,active,version",
+          )
+          .eq("workspace_id", wid),
+      );
+      const members = [];
+      const identityDeadline = Date.now() + 8000;
+      const identityClient = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { fetch: (input, init) => fetch(input, {
+          ...init,
+          signal: AbortSignal.any([
+            ...(init?.signal ? [init.signal] : []),
+            AbortSignal.timeout(Math.max(1, Math.min(3000, identityDeadline - Date.now()))),
+          ]),
+        }) },
+      });
+      // Resolve only IDs already scoped to this workspace. Keep Auth traffic
+      // bounded, and never return the Auth profile or its metadata to the UI.
+      for (let offset = 0; offset < memberships.length; offset += 4) {
+        const batch = await Promise.all(memberships.slice(offset, offset + 4).map(async (membership: any) => {
+          let email: string | null = null;
+          if (Date.now() >= identityDeadline) return { ...membership, email };
+          try {
+            const lookup = await identityClient.auth.admin.getUserById(membership.user_id);
+            if (!lookup.error && lookup.data?.user?.id === membership.user_id &&
+              typeof lookup.data.user.email === "string" && lookup.data.user.email.trim())
+              email = lookup.data.user.email.trim();
+          } catch {
+            // One unavailable identity must not hide the other workspace members.
+          }
+          return { ...membership, email };
+        }));
+        members.push(...batch);
+      }
       return response({
-        members: checked(
-          await service
-            .from("title_memberships")
-            .select(
-              "user_id,role,company_ids,all_companies,restricted_access,partner_members,active,version",
-            )
-            .eq("workspace_id", wid),
-        ),
+        members,
         invitations: checked(
           await service
             .from("title_invitations")

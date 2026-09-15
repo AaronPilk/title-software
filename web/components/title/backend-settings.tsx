@@ -14,7 +14,7 @@ import { Picker } from "./shared";
 import { MissiveSettings } from "./missive-settings";
 
 export type BackendSettingsSection = "Account" | "Connections" | "Team & access" | "Recovery";
-type Membership = { user_id: string; role: string; company_ids: string[]; all_companies: boolean; active: boolean };
+type Membership = { user_id: string; email: string | null; role: string; company_ids: string[]; all_companies: boolean; active: boolean };
 type Invitation = { id: string; email: string; role: string; company_ids: string[]; all_companies: boolean; restricted_access: boolean; revoked_at: string | null; accepted_at: string | null };
 type RecoveryPoint = { id: string; revision: number; created_at: string };
 type SettingsData = { members?: Membership[]; invitations?: Invitation[]; backups?: RecoveryPoint[] };
@@ -195,13 +195,13 @@ export function BackendSettings({ section = "Account" }: { section?: BackendSett
                 Prepare access invitation
               </Button>
             </form>
+            {members.some((m) => !m.email) && <p className="form-note">Some account emails are unavailable. Refresh to retry; account IDs are shown so you can distinguish these memberships.</p>}
             <div className="backend-access-list">
               {members.map((m) => (
                 <div key={m.user_id}>
                   <span>
-                    {m.user_id === connection.access.userId
-                      ? connection.access.email
-                      : m.user_id}
+                    {m.email || "Email unavailable"}
+                    {!m.email && <small>Account ID: {m.user_id}</small>}
                     <small>
                       {m.role} · {m.active ? "Active" : "Revoked"}
                     </small>
