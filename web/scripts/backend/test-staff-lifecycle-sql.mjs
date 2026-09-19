@@ -49,8 +49,8 @@ try {
   for(const name of ['20260912142734_title_backend_foundation.sql','20260912145118_title_verified_access_gateway.sql','20260912145505_title_explicit_conflicts.sql',
     '20260912163349_title_missive_reviewed_import.sql','20260914204132_title_reviewed_attachment_commit.sql',
     '20260914204134_title_missive_event_transactions.sql','20260914212201_title_multi_company_missive_routing.sql',
-    '20260914222408_title_preserve_shared_inbox_context.sql','20260919211810_title_staff_access_lifecycle.sql','20260919212436_title_invitation_email_delivery.sql','20260919213925_title_atomic_staff_assignments.sql']) {
-    if(name==='20260919211810_title_staff_access_lifecycle.sql') {
+    '20260914222408_title_preserve_shared_inbox_context.sql','20260919215301_title_staff_access_lifecycle.sql','20260919215303_title_invitation_email_delivery.sql','20260919215304_title_atomic_staff_assignments.sql']) {
+    if(name==='20260919215301_title_staff_access_lifecycle.sql') {
       // These records exist BEFORE the migration. They model legacy grants;
       // all Auth records and mutations here live only in disposable PostgreSQL.
       sql(`insert into auth.users(id,email,email_confirmed_at) values
@@ -71,7 +71,7 @@ try {
           from (values ('STAFF@example.test'),('new@example.test'),('accepted@example.test'),('cancelled@example.test'),('expired@example.test'),('ambiguous@example.test')) fixture(email);`);
     }
     sql(fs.readFileSync(path.join(root,'supabase/migrations',name),'utf8'));
-    if(name==='20260919211810_title_staff_access_lifecycle.sql') {
+    if(name==='20260919215301_title_staff_access_lifecycle.sql') {
       assert.equal(sql(`select recipient_user_id::text from public.title_invitations where email='STAFF@example.test';`).trim(),staff,'usable legacy grant binds its unique current Auth identity');
       for(const email of ['new@example.test','accepted@example.test','cancelled@example.test','expired@example.test','ambiguous@example.test'])
         assert.equal(sql(`select (recipient_user_id is null)::text from public.title_invitations where email='${email}';`).trim(),'true',`${email} must not be backfilled`);

@@ -4,11 +4,11 @@ Deployed September 13, 2026 at **https://title-software-pilot.aaron-9c3.workers.
 
 ## Deployment
 
-Updated September 15 with the [hosted owner/company acceptance pass](testing/hosted-acceptance-2026-09-15.md). The [PDF requirements implementation](REQUIREMENTS_IMPLEMENTATION.md) records the wider feature scope and earlier verification; the latest report distinguishes live checks from synthetic tests.
+Updated September 19 with the [staff lifecycle and daily-use release](testing/staff-lifecycle-2026-09-19.md). The earlier [hosted owner/company acceptance pass](testing/hosted-acceptance-2026-09-15.md) remains the last signed-in hosted walkthrough. The [PDF requirements implementation](REQUIREMENTS_IMPLEMENTATION.md) records the wider feature scope and earlier verification; the latest report distinguishes live checks from synthetic tests.
 
-- Cloudflare Worker: `title-software-pilot`; current version `58014f64-1360-49ca-a6ea-9a2e615fd1de`.
+- Cloudflare Worker: `title-software-pilot`; current version `fbc1582d-a1d2-4ceb-b9d1-17818ec23ba9`.
 - Private assistant Worker: `title-personal-assistant`; version `deaaa4ea-6e0c-412c-a9d7-46ed5c557f03`. It is reached through the application service binding, with public Worker and preview URLs disabled.
-- Supabase project: `yhneskzvmtcmbsknidlt`; `title-api` version 13, JWT verification enabled; bundle SHA-256 `4122ba57b9121fa00b9d871876ba1b4333a557c91031d3baa1e4a0180c426f3d`. Fifteen migrations are applied. The latest update resolves staff account emails within the existing administrator/workspace boundary; it requires no migration.
+- Supabase project: `yhneskzvmtcmbsknidlt`; `title-api` version 14, JWT verification enabled; source bundle SHA-256 `3ce9efb30dfac2c72d67286cf2638b0191b54c352d0356cdca5600a6e5df45ae`. Eighteen migrations are applied. Staff access lifecycle, audited email requests and atomic staff assignment checks are included. See the [staff access guide](staff-access.md) for email activation; no sender secrets were changed and no email was sent in this release.
 - Dedicated `title-missive-events` version 3 uses raw-body HMAC authentication and has JWT verification disabled for Missive's webhook delivery. Its bundle SHA-256 is `e9fd64ac43e1ae89b027c1b1ed8395b9d19013d246c8d5ac95d0c7172000c774`. The deployed receiver remains inactive until its workspace, signing secret and rule IDs are configured.
 - Cloudflare Access protects the hostname and the Worker itself. The sole remaining policy allows the seven explicitly approved staff emails with an eight-hour session. Preview URLs are disabled; there are no extra routes or custom domains.
 - Anonymous requests redirect to Cloudflare Access. Cloudflare's email-code gate is separate from the application's Supabase sign-in and authenticator check.
