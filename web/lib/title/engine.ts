@@ -1,4 +1,5 @@
-import { traceMutation, commandUuid } from "./command-log";
+import { businessDay, nextWeekday } from "./business-date";
+import { traceMutation } from "./command-log";
 import { ledgerLines } from "./business";
 import { onboardingSteps, onboardingOwner, type Workspace } from "./model";
 export function executeRules(d: Workspace, ids: string[]) {
@@ -32,9 +33,10 @@ export function executeRules(d: Workspace, ids: string[]) {
               title,
               companyId: c.id,
               owner: onboardingOwner(c.steps.findIndex((x) => !x)),
-              due: "2026-09-15",
+              due: nextWeekday(businessDay()),
               priority: "Normal",
               done: false,
+            createdAt: new Date().toISOString(),
             });
             count++;
           }
@@ -48,16 +50,17 @@ export function executeRules(d: Workspace, ids: string[]) {
               title: `Review rejected order ${o.id}`,
               companyId: o.companyId,
               owner: "John",
-              due: "2026-09-15",
+              due: nextWeekday(businessDay()),
               priority: "High",
               done: false,
+            createdAt: new Date().toISOString(),
             });
             count++;
           }
         }
       if (id === "renewals") {
-        const cutoffDate = new Date();
-        cutoffDate.setDate(cutoffDate.getDate() + 30);
+        const cutoffDate = new Date(`${businessDay()}T12:00:00Z`);
+        cutoffDate.setUTCDate(cutoffDate.getUTCDate() + 30);
         const cutoff = cutoffDate.toISOString().slice(0, 10);
         for (const record of d.business?.credentials || []) {
           const due = [record.expiresOn, record.reviewOn]
@@ -74,6 +77,7 @@ export function executeRules(d: Workspace, ids: string[]) {
             due,
             priority: "High",
             done: false,
+            createdAt: new Date().toISOString(),
           });
           count++;
         }

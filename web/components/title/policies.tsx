@@ -1,4 +1,8 @@
 "use client";
+import { StaffAssignmentPicker } from "./staff-assignment-picker";
+import { chooseStaffAssignment, useStaffDirectory } from "./use-staff-directory";
+import { businessDay, nextWeekday } from "@/lib/title/business-date";
+import { canManageProduction } from "@/lib/title/workspace-capabilities";
 import { BufferedInput } from "./buffered-input";
 import {
   recordOrderOutcome,
@@ -11,13 +15,11 @@ import {
   AlertCircle,
   ArrowRight,
   Check,
-  CheckCheck,
   Download,
   FileText,
   Plus,
   ScanLine,
   ShieldCheck,
-  Upload,
   ChevronRight,
   MessageSquare,
   ClipboardCheck,
@@ -45,7 +47,6 @@ import { useWorkspace, download, exportCsv } from "@/lib/title/store";
 import {
   companyById,
   money,
-  uid,
   orderOutcomeKinds,
   type Order,
   type OrderStatus,
@@ -86,7 +87,8 @@ export function Orders({
   onOpen: (id: string) => void;
   onNew: () => void;
 }) {
-  const { s } = useWorkspace();
+  const { s, connection } = useWorkspace();
+  const canEdit = canManageProduction(connection);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("All orders");
   const [company, setCompany] = useState("all");
@@ -106,7 +108,7 @@ export function Orders({
           onClick={() =>
             exportCsv("titleos-orders.csv", [
               [
-                "Demo data",
+                "Order ID",
                 "Company",
                 "Address",
                 "Client",
@@ -129,10 +131,10 @@ export function Orders({
           <Download />
           Export
         </Button>
-        <Button onClick={onNew}>
+        {canEdit && <Button onClick={onNew}>
           <Plus />
           New order
-        </Button>
+        </Button>}
       </Heading>
       <div className="toolbar">
         <Segments
@@ -218,7 +220,7 @@ export function Orders({
         {!rows.length && <Empty />}
         <div className="table-foot">
           {rows.length} orders{" "}
-          <span>Fictional transactions · Local workspace</span>
+          <span>{connection ? "Shared workspace records" : "Fictional transactions · Local workspace"}</span>
         </div>
       </section>
     </>
@@ -231,9 +233,13 @@ export function NewOrder({
   open: boolean;
   onClose: () => void;
 }) {
-  const { s, update } = useWorkspace();
+  const { s, update: save, connection } = useWorkspace();
+  const canEdit = canManageProduction(connection);
+  const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
   const [company, setCompany] = useState(s.companies[0]?.id || "");
-  const [owner, setOwner] = useState("Tyler");
+  const [owner, setOwner] = useState(connection?.access.userId || "Tyler");
+  const directory = useStaffDirectory(company, "order");
+  const chosenAssignee = directory.staff.find(member => member.userId === owner);
   const [type, setType] = useState("Purchase");
   const [underwriter, setUnderwriter] = useState("WFG");
   const [state, setState] = useState(
@@ -247,6 +253,7 @@ export function NewOrder({
   ];
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!canEdit || directory.loading || directory.error || !chosenAssignee) return;
     if (!s.companies.some((c) => c.id === company)) {
       toast.error("Create or select a company first.");
       return;
@@ -258,19 +265,20 @@ export function NewOrder({
       toast.error("Enter a property address and client name.");
       return;
     }
-    const id = `T-2026-${Math.max(1048, ...s.orders.map((o) => Number(o.id.split("-").at(-1)) || 0)) + 1}`;
+    const year = businessDay().slice(0, 4);
+    const id = `T-${year}-${Math.max(0, ...s.orders.filter(o => o.id.startsWith(`T-${year}-`)).map((o) => Number(o.id.split("-").at(-1)) || 0)) + 1}`;
     if (
       !(await update(
         (d) =>
           d.orders.unshift({
-            receivedAt: new Date().toISOString().slice(0, 10),
+            receivedAt: businessDay(),
             id,
             companyId: company,
             address,
             client,
             type,
             underwriter,
-            owner,
+            ...chooseStaffAssignment(directory.staff, owner),
             jurisdiction: state,
             delivered: false,
             remitted: false,
@@ -291,7 +299,7 @@ export function NewOrder({
     onClose();
   }
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={open && canEdit} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="modal">
         <DialogHeader>
           <DialogTitle>New order</DialogTitle>
@@ -355,10 +363,11 @@ export function NewOrder({
             </FieldLabel>
             <FieldLabel label="Assigned to">
               <Picker
-                value={owner}
+                value={chosenAssignee?.userId || "__choose"}
                 onChange={setOwner}
                 label="Assigned to"
-                options={["Tyler", "John", "Stephenie"]}
+                disabled={directory.loading || !!directory.error}
+                options={[{ value: "__choose", label: directory.loading ? "Loading staff…" : "Choose staff" }, ...directory.staff.map(member => ({ value: member.userId, label: member.label }))]}
               />
             </FieldLabel>
             <FieldLabel label="Due date">
@@ -366,7 +375,7 @@ export function NewOrder({
                 name="due"
                 type="date"
                 required
-                defaultValue="2026-09-15"
+                defaultValue={nextWeekday(businessDay())}
               />
             </FieldLabel>
             <FieldLabel label="Estimated premium ($)">
@@ -384,11 +393,13 @@ export function NewOrder({
           <p className="form-note">
             Premiums are planning figures. No policy is issued or submitted.
           </p>
+          {directory.error && <p className="form-note">{directory.error} <Button type="button" variant="link" onClick={directory.refresh}>Refresh staff</Button></p>}
+          {!directory.loading && !directory.error && !directory.staff.length && <p className="form-note">No available production staff for this company. Ask an administrator to assign company access.</p>}
           <div className="form-actions">
             <Button variant="outline" type="button" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit">Create order</Button>
+            <Button type="submit" disabled={!chosenAssignee || directory.loading || !!directory.error}>Create order</Button>
           </div>
         </form>
       </DialogContent>
@@ -402,7 +413,9 @@ export function PolicyWorkbench({
   selectedId: string;
   onSelect: (id: string) => void;
 }) {
-  const { s, update } = useWorkspace();
+  const { s, update: save, connection } = useWorkspace();
+  const canEdit = canManageProduction(connection);
+  const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
   const [filter, setFilter] = useState("All finals");
   const [company, setCompany] = useState("all");
   const [assignee, setAssignee] = useState("all");
@@ -427,7 +440,7 @@ export function PolicyWorkbench({
         neededFields(order).some((def) => def.id === f.id),
       )
     : [];
-  const locked = !!order && productionLocked(s, order);
+  const locked = !canEdit || (!!order && productionLocked(s, order));
   useEffect(() => {
     setAttorney(false);
     setAttorneyRef("");
@@ -439,7 +452,7 @@ export function PolicyWorkbench({
     setAttorneyRef("");
   }
   async function changeField(id: string, value: string) {
-    if (!order) return;
+    if (!canEdit || !order) return;
     setAttorney(false);
     await update((d) => {
       const o = d.orders.find((x) => x.id === order.id)!;
@@ -452,6 +465,7 @@ export function PolicyWorkbench({
   }
   async function prepare() {
     if (
+      !canEdit ||
       !order ||
       !complete ||
       order.exception ||
@@ -467,7 +481,7 @@ export function PolicyWorkbench({
             "The source package changed. Review the current preparation checks.",
           );
         o.status = "Ready for jacket";
-        o.notes += `\nDemo attorney-review reference: ${attorneyRef.trim()}`;
+        o.notes += `\nAttorney-review reference: ${attorneyRef.trim()}`;
       },
       "Review package prepared",
       `${order.id} · awaiting underwriter handoff`,
@@ -477,7 +491,7 @@ export function PolicyWorkbench({
       `${order.id}-review-package.json`,
       JSON.stringify(
         {
-          demo: true,
+          demo: !connection,
           notAPolicy: true,
           orderId: order.id,
           companyId: order.companyId,
@@ -611,13 +625,13 @@ export function PolicyWorkbench({
                 ]}
               />
               {tab === "Source package" && (
-                <><FinalSources key={order.id} order={order} /><ReferencedSources key={`${order.id}:references`} order={order} /></>
+                <fieldset disabled={!canEdit} style={{ display: "contents" }}><FinalSources key={order.id} order={order} /><ReferencedSources key={`${order.id}:references`} order={order} /></fieldset>
               )}
               {tab === "File details" && (
-                <TitleFileDetails
+                <fieldset disabled={!canEdit} style={{ display: "contents" }}><TitleFileDetails
                   key={order.id + ":" + titleFile(order).version}
                   order={order}
-                />
+                /></fieldset>
               )}
               {tab === "Document review" && (
                 <>
@@ -634,6 +648,7 @@ export function PolicyWorkbench({
                       <Button
                         variant="outline"
                         size="sm"
+                        disabled={!canEdit}
                         onClick={async () => {
                           await update(
                             (d) => {
@@ -642,12 +657,12 @@ export function PolicyWorkbench({
                               )!;
                               o.exception = "";
                             },
-                            "Demo source issue resolved",
+                            "Source issue resolved",
                             order.id,
                           );
                         }}
                       >
-                        Resolve in demo
+                        Resolve source issue
                       </Button>
                     </div>
                   )}
@@ -657,7 +672,7 @@ export function PolicyWorkbench({
                         <div className="document-preview">
                           <div className="document-toolbar">
                             <FileText size={15} />
-                            Recorded document excerpts<span>DEMO</span>
+                            Recorded document excerpts{!connection && <span>DEMO</span>}
                           </div>
                           <div className="paper">
                             <p className="paper-label">
@@ -789,8 +804,7 @@ export function PolicyWorkbench({
                             disabled={locked}
                             onCheckedChange={(v) => setAttorney(v === true)}
                           />
-                          Attorney review / opinion verified for this demo
-                          package
+                          Attorney review / opinion verified for this package
                         </label>
                         <Input
                           aria-label="Attorney review reference"
@@ -849,7 +863,9 @@ export function PolicyWorkbench({
   );
 }
 export function PolicyLifecycle({ order }: { order: Order }) {
-  const { s, update } = useWorkspace();
+  const { s, update: save, connection } = useWorkspace();
+  const canEdit = canManageProduction(connection);
+  const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
   const [reference, setReference] = useState("");
   const stages = [
     [
@@ -866,7 +882,7 @@ export function PolicyLifecycle({ order }: { order: Order }) {
   return (
     <div className="lifecycle">
       <p className="inline-note">
-        Local simulation. No underwriter portal, filing, delivery service, or
+        Record external confirmations here. No underwriter portal, filing, delivery service, or
         payment account is connected.
       </p>
       {stages.map(([name, done], i) => (
@@ -891,14 +907,14 @@ export function PolicyLifecycle({ order }: { order: Order }) {
           <Status value={done ? "Complete" : "Pending"} />
         </div>
       ))}
-      {order.status === "Ready for jacket" &&
+      {canEdit && order.status === "Ready for jacket" &&
         !s.business?.policies.some(
           (p) => p.orderId === order.id && p.status !== "Void",
         ) && (
           <div className="lifecycle-action">
             <Input
-              aria-label="Demo jacket reference"
-              placeholder="Demo jacket reference (e.g. DEMO-001)"
+              aria-label="Jacket reference"
+              placeholder="Provider jacket reference"
               value={reference}
               onChange={(e) => setReference(e.target.value)}
             />
@@ -924,18 +940,18 @@ export function PolicyLifecycle({ order }: { order: Order }) {
                         "The preparation evidence changed. Complete the current review before recording issuance.",
                       );
                     o.status = "Issued";
-                    o.notes += `\nDemo jacket reference: ${reference.trim()}`;
+                    o.notes += `\nJacket reference: ${reference.trim()}`;
                   },
-                  "Demo issuance recorded",
+                  "Issuance recorded",
                   `${order.id} · no external submission`,
                 )
               }
             >
-              Record demo issuance
+              Record issuance
             </Button>
           </div>
         )}
-      {order.status === "Issued" &&
+      {canEdit && order.status === "Issued" &&
         !order.delivered &&
         !s.business?.policies.some(
           (p) => p.orderId === order.id && p.status !== "Void",
@@ -946,30 +962,34 @@ export function PolicyLifecycle({ order }: { order: Order }) {
                 (d) => {
                   d.orders.find((x) => x.id === order.id)!.delivered = true;
                 },
-                "Demo delivery recorded",
+                "Delivery recorded",
                 `${order.id} · no message sent`,
               )
             }
           >
-            Record demo delivery
+            Record delivery
           </Button>
         )}
     </div>
   );
 }
 export function OrderNotes({ order }: { order: Order }) {
-  const { update } = useWorkspace();
+  const { update: save, connection } = useWorkspace();
+  const canEdit = canManageProduction(connection);
+  const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
   const [note, setNote] = useState(order.notes);
   return (
     <div className="notes-panel">
       <FieldLabel label="Order notes">
         <Textarea
           value={note}
+          readOnly={!canEdit}
           onChange={(e) => setNote(e.target.value)}
           rows={9}
         />
       </FieldLabel>
       <Button
+        disabled={!canEdit}
         onClick={async () =>
           await update(
             (d) => {
@@ -995,7 +1015,9 @@ export function OrderDetail({
   onClose: () => void;
   onReview: (id: string) => void;
 }) {
-  const { s, update } = useWorkspace();
+  const { s, update: save, connection } = useWorkspace();
+  const canEdit = canManageProduction(connection);
+  const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
   const o = s.orders.find((x) => x.id === id);
   if (!o) return null;
   return (
@@ -1042,24 +1064,12 @@ export function OrderDetail({
               <strong>{o.receivedAt || "Not recorded"}</strong>
             </div>
           </div>
-          {!o.receivedAt && <ReceivedDateBackfill order={o} />}
+          {canEdit && !o.receivedAt && <ReceivedDateBackfill order={o} />}
           <FieldLabel label="Assigned owner">
-            <Picker
-              value={o.owner}
-              label="Order owner"
-              onChange={async (owner) =>
-                await update(
-                  (d) => {
-                    d.orders.find((x) => x.id === id)!.owner = owner;
-                  },
-                  "Order reassigned",
-                  id,
-                )
-              }
-              options={["Stephenie", "Tyler", "John"]}
-            />
+            {canEdit ? <StaffAssignmentPicker companyId={o.companyId} kind="order" owner={o.owner} assigneeId={o.assigneeId} label="Order owner"
+              onChange={async assignment => { await update(d => Object.assign(d.orders.find(x => x.id === id)!, assignment), "Order reassigned", id); }} /> : <span>{o.owner || "Unassigned"}</span>}
           </FieldLabel>
-          {o.status === "New" && (
+          {canEdit && o.status === "New" && (
             <Button
               variant="outline"
               onClick={async () =>
@@ -1100,8 +1110,10 @@ export function OrderDetail({
 }
 
 function ReceivedDateBackfill({ order }: { order: Order }) {
-  const { update } = useWorkspace();
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const { update: save, connection } = useWorkspace();
+  const canEdit = canManageProduction(connection);
+  const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
+  const [date, setDate] = useState(() => businessDay());
   return (
     <div className="inline-form">
       <FieldLabel label="Backfill receipt date">
@@ -1110,7 +1122,7 @@ function ReceivedDateBackfill({ order }: { order: Order }) {
           aria-label="Backfill receipt date"
           value={date}
           onChange={(e) => setDate(e.target.value)}
-          max={new Date().toISOString().slice(0, 10)}
+          max={businessDay()}
         />
       </FieldLabel>
       <Button
@@ -1147,9 +1159,11 @@ const outcomeNoteTemplates: Partial<Record<OrderOutcomeKind, string[]>> = {
   ],
 };
 function OrderOutcome({ order }: { order: Order }) {
-  const { update } = useWorkspace();
+  const { update: save, connection } = useWorkspace();
+  const canEdit = canManageProduction(connection);
+  const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
   const [kind, setKind] = useState<OrderOutcomeKind>("Closing recorded"),
-    [date, setDate] = useState(new Date().toISOString().slice(0, 10)),
+    [date, setDate] = useState(() => businessDay()),
     [note, setNote] = useState("");
   const stage = recoveryStage(order);
   const templates = outcomeNoteTemplates[kind];
@@ -1164,7 +1178,7 @@ function OrderOutcome({ order }: { order: Order }) {
           {e.date} · {e.kind} · {e.note}
         </p>
       ))}
-      <Picker
+      {canEdit && <fieldset style={{ display: "contents" }}><Picker
         value={kind}
         label="Order outcome"
         options={[...orderOutcomeKinds]}
@@ -1208,7 +1222,7 @@ function OrderOutcome({ order }: { order: Order }) {
         }
       >
         Record outcome
-      </Button>
+      </Button></fieldset>}
     </section>
   );
 }

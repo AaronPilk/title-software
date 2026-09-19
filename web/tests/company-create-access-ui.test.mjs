@@ -27,6 +27,11 @@ before(async () => {
       createRoot(document.getElementById('root')).render(<App/>);
     ` },
     plugins: [{ name: "synthetic-company-workspace", setup(builder) {
+      builder.onResolve({ filter: /^@\/lib\/backend\/client$/ }, () => ({ path: "client", namespace: "synthetic-client" }));
+      builder.onLoad({ filter: /.*/, namespace: "synthetic-client" }, () => ({ contents: `
+        export const activeWorkspace=()=>"synthetic-company-workspace";
+        export async function backendRequest(path){if(path!=="/staff/assignable")throw Error("Unexpected synthetic API");return {staff:[],unavailable:0};}
+      ` }));
       builder.onResolve({ filter: /^@\/lib\/title\/store$/ }, () => ({ path: "workspace", namespace: "fixture" }));
       builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ loader: "tsx", resolveDir: web, contents: `
         import {useSyncExternalStore} from 'react'; import {createSeed} from './lib/title/model';
@@ -138,6 +143,7 @@ for (const [role, all] of [["onboarding", false], ["operations", true]]) {
 test("an allowed company form still creates the company and onboarding task", async () => {
   await open("owner", true);
   await add().click();
+  assert.match(await page.getByRole("dialog").innerText(), /Initial setup task assigned to you: staff@example.test/);
   await page.getByLabel("Company name", {exact:true}).fill("New Synthetic Title");
   await page.getByLabel("Primary contact", {exact:true}).fill("Test Contact");
   await page.getByLabel("Contact email", {exact:true}).fill("contact@example.test");
@@ -153,5 +159,16 @@ test("an allowed company form still creates the company and onboarding task", as
   const tasks = state.tasks.filter(task => task.companyId === company.id);
   assert.equal(tasks.length, 1);
   assert.equal(tasks[0].title, "Collect onboarding application");
-  assert.equal(tasks[0].owner, "Stephenie");
+  assert.equal(tasks[0].owner, "staff@example.test");
+  assert.equal(tasks[0].assigneeId, "fixture-user");
+});
+test("local sample company creation preserves its illustrative setup owner", async () => {
+  await open("demo", true);await add().click();
+  await page.getByLabel("Company name", {exact:true}).fill("Fictional Demo Title");
+  await page.getByLabel("Primary contact", {exact:true}).fill("Test Contact");
+  await page.getByLabel("Contact email", {exact:true}).fill("demo@example.test");
+  await page.getByLabel("City", {exact:true}).fill("Charlotte");
+  await page.getByRole("dialog").getByRole("button", {name:"Add company",exact:true}).click();await page.getByRole("dialog").waitFor({state:"detached"});
+  const state=await page.evaluate(()=>window.readFixtureCompanyState());const company=state.companies.find(row=>row.name==="Fictional Demo Title");const task=state.tasks.find(row=>row.companyId===company.id);
+  assert.equal(task.owner,"Stephenie");assert.equal(task.assigneeId,undefined);
 });

@@ -93,6 +93,8 @@ export type Order = {
   type: string;
   underwriter: string;
   owner: string;
+  /** Stable workspace account identity; older imported/display-only assignments may omit it. */
+  assigneeId?: string;
   jurisdiction: string;
   delivered: boolean;
   remitted: boolean;
@@ -142,6 +144,8 @@ export type Task = {
   title: string;
   companyId: string;
   owner: string;
+  /** Stable workspace account identity; older imported/display-only assignments may omit it. */
+  assigneeId?: string;
   due: string;
   done: boolean;
   priority: "High" | "Normal";

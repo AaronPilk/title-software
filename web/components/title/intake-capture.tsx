@@ -15,6 +15,10 @@ import { FieldLabel, Picker } from "./shared";
 import { useWorkspace } from "@/lib/title/store";
 import { uid, type Mail, type Order } from "@/lib/title/model";
 import { emailValid } from "@/lib/title/business";
+import { businessDay, nextWeekday } from "@/lib/title/business-date";
+import { canManageProduction } from "@/lib/title/workspace-capabilities";
+import { StaffAssignmentField } from "./staff-assignment-picker";
+import { chooseStaffAssignment, useStaffDirectory } from "./use-staff-directory";
 export function IntakeCapture({
   message,
   onClose,
@@ -24,7 +28,8 @@ export function IntakeCapture({
   onClose: () => void;
   onSaved: (id: string) => void;
 }) {
-  const { s, update } = useWorkspace();
+  const { s, update, connection } = useWorkspace();
+  const canEdit = canManageProduction(connection);
   const [company, setCompany] = useState(
     message?.companyId ||
       s.orders.find((o) => o.id === message?.orderId)?.companyId ||
@@ -35,6 +40,10 @@ export function IntakeCapture({
     message?.kind || "Commitment",
   );
   const [file, setFile] = useState(message?.orderId || "none");
+  const [assignment, setAssignment] = useState<{ owner: string; assigneeId?: string }>(() => ({ owner: connection ? "" : "Tyler" }));
+  const directory = useStaffDirectory(company, "order");
+  const chosenAssignee = directory.staff.find(member => member.userId === (assignment.assigneeId || assignment.owner));
+  const [due, setDue] = useState(() => nextWeekday(businessDay()));
   const [from, setFrom] = useState(message?.from || ""),
     [email, setEmail] = useState(message?.email || ""),
     [subject, setSubject] = useState(message?.subject || ""),
@@ -55,7 +64,8 @@ export function IntakeCapture({
   );
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    let mailId = message?.id || uid("mail");
+    if (!canEdit || (file === "new" && (!chosenAssignee || directory.loading || directory.error))) return;
+    const mailId = message?.id || uid("mail");
     if (
       await update(
         (d) => {
@@ -84,24 +94,24 @@ export function IntakeCapture({
               !(c.operatingStates || [c.jurisdiction]).includes(state)
             )
               throw new Error("Enter property, client and an operating state.");
-            orderId = `T-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
+            orderId = `T-${businessDay().slice(0, 4)}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
             const o: Order = {
-              receivedAt: new Date().toISOString().slice(0, 10),
+              receivedAt: businessDay(),
               id: orderId,
               companyId: company,
               address: address.trim(),
               client: client.trim(),
               type,
               underwriter,
-              owner: "Tyler",
+              ...chooseStaffAssignment(directory.staff, chosenAssignee!.userId),
               jurisdiction: state,
               delivered: false,
               remitted: false,
               status: "New",
-              due: new Date().toISOString().slice(0, 10),
+              due,
               premium: 0,
               rate: 0.4,
-              month: new Date().toISOString().slice(0, 7),
+              month: due.slice(0, 7),
               fields: [],
               notes: `Intake from ${from.trim()}`,
               exception: "",
@@ -167,15 +177,14 @@ export function IntakeCapture({
     }
   }
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={canEdit} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="modal wide-modal">
         <DialogHeader>
           <DialogTitle>
             {message ? "Route incoming request" : "Capture incoming request"}
           </DialogTitle>
           <DialogDescription>
-            Paste a sample request and confirm the destination. Missive is not
-            connected.
+            Capture the original request and confirm its company and file destination.
           </DialogDescription>
         </DialogHeader>
         <form className="form-stack" onSubmit={save}>
@@ -191,6 +200,7 @@ export function IntakeCapture({
                 onChange={(v) => {
                   setCompany(v);
                   setFile("none");
+                  setAssignment({ owner: connection ? "" : "Tyler" });
                   setDocIds([]);
                   setState(
                     s.companies.find((c) => c.id === v)?.jurisdiction || "NC",
@@ -316,6 +326,13 @@ export function IntakeCapture({
                   onChange={setUnderwriter}
                 />
               </FieldLabel>
+              <FieldLabel label="Assigned production staff">
+                <StaffAssignmentField directory={directory} owner={assignment.owner} assigneeId={assignment.assigneeId}
+                  label="Intake production staff" emptyLabel="Choose production staff" onChange={setAssignment} />
+              </FieldLabel>
+              <FieldLabel label="Due date">
+                <Input type="date" required value={due} onChange={event => setDue(event.target.value)} />
+              </FieldLabel>
             </div>
           )}
           {file !== "new" && docs.length > 0 && (
@@ -341,13 +358,13 @@ export function IntakeCapture({
           )}
           <p className="form-note">
             Upload new attachments after capture using “Upload to file.” Use
-            sample or redacted content in this local prototype.
+            the original files for source review.
           </p>
           <div className="form-actions">
             <Button variant="outline" type="button" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit">
+            <Button type="submit" disabled={file === "new" && (!chosenAssignee || directory.loading || !!directory.error || !due)}>
               {message ? "Save routing" : "Capture request"}
             </Button>
           </div>

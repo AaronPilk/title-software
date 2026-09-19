@@ -1,22 +1,21 @@
 "use client";
+import { StaffAssignmentPicker } from "./staff-assignment-picker";
+import { chooseStaffAssignment, useStaffDirectory } from "./use-staff-directory";
 import { IntakeCapture } from "./intake-capture";
 import { UploadDocument, DocumentPreview } from "./documents";
 import { useState } from "react";
 import {
   Archive,
   ArrowRight,
-  Check,
   Clock3,
   Download,
   FileText,
-  Inbox as InboxIcon,
   Mail,
   Paperclip,
   Play,
   Plus,
   Workflow,
   CheckCheck,
-  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,20 +34,16 @@ import { useWorkspace, download } from "@/lib/title/store";
 import {
   companyById,
   uid,
-  onboardingSteps,
-  type Workspace,
 } from "@/lib/title/model";
 import {
   Heading,
   Segments,
-  SearchBox,
   Status,
   Picker,
   DataTable,
   Empty,
   FieldLabel,
 } from "./shared";
-import { toast } from "sonner";
 import { executeRules } from "@/lib/title/engine";
 import {
   taskClock,
@@ -59,7 +54,8 @@ import {
   resolveWaiting,
   waitingReasons,
 } from "@/lib/title/task-clock";
-import { businessDay } from "@/lib/title/business-date";
+import { canManageProduction, canManageTasks, canManageAutomations } from "@/lib/title/workspace-capabilities";
+import { businessDay, nextWeekday } from "@/lib/title/business-date";
 export function InboxView({
   onReview,
   onRevision,
@@ -69,7 +65,9 @@ export function InboxView({
   onRevision: (id: string) => void;
   onCommitment: (id: string) => void;
 }) {
-  const { s, update, connection } = useWorkspace();
+  const { s, update: save, connection } = useWorkspace();
+  const canEdit = canManageProduction(connection);
+  const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
   const [capture, setCapture] = useState(false);
   const [routing, setRouting] = useState(false);
   const [uploadFile, setUploadFile] = useState(false);
@@ -77,8 +75,7 @@ export function InboxView({
   const [selected, setSelected] = useState(s.inbox[0]?.id || "");
   const [filter, setFilter] = useState("All messages");
   const [draft, setDraft] = useState<string | null>(null);
-  const [company, setCompany] = useState("c3");
-  const [msgOrder, setMsgOrder] = useState("");
+  const [company, setCompany] = useState(s.companies[0]?.id || "");
   const m = s.inbox.find((x) => x.id === selected);
   const filingCompany = m?.companyId || company;
   const rows = s.inbox.filter(
@@ -133,10 +130,10 @@ export function InboxView({
         title="Inbox"
         description="Turn incoming requests into the next right action."
       >
-        <Button onClick={() => setCapture(true)}>
+        {canEdit && <Button onClick={() => setCapture(true)}>
           <Plus />
           Capture request
-        </Button>
+        </Button>}
         <span className="subtle-pill">
           <Mail size={14} />
           Request inbox
@@ -158,7 +155,6 @@ export function InboxView({
               key={x.id}
               onClick={() => {
                 setSelected(x.id);
-                setMsgOrder("");
               }}
             >
               <div>
@@ -190,7 +186,7 @@ export function InboxView({
                   variant="ghost"
                   size="icon"
                   aria-label="Archive message"
-                  disabled={m.status === "Archived"}
+                  disabled={!canEdit || m.status === "Archived"}
                   onClick={async () =>
                     await update(
                       (d) => {
@@ -209,11 +205,11 @@ export function InboxView({
                   variant="outline"
                   size="sm"
                   onClick={() => setRouting(true)}
-                  disabled={!!m.missive}
+                  disabled={!canEdit || !!m.missive}
                 >
                   Route / link attachments
                 </Button>
-                {linked && (
+                {linked && canEdit && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -226,8 +222,11 @@ export function InboxView({
               {m.missive && <div className="form-note">
                 <p>Imported from Missive · {new Date(m.missive.importedAt).toLocaleString()}. Company and file routing are preserved with the original source.</p>
                 <Button variant="outline" onClick={() => setPreviewDoc(m.missive!.sourceDocumentId)}>View original message snapshot</Button>
-                {m.missive.attachments.length > 0 && <p>Message text saved. {m.missive.attachments.length} Missive attachments have not been downloaded. Upload originals to this file for review.</p>}
-                {m.missive.attachments.map(a => <p key={a.id}>{a.name} · {a.bytes.toLocaleString()} bytes · Not downloaded</p>)}
+                {m.missive.attachments.length > 0 && <p>Saved attachments are available in Documents. An authorized administrator can import remaining originals from Missive in Settings.</p>}
+                {m.missive.attachments.map(a => {
+                  const saved = s.documents.some(d => d.providerSource?.provider === "Missive" && d.providerSource.sourceMailId === m.id && d.providerSource.attachmentId === a.id && !!d.assetId);
+                  return <p key={a.id}>{a.name} · {a.bytes.toLocaleString()} bytes · {saved ? "Saved to documents" : "Not saved"}</p>;
+                })}
               </div>}
               <pre className="message-text">{m.body}</pre>
               {m.documentIds?.map((id) => {
@@ -280,7 +279,7 @@ export function InboxView({
                   </p>
                   <div className="message-actions">
                     <Button
-                      disabled={m.status === "Queued" && m.kind !== "Revision"}
+                      disabled={!canEdit || !linked || (m.status === "Queued" && m.kind !== "Revision")}
                       onClick={queue}
                     >
                       <CheckCheck />
@@ -330,6 +329,7 @@ export function InboxView({
                         mail.companyId = value;
                       });
                     }}
+                    disabled={!canEdit}
                     label="File message to company"
                     options={s.companies.map((c) => ({
                       value: c.id,
@@ -338,7 +338,7 @@ export function InboxView({
                   />
                   <div className="message-actions">
                     <Button
-                      disabled={m.status === "Archived"}
+                      disabled={!canEdit || !s.companies.some(c => c.id === filingCompany) || m.status === "Archived"}
                       onClick={async () =>
                         await update(
                           (d) => {
@@ -348,16 +348,16 @@ export function InboxView({
                               name: `Correspondence — ${m.from}.txt`,
                               category: "Company records",
                               visibility: "Internal",
-                              date: "2026-09-11",
+                              date: businessDay(),
                               version: 1,
                               size: "1 KB",
-                              text: `DEMO CORRESPONDENCE\n\n${m.body}\n\nAttachments listed in this demo are fictional and not included.`,
+                              text: connection ? `CAPTURED CORRESPONDENCE\n\n${m.body}\n\nAttachment references are listed separately; original files must be reviewed in Documents.` : `DEMO CORRESPONDENCE\n\n${m.body}\n\nAttachments listed in this demo are fictional and not included.`,
                             });
                             d.inbox.find((x) => x.id === m.id)!.status =
                               "Archived";
                           },
                           "Correspondence filed",
-                          companyById(s, company).name,
+                          companyById(s, filingCompany).name,
                         )
                       }
                     >
@@ -367,7 +367,7 @@ export function InboxView({
                 </>
               )}
               <p className="inline-note">
-                {m.missive ? "Message text imported from Missive. Attachment download and email sending are not enabled." : connection ? "Captured correspondence. Email sending and scheduled mailbox sync are not enabled." : "Sample messages and attachments are fictional. Email sending and live mailbox sync are not connected."}
+                {m.missive ? "Message text imported from Missive. Attachment status is shown above. Email sending and scheduled mailbox sync are not enabled." : connection ? "Captured correspondence. Email sending and scheduled mailbox sync are not enabled." : "Sample messages and attachments are fictional. Email sending and live mailbox sync are not connected."}
               </p>
             </>
           ) : (
@@ -395,7 +395,7 @@ export function InboxView({
           </Button>
         </DialogContent>
       </Dialog>
-      {(capture || routing) && (
+      {canEdit && (capture || routing) && (
         <IntakeCapture
           message={routing ? m : undefined}
           onClose={() => {
@@ -404,11 +404,10 @@ export function InboxView({
           }}
           onSaved={(id) => {
             setSelected(id);
-            setMsgOrder("");
           }}
         />
       )}
-      {uploadFile && linked && (
+      {canEdit && uploadFile && linked && (
         <UploadDocument
           companyId={linked.companyId}
           orderId={linked.id}
@@ -428,7 +427,9 @@ export function InboxView({
   );
 }
 export function Tasks() {
-  const { s, update } = useWorkspace();
+  const { s, update: save, connection } = useWorkspace();
+  const canEdit = canManageTasks(connection);
+  const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
   const [filter, setFilter] = useState("Open");
   const [owner, setOwner] = useState("Everyone");
   const [newTask, setNewTask] = useState(false);
@@ -436,7 +437,17 @@ export function Tasks() {
   const [reason, setReason] = useState<string>(waitingReasons[0]);
   const [expanded, setExpanded] = useState("");
   const [company, setCompany] = useState(s.companies[0]?.id || "");
-  const [assignee, setAssignee] = useState(s.user);
+  const [assignee, setAssignee] = useState(connection?.access.userId || s.user);
+  const directory = useStaffDirectory(company);
+  const allStaff = useStaffDirectory();
+  const chosenAssignee = directory.staff.find(member => member.userId === assignee);
+  const selectedStaff = allStaff.staff.find(member => member.userId === owner);
+  const filterIdentity = owner === "__mine" ? connection?.access.userId || s.user : selectedStaff?.userId || owner;
+  const filterEmail = owner === "__mine" ? connection?.access.email || s.user : selectedStaff?.email || owner;
+  const normalizeOwner = (value: string) => value.trim().toLowerCase();
+  const legacyOwners = [...new Map(s.tasks
+    .filter(task => !task.assigneeId && !!task.owner.trim() && !allStaff.staff.some(member => member.userId === task.owner || normalizeOwner(member.email) === normalizeOwner(task.owner)))
+    .map(task => [normalizeOwner(task.owner), task.owner])).values()];
   // The company works on the Carolina calendar; a UTC day flips at 8pm Eastern.
   const today = businessDay();
   const clocks = new Map(s.tasks.map((t) => [t.id, taskClock(t)]));
@@ -452,7 +463,10 @@ export function Tasks() {
             : filter === "Overdue"
               ? !t.done && (clock.dueInDays ?? 0) < 0
               : !t.done;
-    return matchesView && (owner === "Everyone" || t.owner === owner);
+    const matchesOwner = owner === "Everyone" || (t.assigneeId
+      ? t.assigneeId === filterIdentity
+      : t.owner === filterIdentity || normalizeOwner(t.owner) === normalizeOwner(filterEmail));
+    return matchesView && matchesOwner;
   });
   const openTasks = s.tasks.filter((t) => !t.done);
   const waitingCount = openTasks.filter(
@@ -468,7 +482,7 @@ export function Tasks() {
     e.preventDefault();
     const f = new FormData(e.currentTarget),
       title = String(f.get("title")).trim();
-    if (!title) return;
+    if (!canEdit || !title || directory.loading || directory.error || !chosenAssignee) return;
     if (
       !(await update(
         (d) =>
@@ -476,7 +490,7 @@ export function Tasks() {
             id: uid("task"),
             title,
             companyId: company,
-            owner: assignee,
+            ...chooseStaffAssignment(directory.staff, assignee),
             due: String(f.get("due")),
             priority: "Normal",
             done: false,
@@ -536,10 +550,11 @@ export function Tasks() {
         title="Tasks"
         description="Clear ownership, and a visible reason whenever something is not moving."
       >
-        <Button onClick={() => setNewTask(true)}>
+        {!canEdit && <span className="subtle-pill">Read-only</span>}
+        {canEdit && <Button onClick={() => setNewTask(true)}>
           <Plus />
           New task
-        </Button>
+        </Button>}
       </Heading>
       <div className="toolbar">
         <Segments
@@ -551,7 +566,7 @@ export function Tasks() {
           value={owner}
           onChange={setOwner}
           label="Filter tasks by owner"
-          options={["Everyone", "Stephenie", "Tyler", "John"]}
+          options={[{ value: "Everyone", label: "Everyone" }, { value: "__mine", label: "My work" }, ...allStaff.staff.map(member => ({ value: member.userId, label: member.label })), ...legacyOwners.map(name => ({ value: name, label: `${name} · existing assignment` }))]}
         />
       </div>
       {!!openTasks.length && (
@@ -586,6 +601,7 @@ export function Tasks() {
                 <TableCell>
                   <Checkbox
                     aria-label={`Complete ${t.title}`}
+                    disabled={!canEdit}
                     checked={t.done}
                     onCheckedChange={async (v) =>
                       await update(
@@ -611,20 +627,13 @@ export function Tasks() {
                 </TableCell>
                 <TableCell>{companyById(s, t.companyId).name}</TableCell>
                 <TableCell>
-                  <Picker
-                    value={t.owner}
+                  {canEdit ? <StaffAssignmentPicker
+                    companyId={t.companyId} owner={t.owner} assigneeId={t.assigneeId}
                     label={`Assign ${t.title}`}
-                    options={["Stephenie", "Tyler", "John"]}
-                    onChange={async (v) =>
-                      await update(
-                        (d) => {
-                          d.tasks.find((x) => x.id === t.id)!.owner = v;
-                        },
-                        "Task reassigned",
-                        `${t.title} · ${v}`,
-                      )
-                    }
-                  />
+                    onChange={async assignment => {
+                      await update(d => Object.assign(d.tasks.find(x => x.id === t.id)!, assignment), "Task reassigned", `${t.title} · ${assignment.owner}`);
+                    }}
+                  /> : t.owner || "Unassigned"}
                 </TableCell>
                 <TableCell>
                   <Status value={t.priority} />
@@ -646,7 +655,7 @@ export function Tasks() {
                 </TableCell>
                 <TableCell>
                   <div className="task-actions">
-                    {!t.done && (
+                    {!t.done && canEdit && (
                       <Button
                         variant="ghost"
                         onClick={() => {
@@ -723,7 +732,7 @@ export function Tasks() {
         )}
       </section>
       <Dialog
-        open={!!waitingFor}
+        open={canEdit && !!waitingFor}
         onOpenChange={(v) => !v && setWaitingFor("")}
       >
         <DialogContent className="modal">
@@ -801,7 +810,7 @@ export function Tasks() {
           )}
         </DialogContent>
       </Dialog>
-      <Dialog open={newTask} onOpenChange={setNewTask}>
+      <Dialog open={canEdit && newTask} onOpenChange={setNewTask}>
         <DialogContent className="modal">
           <DialogHeader>
             <DialogTitle>New task</DialogTitle>
@@ -832,22 +841,25 @@ export function Tasks() {
             <div className="form-grid">
               <FieldLabel label="Owner">
                 <Picker
-                  value={assignee}
+                  value={chosenAssignee?.userId || "__choose"}
                   onChange={setAssignee}
                   label="Task owner"
-                  options={["Stephenie", "Tyler", "John"]}
+                  disabled={directory.loading || !!directory.error}
+                  options={[{ value: "__choose", label: directory.loading ? "Loading staff…" : "Choose staff" }, ...directory.staff.map(member => ({ value: member.userId, label: member.label }))]}
                 />
               </FieldLabel>
               <FieldLabel label="Due date">
                 <Input
                   name="due"
                   type="date"
-                  defaultValue="2026-09-15"
+                  defaultValue={nextWeekday(today)}
                   required
                 />
               </FieldLabel>
             </div>
-            <Button type="submit">Create task</Button>
+            {directory.error && <p className="form-note">{directory.error} <Button type="button" variant="link" onClick={directory.refresh}>Refresh staff</Button></p>}
+            {!directory.loading && !directory.error && !directory.staff.length && <p className="form-note">No available staff for this company. Ask an administrator to assign company access.</p>}
+            <Button type="submit" disabled={!chosenAssignee || directory.loading || !!directory.error}>Create task</Button>
           </form>
         </DialogContent>
       </Dialog>
@@ -855,7 +867,9 @@ export function Tasks() {
   );
 }
 export function Automations() {
-  const { s, update } = useWorkspace();
+  const { s, update: save, connection } = useWorkspace();
+  const canEdit = canManageAutomations(connection);
+  const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
   const [result, setResult] = useState("");
   async function run(ids: string[]) {
     const copy = structuredClone(s);
@@ -865,7 +879,7 @@ export function Automations() {
         (d) => {
           executeRules(d, ids);
         },
-        "Demo automations completed",
+        "Automations completed",
         `${count} records updated`,
       ))
     )
@@ -884,7 +898,7 @@ export function Automations() {
       >
         <Button
           onClick={() => run(s.rules.filter((r) => r.enabled).map((r) => r.id))}
-          disabled={!s.rules.some((r) => r.enabled)}
+          disabled={!canEdit || !s.rules.some((r) => r.enabled)}
         >
           <Play />
           Run enabled rules
@@ -893,8 +907,8 @@ export function Automations() {
       <div className="notice">
         <Workflow size={18} />
         <p>
-          These rules run on local demo records when you press Run. Scheduled
-          execution and external services will be connected later.
+          These rules run on the records available in this workspace when you press Run.
+          Scheduled execution and external services are not connected.
         </p>
       </div>
       {result && (
@@ -912,6 +926,7 @@ export function Automations() {
               </span>
               <Switch
                 checked={r.enabled}
+                disabled={!canEdit}
                 aria-label={`Enable ${r.name}`}
                 onCheckedChange={async (v) =>
                   await update(
@@ -947,11 +962,11 @@ export function Automations() {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={!r.enabled}
+                disabled={!canEdit || !r.enabled}
                 onClick={() => run([r.id])}
               >
                 <Play />
-                Run demo
+                Run rule
               </Button>
             </div>
           </section>

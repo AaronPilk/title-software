@@ -230,6 +230,7 @@ try {
             {
               companyId: "QA-A",
               address: "Synthetic QA Property",
+              assigneeId: accounts.operations.id,
               client: "QA Client",
               jurisdiction: "NC",
               premium: 250,
@@ -421,7 +422,7 @@ try {
         await api(
           "owner",
           "/members/revoke",
-          { userId: accounts.operations.id },
+          { userId: accounts.operations.id, expectedVersion: 1 },
           "POST",
           wid,
         )
@@ -437,6 +438,8 @@ try {
       "/members/invite",
       {
         email: accounts.operations.email,
+        requestId: crypto.randomUUID(),
+        partnerMembers: [],
         role: "operations",
         companyIds: ["QA-A"],
         allCompanies: false,

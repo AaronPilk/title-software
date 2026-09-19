@@ -1,5 +1,6 @@
 "use client";
 import { BufferedInput } from "./buffered-input";
+import { businessPeriod } from "@/lib/title/business-date";
 import { ledgerLines } from "@/lib/title/business";
 import {
   remittanceUnderwriters,
@@ -11,8 +12,6 @@ import { useState } from "react";
 import {
   Download,
   ChartNoAxesCombined,
-  CheckCheck,
-  ArrowUpRight,
   ShieldCheck,
   FileCheck2,
 } from "lucide-react";
@@ -21,11 +20,10 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TableRow, TableCell } from "@/components/ui/table";
 import { useWorkspace, exportCsv } from "@/lib/title/store";
-import { moneyCents as money, type Workspace } from "@/lib/title/model";
+import { moneyCents as money } from "@/lib/title/model";
 import { financeRows, round, allocateOwnership } from "@/lib/title/engine";
 import {
   Heading,
-  Picker,
   Segments,
   Metric,
   DataTable,
@@ -33,8 +31,8 @@ import {
   Empty,
 } from "./shared";
 export function Financials() {
-  const { s, update } = useWorkspace();
-  const [month, setMonth] = useState("2026-09");
+  const { s, update, connection } = useWorkspace();
+  const [month, setMonth] = useState(() => businessPeriod());
   const [tab, setTab] = useState("Overview");
   const [checks, setChecks] = useState([false, false, false]);
   const expenses = Object.fromEntries(
@@ -75,7 +73,7 @@ export function Financials() {
   const approved = s.approvedReports.includes(reportKey);
   function exportReport() {
     exportCsv(`titleos-${month}-draft-report.csv`, [
-      ["DEMO ESTIMATES - NOT PAYMENT INSTRUCTIONS"],
+      [connection ? "WORKSPACE ESTIMATES - NOT PAYMENT INSTRUCTIONS" : "DEMO ESTIMATES - NOT PAYMENT INSTRUCTIONS"],
       [
         "Company",
         "Issued policies",
@@ -102,17 +100,15 @@ export function Financials() {
         title="Financials"
         description="A clearer month-end for every company."
       >
-        <Picker
+        <Input
+          type="month"
+          aria-label="Reporting month"
           value={month}
-          onChange={(v) => {
-            setMonth(v);
+          onChange={(e) => {
+            if (!e.target.value) return;
+            setMonth(e.target.value);
             setChecks([false, false, false]);
           }}
-          label="Reporting month"
-          options={[
-            { value: "2026-09", label: "September 2026" },
-            { value: "2026-08", label: "August 2026" },
-          ]}
         />
         <Button variant="outline" onClick={exportReport}>
           <Download />
@@ -123,12 +119,12 @@ export function Financials() {
         <Metric
           label="Issued premium"
           value={money(premium)}
-          detail={`${issued.length} issued demo policies`}
+          detail={`${issued.length} issued ${connection ? "" : "demo "}policies`}
         />
         <Metric
           label="Underwriter obligation"
           value={money(remittance)}
-          detail="Illustrative terms · not a payment"
+          detail="Recorded terms · not a payment"
         />
         <Metric
           label="Retained revenue"
@@ -138,7 +134,7 @@ export function Financials() {
         <Metric
           label="Close status"
           value={approved ? "Reviewed" : "Draft"}
-          detail="Local reconciliation checklist"
+          detail="Reconciliation checklist"
         />
       </div>
       <div className="toolbar">
@@ -153,7 +149,7 @@ export function Financials() {
             "Accounting import",
           ]}
         />
-        <span className="subtle-pill">Illustrative demo figures</span>
+        <span className="subtle-pill">{connection ? "Recorded figures · review required" : "Illustrative demo figures"}</span>
       </div>
       {tab === "Company closes" && <CloseWorkspace />}
       {tab === "Accounting import" && <AccountingImport />}
@@ -206,7 +202,7 @@ export function Financials() {
             </section>
             <section className="panel close-card">
               <h2>Month-end review</h2>
-              <p>Check the source records before confirming a demo close.</p>
+              <p>Check the source records before confirming this close.</p>
               {[
                 "Issued-policy totals reviewed",
                 "Underwriter terms verified for the period",
@@ -229,13 +225,13 @@ export function Financials() {
                 onClick={async () =>
                   await update(
                     (d) => d.approvedReports.push(reportKey),
-                    "Demo close reviewed",
+                    "Month-end review confirmed",
                     month,
                   )
                 }
               >
                 <ShieldCheck />
-                {approved ? "Demo close reviewed" : "Confirm demo review"}
+                {approved ? "Month-end review confirmed" : "Confirm month-end review"}
               </Button>
             </section>
           </div>
@@ -322,15 +318,15 @@ export function Financials() {
                                 )
                                 .forEach(
                                   (p) =>
-                                    (p.remittanceReference = `Local review ${month} · ${name}`),
+                                    (p.remittanceReference = `Recorded review ${month} · ${name}`),
                                 );
                             },
-                            "Demo remittance reconciled",
+                            "Remittance reconciled",
                             `${name} · ${month} · no payment made`,
                           )
                         }
                       >
-                        Mark reconciled in demo
+                        Mark reconciled
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -355,7 +351,7 @@ export function Financials() {
           <div className="notice">
             <ChartNoAxesCombined size={18} />
             <p>
-              Planning estimates based on fictional ownership interests, not
+              Planning estimates based on recorded ownership interests, not
               referral counts. Actual distributions require approved accounts,
               agreements, reserves, and professional review.
             </p>

@@ -1,3 +1,4 @@
+import { invitationEmailRedirect, sendInvitationEmail, invitationDeliveryMessage } from "../../../web/lib/backend/invitation-email.ts";
 import { assistantContext } from "../../../web/lib/backend/assistant-context.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { accountSecurity, requireAccountReady } from "../../../web/lib/backend/account-security.ts";
@@ -67,6 +68,24 @@ const ident = (id: unknown) => {
     error("Invalid record identifier.");
   return id as string;
 };
+function expectedVersion(value: unknown) {
+  if (!Number.isSafeInteger(value) || (value as number) < 1) error("Refresh the access list and review this change.", 409);
+  return value as number;
+}
+function invitationGrant(input: any) {
+  if (typeof input.email !== "string" || input.email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email.trim())) error("Enter an email address.");
+  if (!["admin", "operations", "onboarding", "finance", "viewer", "partner"].includes(input.role)) error("Choose a role.");
+  if (typeof input.allCompanies !== "boolean" || typeof input.restricted !== "boolean") error("Choose explicit access permissions.");
+  if (!Array.isArray(input.companyIds) || input.companyIds.length > 250) error("Choose existing companies.");
+  const companies = [...new Set(input.companyIds.map(ident))].sort();
+  if (!Array.isArray(input.partnerMembers) || input.partnerMembers.length > 250) error("Choose existing company members.");
+  const partners = input.partnerMembers.map((member: any) => {
+    if (!member || typeof member.memberName !== "string" || !member.memberName.trim() || member.memberName.length > 500) error("Choose an existing company member.");
+    return { companyId: ident(member.companyId), memberName: member.memberName };
+  });
+  return { p_recipient: input.email.trim().toLowerCase(), p_role: input.role, p_companies: companies,
+    p_all_companies: input.allCompanies, p_restricted: input.restricted, p_partner_members: partners };
+}
 async function body(req: Request) {
   const raw = await req.text();
   if (raw.length > 8_000_000) error("Request exceeds 8 MB.", 413);
@@ -78,6 +97,40 @@ async function body(req: Request) {
   }
   safePayload(value);
   return value;
+}
+
+async function memberIdentities(memberships: any[]) {
+  const members: any[] = [];
+      const identityDeadline = Date.now() + 8000;
+      const identityClient = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { fetch: (input, init) => fetch(input, {
+          ...init,
+          signal: AbortSignal.any([
+            ...(init?.signal ? [init.signal] : []),
+            AbortSignal.timeout(Math.max(1, Math.min(3000, identityDeadline - Date.now()))),
+          ]),
+        }) },
+      });
+      // Resolve only IDs already scoped to this workspace. Keep Auth traffic
+      // bounded, and never return the Auth profile or its metadata to the UI.
+      for (let offset = 0; offset < memberships.length; offset += 4) {
+        const batch = await Promise.all(memberships.slice(offset, offset + 4).map(async (membership: any) => {
+          let email: string | null = null;
+          if (Date.now() >= identityDeadline) return { ...membership, email };
+          try {
+            const lookup = await identityClient.auth.admin.getUserById(membership.user_id);
+            if (!lookup.error && lookup.data?.user?.id === membership.user_id &&
+              typeof lookup.data.user.email === "string" && lookup.data.user.email.trim())
+              email = lookup.data.user.email.trim();
+          } catch {
+            // One unavailable identity must not hide the other workspace members.
+          }
+          return { ...membership, email };
+        }));
+        members.push(...batch);
+      }
+  return members;
 }
 async function actor(req: Request) {
   const authorization = req.headers.get("Authorization") || "";
@@ -368,6 +421,21 @@ Deno.serve(async (req) => {
     }
     if (pathname === "/state" && req.method === "GET")
       return response(await stateResponse(wid, a));
+    if (pathname === "/staff/assignable" && req.method === "POST") {
+      if (["partner", "viewer"].includes(a.role)) error("Staff assignment is not available to this account.", 403);
+      if (!["task", "order"].includes(input.kind)) error("Choose an assignment type.");
+      const w = await workspace(wid);
+      const companyId = input.companyId ? ident(input.companyId) : "";
+      const companies = w.state.companies.filter((c: any) => canCompany(a, c.id) && (!companyId || c.id === companyId)).map((c: any) => c.id);
+      if (companyId && !companies.length) error("This company is not available to your account.", 403);
+      const roles = input.kind === "order" ? ["owner", "admin", "operations"] : ["owner", "admin", "operations", "onboarding", "finance"];
+      const memberships = checked(await service.from("title_memberships")
+        .select("user_id,role,company_ids,all_companies,active").eq("workspace_id", wid).eq("active", true))
+        .filter((m: any) => roles.includes(m.role) && companies.some((id: string) => m.all_companies || m.company_ids.includes(id)));
+      const resolved = await memberIdentities(memberships);
+      return response({ staff: resolved.filter((m: any) => m.email).map((m: any) => ({ userId: m.user_id, email: m.email, label: m.email })),
+        unavailable: resolved.filter((m: any) => !m.email).length });
+    }
     if (pathname === "/commands" && req.method === "POST") {
       const requestId = uuid(input.requestId),
         hash = await digest(
@@ -397,7 +465,22 @@ Deno.serve(async (req) => {
           "Someone saved a newer version. Refresh and review your change.",
           409,
         );
-      const next = executeCommands(w.state, input.commands, a);
+      // Resolve only explicitly selected stable account IDs. Display labels from
+      // a stale or modified client cannot become authoritative assignment data.
+      const selectedIds = new Set<string>();
+      for (const command of Array.isArray(input.commands) ? input.commands : []) {
+        if (!command || typeof command !== "object" || command.name !== "editDraft" || !Array.isArray(command.args?.[0])) continue;
+        for (const edit of command.args[0]) if (edit && typeof edit === "object" && ["tasks", "orders"].includes(edit.table) && edit.value?.assigneeId)
+          selectedIds.add(uuid(edit.value.assigneeId));
+      }
+      if (selectedIds.size) {
+        const memberships = checked(await service.from("title_memberships")
+          .select("user_id,role,company_ids,all_companies,active").eq("workspace_id", wid).eq("active", true))
+          .filter((m: any) => selectedIds.has(m.user_id));
+        a.assignableStaff = (await memberIdentities(memberships)).filter((m: any) => m.email)
+          .map((m: any) => ({ userId: m.user_id, email: m.email, role: m.role, companyIds: m.company_ids, allCompanies: m.all_companies }));
+      }
+      const next = executeCommands(w.state, input.commands, { ...a, requireStaffAssignments: true });
       await checkAssets(next, wid);
       const changed = new Set<string>();
       for (const c of next.companies)
@@ -417,7 +500,7 @@ Deno.serve(async (req) => {
         }),
       );
       return response({
-        ...(await stateResponse(wid, a)),
+        ...(await stateResponse(wid, { ...a, assignableStaff: undefined })),
         replayed: result.replayed,
       });
     }
@@ -459,201 +542,100 @@ Deno.serve(async (req) => {
           )
           .eq("workspace_id", wid),
       );
-      const members = [];
-      const identityDeadline = Date.now() + 8000;
-      const identityClient = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+      const members = await memberIdentities(memberships);
+      const invitations = checked(await service.from("title_invitations")
+        .select("id,email,role,company_ids,all_companies,restricted_access,partner_members,accepted_at,revoked_at,expires_at,version,updated_at,last_action")
+        .eq("workspace_id", wid));
+      const deliveries = checked(await service.rpc("title_invitation_delivery_status", {
+        p_workspace: wid, p_actor: user.id, p_access_version: a.version,
+      }));
+      return response({ members,
+        emailDeliveryEnabled: !!invitationEmailRedirect(Deno.env.get("TITLE_INVITATION_EMAIL_ENABLED"), Deno.env.get("TITLE_INVITATION_REDIRECT_URL")),
+        invitations: invitations.map((invitation: any) => {
+          const delivery = deliveries.find((d: any) => d.invitation_id === invitation.id);
+          const status = delivery?.status === "sending" && Date.parse(delivery.created_at) < Date.now() - 300_000 ? "unknown" : delivery?.status || "not_sent";
+          return { ...invitation, delivery_status: status, delivery_at: delivery?.finished_at || delivery?.created_at || null };
+        }),
+      });
+    }
+    if (pathname === "/members/invitations/send" && req.method === "POST") {
+      administrator(a);
+      const redirect = invitationEmailRedirect(Deno.env.get("TITLE_INVITATION_EMAIL_ENABLED"), Deno.env.get("TITLE_INVITATION_REDIRECT_URL"));
+      if (!redirect) error("Email delivery needs owner setup. The access invitation can still be prepared.", 503);
+      const requestId = uuid(input.requestId);
+      const delivery = checked(await service.rpc("title_begin_invitation_email", {
+        p_workspace: wid, p_actor: user.id, p_email: user.email, p_access_version: a.version,
+        p_invitation: uuid(input.invitationId), p_expected: expectedVersion(input.expectedVersion), p_request: requestId,
+      }));
+      if (!delivery.send) return response({ id: delivery.id, status: delivery.status, recorded: true,
+        message: invitationDeliveryMessage(delivery.status) });
+      const timeout = AbortSignal.timeout(15_000);
+      const mailClient = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
         auth: { persistSession: false, autoRefreshToken: false },
-        global: { fetch: (input, init) => fetch(input, {
-          ...init,
-          signal: AbortSignal.any([
-            ...(init?.signal ? [init.signal] : []),
-            AbortSignal.timeout(Math.max(1, Math.min(3000, identityDeadline - Date.now()))),
-          ]),
+        global: { fetch: (input, init) => fetch(input, { ...init,
+          signal: AbortSignal.any([timeout, ...(init?.signal ? [init.signal] : [])]),
         }) },
       });
-      // Resolve only IDs already scoped to this workspace. Keep Auth traffic
-      // bounded, and never return the Auth profile or its metadata to the UI.
-      for (let offset = 0; offset < memberships.length; offset += 4) {
-        const batch = await Promise.all(memberships.slice(offset, offset + 4).map(async (membership: any) => {
-          let email: string | null = null;
-          if (Date.now() >= identityDeadline) return { ...membership, email };
-          try {
-            const lookup = await identityClient.auth.admin.getUserById(membership.user_id);
-            if (!lookup.error && lookup.data?.user?.id === membership.user_id &&
-              typeof lookup.data.user.email === "string" && lookup.data.user.email.trim())
-              email = lookup.data.user.email.trim();
-          } catch {
-            // One unavailable identity must not hide the other workspace members.
-          }
-          return { ...membership, email };
-        }));
-        members.push(...batch);
+      const status = await sendInvitationEmail(mailClient, delivery, redirect!);
+      let recorded = false;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const result = await service.rpc("title_finish_invitation_email", {
+            p_workspace: wid, p_actor: user.id, p_email: user.email, p_delivery: delivery.id, p_request: requestId, p_status: status,
+          }).abortSignal(AbortSignal.timeout(4000));
+          if (!result.error) { recorded = true; break; }
+          if (["42501", "40001"].includes(result.error.code || "")) break;
+        } catch { /* Retry only recording this same outcome, never the provider send. */ }
       }
-      return response({
-        members,
-        invitations: checked(
-          await service
-            .from("title_invitations")
-            .select(
-              "id,email,role,company_ids,all_companies,restricted_access,partner_members,accepted_at,revoked_at,expires_at",
-            )
-            .eq("workspace_id", wid),
-        ),
-      });
+      return response({ id: delivery.id, status, recorded, message: invitationDeliveryMessage(status, recorded) });
     }
     if (pathname === "/members/invite" && req.method === "POST") {
       administrator(a);
-      if (
-        typeof input.email !== "string" ||
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)
-      )
-        error("Enter an email address.");
-      if (
-        ![
-          "admin",
-          "operations",
-          "onboarding",
-          "finance",
-          "viewer",
-          "partner",
-        ].includes(input.role)
-      )
-        error("Choose a role.");
-      if (
-        a.role !== "owner" &&
-        (input.role === "admin" || input.restricted || input.allCompanies)
-      )
-        error("Only the owner may grant elevated access.", 403);
-      const w = await workspace(wid),
-        companies = input.companyIds || [];
-      if (
-        !Array.isArray(companies) ||
-        companies.some(
-          (id: any) =>
-            !canCompany(a, id) ||
-            !w.state.companies.some((c: any) => c.id === id),
-        )
-      )
-        error("Choose existing companies.");
-      const partners = (input.partnerMembers || []).map((m: any) => {
-        const c = w.state.companies.find((c: any) => c.id === m.companyId);
-        if (
-          !companies.includes(m.companyId) ||
-          !c?.members.some((x: any) => x.name === m.memberName)
-        )
-          error("Choose an existing company member.");
-        return {
-          id: crypto.randomUUID(),
-          companyId: m.companyId,
-          memberName: m.memberName,
-        };
-      });
-      if (
-        input.role === "partner" &&
-        (!partners.length || input.allCompanies || input.restricted)
-      )
-        error(
-          "Partners need explicit member assignments and restricted company access.",
-        );
-      const existing = checked(
-        await service
-          .from("title_invitations")
-          .select("id,role,company_ids,all_companies,restricted_access,partner_members")
-          .eq("workspace_id", wid)
-          .eq("email", input.email.trim().toLowerCase())
-          .is("accepted_at", null)
-          .is("revoked_at", null)
-          .gt("expires_at", new Date().toISOString())
-          .maybeSingle(),
-      );
-      if (existing) {
-        const sameSet = (left: string[], right: string[]) =>
-          JSON.stringify([...new Set(left)].sort()) === JSON.stringify([...new Set(right)].sort());
-        const memberKeys = (members: { companyId: string; memberName: string }[]) =>
-          members.map((m) => JSON.stringify([m.companyId, m.memberName]));
-        // Generated partner IDs and selection order do not change a grant.
-        if (
-          existing.role !== input.role ||
-          existing.all_companies !== !!input.allCompanies ||
-          existing.restricted_access !== !!input.restricted ||
-          !sameSet(existing.company_ids, companies) ||
-          !sameSet(memberKeys(existing.partner_members), memberKeys(partners))
-        )
-          error(
-            "A pending invitation already has a different role or company access. It was not changed. Review the existing invitation before preparing different access.",
-            409,
-          );
-        return response({
-          id: existing.id,
-          status: "Access invitation already prepared; no email sent",
-        });
-      }
-      const row = checked(
-        await service
-          .from("title_invitations")
-          .insert({
-            workspace_id: wid,
-            email: input.email.trim().toLowerCase(),
-            role: input.role,
-            company_ids: companies,
-            all_companies: !!input.allCompanies,
-            restricted_access: !!input.restricted,
-            partner_members: partners,
-            created_by: user.id,
-          })
-          .select("id")
-          .single(),
-      );
-      checked(
-        await service
-          .from("title_audit")
-          .insert({
-            workspace_id: wid,
-            actor_id: user.id,
-            actor_email: user.email,
-            action: "member.invitation_prepared",
-            company_ids: companies,
-            detail: { invitationId: row.id, role: input.role },
-          }),
-      );
-      return response({
-        ...row,
-        status: "Access invitation prepared; no email sent",
-      });
+      const grant = invitationGrant(input);
+      const invitationId = input.invitationId === undefined ? null : uuid(input.invitationId);
+      const result = checked(await service.rpc("title_prepare_invitation", {
+        p_workspace: wid, p_actor: user.id, p_email: user.email, p_access_version: a.version,
+        ...grant, p_invitation: invitationId,
+        p_expected: invitationId ? expectedVersion(input.expectedVersion) : null,
+        p_reissue: false, p_request: invitationId ? null : uuid(input.requestId),
+      }));
+      if (Date.parse(result.expires_at) <= Date.now()) error("This invitation has expired. Refresh the list and renew it explicitly.", 409);
+      if (result.accepted_at || result.revoked_at) error("This invitation was already accepted or cancelled. Refresh the list before preparing another grant.", 409);
+      return response({ ...result, status: invitationId
+        ? "Access invitation updated; no email sent"
+        : result.replayed ? "Access invitation already prepared; no email sent" : "Access invitation prepared; no email sent" });
+    }
+    if (pathname === "/members/invitations/cancel" && req.method === "POST") {
+      administrator(a);
+      const result = checked(await service.rpc("title_cancel_invitation", {
+        p_workspace: wid, p_actor: user.id, p_email: user.email, p_access_version: a.version,
+        p_invitation: uuid(input.invitationId), p_expected: expectedVersion(input.expectedVersion),
+      }));
+      return response({ ...result, status: "Access invitation cancelled; existing memberships were not changed" });
+    }
+    if (pathname === "/members/invitations/reissue" && req.method === "POST") {
+      administrator(a);
+      const invitationId = uuid(input.invitationId);
+      const row = checked(await service.from("title_invitations")
+        .select("email,role,company_ids,all_companies,restricted_access,partner_members")
+        .eq("workspace_id", wid).eq("id", invitationId).maybeSingle());
+      if (!row) error("This invitation is not available.", 404);
+      const result = checked(await service.rpc("title_prepare_invitation", {
+        p_workspace: wid, p_actor: user.id, p_email: user.email, p_access_version: a.version,
+        p_recipient: row.email, p_role: row.role, p_companies: row.company_ids,
+        p_all_companies: row.all_companies, p_restricted: row.restricted_access,
+        p_partner_members: row.partner_members, p_invitation: invitationId,
+        p_expected: expectedVersion(input.expectedVersion), p_reissue: true, p_request: null,
+      }));
+      return response({ ...result, status: "Access invitation reissued for seven days; no email sent" });
     }
     if (pathname === "/members/revoke" && req.method === "POST") {
       administrator(a);
-      const target = uuid(input.userId);
-      if (target === user.id) error("You cannot revoke your current account.");
-      const m = checked(
-        await service
-          .from("title_memberships")
-          .select("role,version")
-          .eq("workspace_id", wid)
-          .eq("user_id", target)
-          .single(),
-      );
-      if (m.role === "owner" || (m.role === "admin" && a.role !== "owner"))
-        error("Owner access is required.", 403);
-      checked(
-        await service
-          .from("title_memberships")
-          .update({ active: false, version: m.version + 1 })
-          .eq("workspace_id", wid)
-          .eq("user_id", target),
-      );
-      checked(
-        await service
-          .from("title_audit")
-          .insert({
-            workspace_id: wid,
-            actor_id: user.id,
-            actor_email: user.email,
-            action: "member.revoked",
-            detail: { userId: target },
-          }),
-      );
-      return response({ revoked: true });
+      const result = checked(await service.rpc("title_revoke_member", {
+        p_workspace: wid, p_actor: user.id, p_email: user.email, p_access_version: a.version,
+        p_target: uuid(input.userId), p_expected: expectedVersion(input.expectedVersion),
+      }));
+      return response(result);
     }
     if (pathname.startsWith("/integrations/missive")) {
       administrator(a);

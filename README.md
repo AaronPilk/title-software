@@ -81,3 +81,5 @@ The current verification results and limitations are in the [requirements implem
 Project destination: [AaronPilk/title-software](https://github.com/AaronPilk/title-software). A private staff pilot is deployed on Cloudflare; see the deployment guide above.
 
 Recordings remain outside the repository. Both machine transcripts are excluded from version control under `.local/`. No credentials or customer documents are needed to run the prototype.
+
+Staff setup, invitation lifecycle, email activation and account-based assignments: [staff access guide](docs/staff-access.md).

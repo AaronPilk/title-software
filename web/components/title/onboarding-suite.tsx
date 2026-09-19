@@ -1,4 +1,6 @@
 "use client";
+import { StaffAssignmentPicker } from "./staff-assignment-picker";
+import { canCreateCompany, canManageCompanies, canViewOnboardingEvidence, canManageOnboardingEvidence } from "@/lib/title/workspace-capabilities";
 import { useState } from "react";
 import {
   Plus,
@@ -39,7 +41,6 @@ import {
   saveCredential,
   addHandoff,
   applicationFingerprint,
-  today,
   type OnboardingCase,
   type CredentialRecord,
 } from "@/lib/title/business";
@@ -52,7 +53,8 @@ export function OnboardingHub({
   onNew: () => void;
 }) {
   const { s, connection } = useWorkspace();
-  const canAddCompany = !connection || (connection.access.allCompanies && ["owner", "admin", "onboarding"].includes(connection.access.role));
+  const canAddCompany = canCreateCompany(connection);
+  const evidenceVisible = canViewOnboardingEvidence(connection);
   const [selected, setSelected] = useState(
     s.companies.find((c) => c.stage === "Onboarding")?.id ||
       s.companies[0]?.id ||
@@ -81,11 +83,11 @@ export function OnboardingHub({
         <Metric
           label="Applications reviewed"
           value={
-            business(s).onboarding.filter(
+            evidenceVisible ? business(s).onboarding.filter(
               (c) => c.applicationStatus === "Reviewed",
-            ).length
+            ).length : "Access needed"
           }
-          detail="Secure intake references recorded"
+          detail={evidenceVisible ? "Secure intake references recorded" : "Application evidence is restricted"}
         />
         <Metric
           label="Authority reviews"
@@ -94,8 +96,8 @@ export function OnboardingHub({
         />
         <Metric
           label="Evidence-based launches"
-          value={business(s).onboarding.filter((c) => c.launchedAt).length}
-          detail="Launch review recorded"
+          value={evidenceVisible ? business(s).onboarding.filter((c) => c.launchedAt).length : "Access needed"}
+          detail={evidenceVisible ? "Launch review recorded" : "Launch evidence is restricted"}
         />
       </div>
       <div className="toolbar">
@@ -123,7 +125,7 @@ export function OnboardingHub({
                   onClick={() => setSelected(x.id)}
                 >
                   <strong>{x.name}</strong>
-                  <span>{getOnboarding(s, x).applicationStatus}</span>
+                  <span>{evidenceVisible ? getOnboarding(s, x).applicationStatus : "Application evidence requires access"}</span>
                   <Status value={x.stage} />
                 </button>
               ))}
@@ -152,7 +154,9 @@ export function OnboardingHub({
   );
 }
 export function OnboardingCasePanel({ company }: { company: Company }) {
-  const { s, update } = useWorkspace();
+  const { s, update: save, connection } = useWorkspace();
+  const canEdit = canManageOnboardingEvidence(connection);
+  const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
   const oc = getOnboarding(s, company);
   const [step, setStep] = useState("0"),
     [reference, setReference] = useState(""),
@@ -171,6 +175,10 @@ export function OnboardingCasePanel({ company }: { company: Company }) {
           n.version > d.version,
       ),
   );
+  if (!canViewOnboardingEvidence(connection)) return <section className="panel business-panel">
+    <h2>Application evidence requires additional access</h2>
+    <p>Your company access does not include restricted application records. Ask a workspace administrator to review your access.</p>
+  </section>;
   return (
     <>
       <ApplicationEditor
@@ -225,7 +233,7 @@ export function OnboardingCasePanel({ company }: { company: Company }) {
             );
           })}
         </div>
-        <div className="handoff-box">
+        <fieldset disabled={!canEdit} className="handoff-box">
           <h3>{onboardingSteps[Number(step)]}</h3>
           <div className="form-grid">
             <FieldLabel label="Evidence reference">
@@ -277,7 +285,7 @@ export function OnboardingCasePanel({ company }: { company: Company }) {
               ? "Record launch approval"
               : "Record reviewed evidence"}
           </Button>
-        </div>
+        </fieldset>
         {errors.length > 0 && (
           <div className="readiness-list">
             <strong>Launch checks still open</strong>
@@ -297,7 +305,9 @@ export function OnboardingCasePanel({ company }: { company: Company }) {
   );
 }
 function ApplicationEditor({ company }: { company: Company }) {
-  const { s, update } = useWorkspace();
+  const { s, update: save, connection } = useWorkspace();
+  const canEdit = canManageOnboardingEvidence(connection);
+  const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
   const [app, setApp] = useState<OnboardingCase>(() =>
     structuredClone(getOnboarding(s, company)),
   );
@@ -305,7 +315,7 @@ function ApplicationEditor({ company }: { company: Company }) {
     setApp((p) => ({ ...p, [key]: value }));
   async function packet() {
     const content = {
-      demo: true,
+      demo: !connection,
       company: app.legalName,
       contactEmail: app.contactEmail,
       mailingAddress: app.mailingAddress,
@@ -317,7 +327,7 @@ function ApplicationEditor({ company }: { company: Company }) {
         "Formation and EIN confirmation",
         "Licensing and underwriter approval references",
       ],
-      note: "This is a local packet checklist, not a sent application or a legal filing. Do not enter SSNs, dates of birth or bank details in this prototype.",
+      note: "This packet is a checklist, not a sent application or a legal filing. Keep SSNs, dates of birth and bank details in approved secure intake.",
     };
     if (
       await update(
@@ -362,7 +372,8 @@ function ApplicationEditor({ company }: { company: Company }) {
         Keep sensitive identity details in approved secure intake. This
         workspace stores references and business contact information.
       </p>
-      <div className="form-grid">
+      {!canEdit && <p className="form-note">Your role can review this application. A company administrator can update its evidence.</p>}
+      <fieldset disabled={!canEdit} style={{ display: "contents" }}><div className="form-grid">
         <FieldLabel label="Legal company name">
           <Input
             value={app.legalName}
@@ -477,12 +488,13 @@ function ApplicationEditor({ company }: { company: Company }) {
           <Download />
           Prepare application packet
         </Button>
-      </div>
+      </div></fieldset>
     </section>
   );
 }
 export function CredentialCenter({ company }: { company: Company }) {
-  const { s } = useWorkspace();
+  const { s, connection } = useWorkspace();
+  const canEdit = canManageCompanies(connection);
   const [selected, setSelected] = useState("new");
   const records = business(s).credentials.filter(
     (r) => r.companyId === company.id,
@@ -493,14 +505,14 @@ export function CredentialCenter({ company }: { company: Company }) {
       <aside className="panel business-queue">
         <div className="section-heading">
           <h2>Authority records</h2>
-          <Button
+          {canEdit && <Button
             variant="ghost"
             size="icon"
             aria-label="New authority record"
             onClick={() => setSelected("new")}
           >
             <Plus />
-          </Button>
+          </Button>}
         </div>
         {records.map((r) => (
           <button
@@ -534,12 +546,12 @@ export function CredentialCenter({ company }: { company: Company }) {
         )}
       </aside>
       <section className="business-main">
-        <CredentialEditor
+        {canEdit || chosen ? <CredentialEditor
           key={selected}
           company={company}
           record={chosen}
           onSaved={setSelected}
-        />
+        /> : <section className="panel business-panel"><Empty title="Authority records" text="Select an existing record to review its evidence. A company administrator can add or update authority records." /></section>}
         <section className="panel business-panel">
           <h3>Jurisdiction reminders</h3>
           <p>
@@ -581,7 +593,9 @@ function CredentialEditor({
   record?: CredentialRecord;
   onSaved: (id: string) => void;
 }) {
-  const { s, update } = useWorkspace();
+  const { s, update: save, connection } = useWorkspace();
+  const canEdit = canManageCompanies(connection);
+  const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
   const [r, setR] = useState<CredentialRecord>(() =>
     record
       ? structuredClone(record)
@@ -608,7 +622,7 @@ function CredentialEditor({
         <h2>{record ? "Review authority record" : "Add authority record"}</h2>
         <CalendarClock />
       </div>
-      <div className="form-grid">
+      <fieldset disabled={!canEdit} style={{ display: "contents" }}><div className="form-grid">
         <FieldLabel label="Operating state">
           <Picker
             value={r.state}
@@ -678,12 +692,8 @@ function CredentialEditor({
           />
         </FieldLabel>
         <FieldLabel label="Reviewer">
-          <Picker
-            value={r.reviewer}
-            label="Credential reviewer"
-            options={["Stephenie", "John", "Tyler"]}
-            onChange={(v) => change("reviewer", v)}
-          />
+          {canEdit ? <StaffAssignmentPicker companyId={company.id} owner={r.reviewer} label="Credential reviewer"
+            onChange={assignment => change("reviewer", assignment.owner)} /> : <span>{r.reviewer}</span>}
         </FieldLabel>
       </div>
       <Button
@@ -699,7 +709,7 @@ function CredentialEditor({
         }}
       >
         Save authority evidence
-      </Button>
+      </Button></fieldset>
       <p className="form-note">
         Changing authority evidence reopens launch approval. A local review
         label is not a regulator verification.

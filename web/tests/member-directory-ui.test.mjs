@@ -11,16 +11,22 @@ let server, browser, context, page, origin;
 const errors = [];
 before(async () => {
   const bundle = await build({ absWorkingDir: web, write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent",
+    loader: { ".css": "empty", ".module.css": "empty" },
     define: { "process.env.NODE_ENV": '"production"' },
     stdin: { resolveDir: web, loader: "tsx", contents: `
       import React from 'react'; import {createRoot} from 'react-dom/client'; import {Toaster} from 'sonner';
       import {BackendSettings} from './components/title/backend-settings';
       window.memberDirectoryRequests=[];
       window.memberDirectoryRows=[
-        {user_id:'owner-fixture',email:'owner@example.test',role:'owner',company_ids:[],all_companies:true,active:true},
-        {user_id:'staff-fixture',email:new URLSearchParams(location.search).has('missing')?null:'staff@example.test',role:'operations',company_ids:['A'],all_companies:false,active:true},
-        {user_id:'revoked-fixture',email:'revoked@example.test',role:'viewer',company_ids:['A'],all_companies:false,active:false}
+        {user_id:'owner-fixture',email:'owner@example.test',role:'owner',company_ids:[],all_companies:true,restricted_access:false,active:true,version:1},
+        {user_id:'staff-fixture',email:new URLSearchParams(location.search).has('missing')?null:'staff@example.test',role:'operations',company_ids:['A'],all_companies:false,restricted_access:false,active:true,version:2},
+        {user_id:'revoked-fixture',email:'revoked@example.test',role:'viewer',company_ids:['A'],all_companies:false,restricted_access:false,active:false,version:3}
       ];
+      if(new URLSearchParams(location.search).get('role')==='admin') window.memberDirectoryRows.push(
+        {user_id:'other-admin',email:'admin@example.test',role:'admin',company_ids:['A'],all_companies:false,restricted_access:false,active:true,version:1},
+        {user_id:'all-staff',email:'all@example.test',role:'operations',company_ids:[],all_companies:true,restricted_access:false,active:true,version:1},
+        {user_id:'restricted-staff',email:'restricted@example.test',role:'onboarding',company_ids:['A'],all_companies:false,restricted_access:true,active:true,version:1}
+      );
       createRoot(document.getElementById('root')).render(<><BackendSettings section="Team & access"/><Toaster/></>);
     ` },
     plugins: [{ name: "synthetic-member-directory", setup(builder) {
@@ -30,7 +36,7 @@ before(async () => {
       builder.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => {
         if (path === "missive") return { contents: "export const MissiveSettings=()=>null;" };
         if (path === "workspace") return { contents: `
-          const value={s:{companies:[{id:'A',name:'Company A',members:[]}]},connection:{access:{userId:'owner-fixture',email:'owner@example.test',role:'owner',allCompanies:true},revision:1,refresh:async()=>true}};
+          const value={s:{companies:[{id:'A',name:'Company A',members:[]}]},connection:{access:{userId:'owner-fixture',email:'owner@example.test',role:new URLSearchParams(location.search).get('role')||'owner',allCompanies:true},revision:1,refresh:async()=>true}};
           export const useWorkspace=()=>value;
         ` };
         return { contents: `
@@ -99,6 +105,12 @@ test("revoking an email-identified membership still submits its original account
   await open(); await row("staff@example.test").getByRole("button", { name: "Revoke access", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('.backend-access-list').textContent.includes('operations · Revoked'));
   const requests = await page.evaluate(() => window.memberDirectoryRequests.filter(r => r.path === '/members/revoke'));
-  assert.deepEqual(requests, [{ path: "/members/revoke", input: { workspaceId: "11111111-1111-4111-8111-111111111111", userId: "staff-fixture" } }]);
+  assert.deepEqual(requests, [{ path: "/members/revoke", input: { workspaceId: "11111111-1111-4111-8111-111111111111", userId: "staff-fixture", expectedVersion: 2 } }]);
   assert.equal(await row("staff@example.test").getByRole("button", { name: "Revoke access", exact: true }).count(), 0);
+});
+test("admin sees revoke only for ordinary staff, never another administrator or elevated grant", async () => {
+  await open("role=admin");
+  for (const email of ['owner@example.test','admin@example.test','all@example.test','restricted@example.test'])
+    assert.equal(await row(email).getByRole("button",{name:"Revoke access",exact:true}).count(),0);
+  assert.equal(await row('staff@example.test').getByRole("button",{name:"Revoke access",exact:true}).isEnabled(),true);
 });

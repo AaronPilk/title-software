@@ -36,6 +36,10 @@ export type Access = {
   restricted: boolean;
   version: number;
   partnerMembers: { id: string; companyId: string; memberName: string }[];
+  /** The connected command API requires an account for manual assignments. */
+  requireStaffAssignments?: boolean;
+  /** Server-resolved current staff, supplied only while validating explicit assignments. */
+  assignableStaff?: { userId: string; email: string; role: Role; companyIds: string[]; allCompanies: boolean }[];
 };
 export class ApiError extends Error {
   constructor(
@@ -72,6 +76,21 @@ const cash = (v: unknown) => {
 const admin = (a: Access) => ["owner", "admin"].includes(a.role);
 export const canCompany = (a: Access, id: string) =>
   a.allCompanies || a.companyIds.includes(id);
+function validateAssignment(v: Record<string, unknown>, current: { assigneeId?: string; owner: string } | undefined, companyId: string, a: Access, kind: "task" | "order") {
+  if (!has(v, "assigneeId")) {
+    if ((a.requireStaffAssignments && (!current || has(v, "owner") && v.owner !== current.owner)) ||
+        (current?.assigneeId && has(v, "owner") && v.owner !== current.owner))
+      fail("Choose a workspace staff account to change this assignment.");
+    return;
+  }
+  if (typeof v.assigneeId !== "string" || !/^[a-f\d-]{36}$/i.test(v.assigneeId))
+    fail("Choose an active workspace staff account.");
+  const staff = a.assignableStaff?.find(member => member.userId === v.assigneeId);
+  const roles = kind === "order" ? ["owner", "admin", "operations"] : ["owner", "admin", "operations", "onboarding", "finance"];
+  if (!staff || !roles.includes(staff.role) || (!staff.allCompanies && !staff.companyIds.includes(companyId)))
+    fail("The selected staff account no longer has access to this company. Refresh the staff list.", 409);
+  v.owner = staff.email;
+}
 function permit(a: Access, group: string) {
   if (admin(a)) return;
   const allowed: Record<string, string[]> = {
@@ -590,7 +609,8 @@ function applyEdit(
   }
   if (edit.table === "tasks") {
     permit(a, "tasks");
-    keys(v, ["id", "title", "companyId", "owner", "due", "done", "priority", "createdAt"]);
+    keys(v, ["id", "title", "companyId", "owner", "assigneeId", "due", "done", "priority", "createdAt"]);
+    validateAssignment(v, current, v.companyId || current?.companyId, a, "task");
     if (has(v, "createdAt") && !edit.insert) fail("Task creation time cannot be changed.");
     if (has(v, "createdAt") && typeof v.createdAt !== "string") fail("Invalid task creation time.");
     const n = { ...current, ...v };
@@ -622,6 +642,7 @@ function applyEdit(
         ? "finance"
         : "production",
     );
+    validateAssignment(v, current, v.companyId || current?.companyId, a, "order");
     if (edit.insert) {
       cash(v.premium);
       nonempty(v.address, "property address");
@@ -640,6 +661,7 @@ function applyEdit(
         type: String(v.type || "Purchase"),
         underwriter: String(v.underwriter || ""),
         owner: String(v.owner || a.email),
+        ...(v.assigneeId ? { assigneeId: v.assigneeId } : {}),
         jurisdiction: v.jurisdiction,
         delivered: false,
         remitted: false,
@@ -658,6 +680,7 @@ function applyEdit(
     }
     keys(v, [
       "owner",
+      "assigneeId",
       "notes",
       "exception",
       "production",
@@ -788,7 +811,7 @@ function applyEdit(
         fail("Record delivery for issued products.");
       current.delivered = true;
     }
-    for (const k of ["owner", "notes", "exception", "remitted"])
+    for (const k of ["owner", "assigneeId", "notes", "exception", "remitted"])
       if (has(v, k)) current[k] = v[k];
     return;
   }
@@ -1119,6 +1142,7 @@ export function executeCommands(
   const next = normalizeWorkspace(before);
   next.user = a.email;
   for (const cmd of commands) {
+    object(cmd);
     if (
       typeof cmd.id !== "string" ||
       !/^[a-f\d-]{36}$/i.test(cmd.id) ||

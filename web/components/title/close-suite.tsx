@@ -1,4 +1,5 @@
 "use client";
+import { businessPeriod } from "@/lib/title/business-date";
 import { useState } from "react";
 import {
   Plus,
@@ -6,7 +7,6 @@ import {
   CheckCheck,
   RefreshCw,
   Eye,
-  FileCheck2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +33,7 @@ import { StatementDeliveries } from "./statement-deliveries";
 export function CloseWorkspace() {
   const { s, update } = useWorkspace();
   const [company, setCompany] = useState(s.companies[0]?.id || ""),
-    [month, setMonth] = useState("2026-09"),
+    [month, setMonth] = useState(() => businessPeriod()),
     [selected, setSelected] = useState("");
   const closes = business(s).closes.filter(
     (p) => p.companyId === company && p.month === month,
@@ -82,7 +82,7 @@ export function CloseWorkspace() {
         </Button>
       </div>
       <p className="inline-note">
-        Freeze one company's policy rows and ownership assumptions for a period.
+        Freeze one company’s policy rows and ownership assumptions for a period.
         Approved statements publish from that saved revision.
       </p>
       {closes.length > 0 && (
@@ -112,7 +112,7 @@ export function CloseWorkspace() {
   );
 }
 function CloseEditor({ period }: { period: ClosePeriod }) {
-  const { s, update } = useWorkspace();
+  const { s, update, connection } = useWorkspace();
   const [p, setP] = useState(() => structuredClone(period));
   const [checks, setChecks] = useState([false, false, false]);
   const [cancelNote, setCancelNote] = useState("");
@@ -131,7 +131,7 @@ function CloseEditor({ period }: { period: ClosePeriod }) {
     download(
       `${period.companyName}-${period.month}-v${period.revision}.json`,
       JSON.stringify(
-        { demo: true, notPaymentInstructions: true, close: period },
+        { demo: !connection, notPaymentInstructions: true, close: period },
         null,
         2,
       ),
@@ -346,7 +346,7 @@ function CloseEditor({ period }: { period: ClosePeriod }) {
               onClick={async () =>
                 await update(
                   (d) => publishClose(d, period.id),
-                  "Statement published in local partner view",
+                  "Statement published in partner view",
                   period.companyName,
                 )
               }
@@ -361,7 +361,7 @@ function CloseEditor({ period }: { period: ClosePeriod }) {
           </Button>
         </div>
         <p className="form-note">
-          Approval creates a fixed local snapshot. Publishing changes the demo
+          Approval creates a fixed snapshot. Publishing updates the
           partner view; it does not send a statement or execute a payment.
         </p>
       </section>
@@ -531,7 +531,7 @@ export function PartnerStatements({ companyId }: { companyId: string }) {
             onClick={() =>
               download(
                 `${period.companyId}-${period.month}-member-statement.txt`,
-                `LOCAL DEMO MEMBER STATEMENT — NOT PAYMENT INSTRUCTIONS\nCompany: ${period.companyName}\nPeriod: ${period.month} · Revision ${period.revision}\nMember: ${allocation.name}\nInterest: ${allocation.share}%\nApproved allocation: ${money(allocation.amount)}\nPublished: ${period.publishedAt}\nReviewed by: ${period.reviewedBy}\n`,
+                `${connection ? "MEMBER STATEMENT" : "LOCAL DEMO MEMBER STATEMENT"} — NOT PAYMENT INSTRUCTIONS\nCompany: ${period.companyName}\nPeriod: ${period.month} · Revision ${period.revision}\nMember: ${allocation.name}\nInterest: ${allocation.share}%\nApproved allocation: ${money(allocation.amount)}\nPublished: ${period.publishedAt}\nReviewed by: ${period.reviewedBy}\n`,
               )
             }
           >

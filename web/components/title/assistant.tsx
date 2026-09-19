@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useWorkspace } from "@/lib/title/store";
 import { uid, type Page } from "@/lib/title/model";
+import { canManageTasks } from "@/lib/title/workspace-capabilities";
 import { activeWorkspace } from "@/lib/backend/client";
 import { assistantRequest, AssistantClientError } from "@/lib/assistant/client";
 import type { AssistantFork, AssistantInput, AssistantResponse, AssistantSource, AssistantThread, AssistantTurn, Specialist } from "@/lib/assistant/protocol";
@@ -69,7 +70,7 @@ function ConnectedAssistant({ navigate }: { navigate: (page: Page) => void }) {
 
 type TaskReview = { threadId: string; turnId: string; forkId: string; title: string; due: string };
 function ConversationScope({ companyId, orderId, navigate }: { companyId: string; orderId: string; navigate: (page: Page) => void }) {
-  const { s, update, connection } = useWorkspace();
+  const { update, connection } = useWorkspace();
   const [data, setData] = useState<AssistantResponse | null>(null);
   const [selected, setSelected] = useState("");
   const [question, setQuestion] = useState("");
@@ -89,7 +90,7 @@ function ConversationScope({ companyId, orderId, navigate }: { companyId: string
   const answerEnd = useRef<HTMLDivElement>(null);
   const currentThread = data?.threads.find((thread) => thread.id === selected);
   const forksRunning = !!data?.threads.some((thread) => thread.turns.some((turn) => turn.forks.some((fork) => fork.status === "Running")));
-  const canCreateTask = !!connection && ["owner", "admin", "operations", "onboarding", "finance"].includes(connection.access.role);
+  const canCreateTask = !!connection && canManageTasks(connection);
   const availableSpecialists = specialists.filter((specialist) => specialist.name !== "Month-end reviewer" || (connection && ["owner", "admin", "finance"].includes(connection.access.role)));
 
   const request = useCallback(async (input: AssistantInput) => {
@@ -215,7 +216,7 @@ function ConversationScope({ companyId, orderId, navigate }: { companyId: string
       if (fork?.status !== "Complete" || !fork.result || fresh.context.revision !== turn.revision)
         throw new Error("The records or source access changed since this answer. Ask for an updated review before creating the task.");
       const saved = await update((draft) => {
-        draft.tasks.unshift({ id: uid("task"), title: review.title.trim(), due: review.due, companyId, owner: s.user, priority: "Normal", done: false });
+        draft.tasks.unshift({ id: uid("task"), title: review.title.trim(), due: review.due, companyId, owner: connection!.access.email, assigneeId: connection!.access.userId, priority: "Normal", done: false });
       }, "Assistant task created", review.title.trim(), turn.revision);
       if (!alive.current) return;
       if (!saved) {
@@ -271,7 +272,7 @@ function ConversationScope({ companyId, orderId, navigate }: { companyId: string
       </section>
     </div>
     <Dialog open={deleting} onOpenChange={(open) => { if (!busy) setDeleting(open); }}><DialogContent className="modal"><DialogHeader><DialogTitle>Delete this conversation?</DialogTitle><DialogDescription>This removes its private questions and specialist answers. Existing business records and tasks stay unchanged.</DialogDescription></DialogHeader><div className={styles.actions}><Button variant="outline" disabled={busy} onClick={() => setDeleting(false)}>Cancel</Button><Button disabled={busy} onClick={() => void deleteConversation()}>Delete conversation</Button></div></DialogContent></Dialog>
-    <Dialog open={!!review} onOpenChange={(open) => { if (!open && !taskBusy) setReview(null); }}><DialogContent className="modal"><DialogHeader><DialogTitle>Review as a task</DialogTitle><DialogDescription>Edit the next step before saving it to {data?.context.companyName || "this company"}. The task will be assigned to {s.user}.</DialogDescription></DialogHeader>{review && <form onSubmit={createTask} className={styles.taskForm}>
+    <Dialog open={canCreateTask && !!review} onOpenChange={(open) => { if (!open && !taskBusy) setReview(null); }}><DialogContent className="modal"><DialogHeader><DialogTitle>Review as a task</DialogTitle><DialogDescription>Edit the next step before saving it to {data?.context.companyName || "this company"}. The task will be assigned to your account: {connection?.access.email}.</DialogDescription></DialogHeader>{review && <form onSubmit={createTask} className={styles.taskForm}>
       <label htmlFor="assistant-task-title">Task title<Input id="assistant-task-title" required maxLength={180} value={review.title} disabled={taskBusy} onChange={(event) => setReview({ ...review, title: event.target.value })} /></label>
       <label htmlFor="assistant-task-due">Due date<Input id="assistant-task-due" type="date" required value={review.due} disabled={taskBusy} onChange={(event) => setReview({ ...review, due: event.target.value })} /></label>
       {taskError && <p role="alert" className={styles.taskError}>{taskError}</p>}

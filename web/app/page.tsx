@@ -1,4 +1,5 @@
 "use client";
+import { canManageFinance } from "@/lib/title/workspace-capabilities";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   LayoutGrid,
@@ -371,7 +372,7 @@ function Workspace() {
       content = <Tasks />;
       break;
     case "Financials":
-      content = <Financials />;
+      content = canManageFinance(connection) ? <Financials /> : <section className="panel"><h1>Financials access required</h1><p>Your account does not have financial access. Ask the workspace owner to review your role.</p></section>;
       break;
     case "Partner portal":
       content = <PartnerPortal onDoc={openDoc} />;

@@ -35,6 +35,10 @@ const client = {
     },
   },
   async rpc(name, args) {
+    if (name === "title_invitation_delivery_status") {
+      assert.equal(args.p_workspace, wid); assert.equal(args.p_actor, actor); assert.equal(args.p_access_version, fixture.memberships[0].version);
+      fixture.statusReads++; return ok(fixture.deliveries);
+    }
     assert.equal(name, "title_security_state"); assert.equal(args.p_user, actor);
     return ok({ session_valid: true, password_change_required: false, has_totp: true, session_totp: true });
   },
@@ -44,13 +48,17 @@ const client = {
       let rows;
       if (table === "title_memberships") rows = fixture.memberships;
       else if (table === "title_invitations") rows = fixture.invitations;
+      else if (table === "title_invitation_deliveries") rows = [];
+      else if (table === "title_workspaces") rows = [{id:wid,state:{companies:[{id:"A"},{id:"B"}]}}];
       else throw Error(`Unexpected table ${table}`);
       return rows.filter(row => query.filters.every(([key, value]) => row[key] === value)).map(row =>
         query.columns === "*" ? structuredClone(row) : Object.fromEntries(query.columns.split(",").map(key => [key, row[key]])));
     };
     return {
       select(columns = "*") { query.columns = columns; return this; },
+      order() { return this; }, limit() { return this; },
       eq(key, value) { query.filters.push([key, value]); return this; },
+      async single() { const rows = selected(); assert.equal(rows.length, 1); return ok(rows[0]); },
       async maybeSingle() { const rows = selected(); assert(rows.length <= 1, "Missing membership scope"); return ok(rows[0] || null); },
       then(resolve, reject) { return Promise.resolve(ok(selected())).then(resolve, reject); },
     };
@@ -92,7 +100,7 @@ beforeEach(() => {
     memberships: [membership(actor, { role: "owner", all_companies: true, company_ids: [] }), membership(staff), membership(revoked, { active: false }), membership(outsider, { workspace_id: otherWid })],
     invitations: [{ id: "pending-one", workspace_id: wid, email: "pending@example.test", role: "operations" }, { id: "pending-other", workspace_id: otherWid, email: "other-pending@example.test", role: "operations" }],
     users: new Map([[actor, user(actor, email)], [staff, user(staff, "staff@example.test")], [revoked, user(revoked, "revoked@example.test")], [outsider, user(outsider, "outsider@example.test")]]),
-    lookups: [], queries: [], failures: new Map(), delay: 0, hang: false, aborted: 0, inFlight: 0, maxInFlight: 0,
+    deliveries: [], statusReads: 0, lookups: [], queries: [], failures: new Map(), delay: 0, hang: false, aborted: 0, inFlight: 0, maxInFlight: 0,
   };
 });
 after(() => { globalThis.fetch = originalFetch; globalThis.Deno = originalDeno; delete globalThis.__memberDirectoryClient; delete globalThis.__memberIdentityClient; });
@@ -163,4 +171,37 @@ test("the total enrichment deadline returns remaining members without starting m
   assert.equal(result.status, 200); assert.equal(result.body.members.length, 21); assert(result.body.members.every(m => m.email === null));
   assert.equal(fixture.inFlight, 0); assert(fixture.maxInFlight <= 4); assert(fixture.lookups.length < 21);
   assert.equal(fixture.aborted, fixture.lookups.length); assert(Date.now() - started < 10000);
+});
+
+async function assignable(companyId="A",kind="task") {
+ const response=await handler(new Request("https://synthetic.example.test/functions/v1/title-api/staff/assignable",{method:"POST",headers:{Authorization:"Bearer synthetic-session","Content-Type":"application/json"},body:JSON.stringify({workspaceId:wid,companyId,kind})}));
+ return {status:response.status,body:await response.json()};
+}
+test("operations directory exposes only assignable identities in permitted companies",async()=>{
+ fixture.memberships[0]={...fixture.memberships[0],role:"operations",all_companies:false,company_ids:["A"]};
+ fixture.memberships.push(membership(crypto.randomUUID(),{company_ids:["B"]}));
+ const result=await assignable();assert.equal(result.status,200);assert.deepEqual(result.body.staff.map(m=>m.userId),[actor,staff]);
+ assert.deepEqual(Object.keys(result.body.staff[0]).sort(),["userId","email","label"].sort());assert.deepEqual(fixture.lookups,[actor,staff]);
+ assert.doesNotMatch(JSON.stringify(result.body),/PRIVATE_|revoked@example|outsider@example|company_ids/);
+});
+test("another-company assignment directory is rejected before identity lookups",async()=>{
+ fixture.memberships[0]={...fixture.memberships[0],role:"operations",all_companies:false,company_ids:["A"]};
+ const result=await assignable("B");assert.equal(result.status,403);assert.deepEqual(fixture.lookups,[]);
+});
+for(const role of ["viewer","partner"])test(`${role} cannot initiate assignment identity lookups`,async()=>{fixture.memberships[0].role=role;assert.equal((await assignable()).status,403);assert.deepEqual(fixture.lookups,[]);});
+test("order assignment excludes staff without production role",async()=>{fixture.memberships[1].role="finance";const r=await assignable("A","order");assert.equal(r.status,200);assert.deepEqual(r.body.staff.map(m=>m.userId),[actor]);});
+test("task assignment includes finance staff with company access",async()=>{fixture.memberships[1].role="finance";const r=await assignable();assert.equal(r.status,200);assert.deepEqual(r.body.staff.map(m=>m.userId),[actor,staff]);});
+test("missing identity is counted and never becomes an assignable account label",async()=>{fixture.failures.set(staff,"error");const r=await assignable();assert.equal(r.status,200);assert.equal(r.body.unavailable,1);assert.deepEqual(r.body.staff.map(m=>m.userId),[actor]);});
+test("empty permitted company portfolio reveals no staff account directory",async()=>{fixture.memberships[0]={...fixture.memberships[0],role:"operations",all_companies:false,company_ids:[]};const r=await assignable("");assert.equal(r.status,200);assert.deepEqual(r.body.staff,[]);assert.deepEqual(fixture.lookups,[]);});
+
+for (const terminal of ['accepted_at','revoked_at']) test(`${terminal} invitation retains historical email delivery`,async()=>{
+ Object.assign(fixture.invitations[0],{version:4,[terminal]:'2026-09-19T12:00:00Z'});
+ fixture.deliveries=[{invitation_id:'pending-one',invitation_version:3,status:'sent',created_at:'2026-09-18T12:00:00Z',finished_at:'2026-09-18T12:00:01Z'}];
+ const result=await directory();assert.equal(result.status,200);assert.equal(result.body.invitations[0].delivery_status,'sent');assert.equal(result.body.invitations[0].delivery_at,'2026-09-18T12:00:01Z');assert.equal(fixture.statusReads,1);
+ assert(!fixture.queries.some(q=>q.table==='title_invitation_deliveries'));
+});
+test('directory preserves delivery status for every invitation returned by the status transaction',async()=>{
+ fixture.invitations=Array.from({length:600},(_,i)=>({id:`inv-${i}`,workspace_id:wid,version:1,email:`fictional-${i}@example.test`}));
+ fixture.deliveries=fixture.invitations.map(i=>({invitation_id:i.id,invitation_version:1,status:'sent',created_at:'2026-09-18T12:00:00Z'}));
+ const result=await directory();assert.equal(result.status,200);assert.equal(result.body.invitations.length,600);assert(result.body.invitations.every(i=>i.delivery_status==='sent'));
 });

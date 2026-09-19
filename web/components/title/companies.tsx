@@ -234,7 +234,9 @@ export function NewCompany({
             id: uid("task"),
             title: "Collect onboarding application",
             companyId: id,
-            owner: "Stephenie",
+            ...(connection
+              ? { owner: connection.access.email, assigneeId: connection.access.userId }
+              : { owner: "Stephenie" }),
             due: nextWeekday(businessDay()),
             priority: "Normal",
             done: false,
@@ -357,6 +359,7 @@ export function NewCompany({
               </div>
             </div>
           )}
+          {connection && <p className="form-note">Initial setup task assigned to you: {connection.access.email}.</p>}
           <div className="form-actions">
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
