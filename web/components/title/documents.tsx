@@ -54,7 +54,7 @@ export function Documents({
   onDoc: (d: VaultDoc) => void;
   onUpload: () => void;
 }) {
-  const { s } = useWorkspace();
+  const { s, connection } = useWorkspace();
   const [q, setQ] = useState("");
   const [company, setCompany] = useState("all");
   const [category, setCategory] = useState("All documents");
@@ -189,7 +189,11 @@ export function Documents({
         {!rows.length && <Empty />}
         <div className="table-foot">
           {rows.length} documents
-          <span>Uploaded files stay in this browser</span>
+          <span>
+            {connection
+              ? "Files are stored in your private workspace"
+              : "Uploaded files stay in this browser"}
+          </span>
         </div>
       </section>
     </>
@@ -216,7 +220,7 @@ export function UploadDocument({
   correctionId?: string;
   onClose: () => void;
 }) {
-  const { s, update } = useWorkspace();
+  const { s, update, connection } = useWorkspace();
   const [company, setCompany] = useState(
     s.orders.find((o) => o.id === orderId)?.companyId ||
       companyId ||
@@ -353,13 +357,15 @@ export function UploadDocument({
             if (o.status === "Ready for jacket") o.status = "Needs review";
           }
         },
-        "Documents saved locally",
+        connection ? "Documents saved to workspace" : "Documents saved locally",
         `${uploaded.length} files · ${companyById(s, company).name}`,
       );
       if (saved) onClose();
     } catch {
       toast.error(
-        "The file could not be stored in this browser. Try a smaller file.",
+        connection
+          ? "The upload could not be completed. Check your connection and company access, then try again."
+          : "The file could not be stored in this browser. Try a smaller file.",
       );
     } finally {
       setBusy(false);
@@ -371,8 +377,9 @@ export function UploadDocument({
         <DialogHeader>
           <DialogTitle>Upload documents</DialogTitle>
           <DialogDescription>
-            Use sample or redacted files. This demo has no production access
-            controls.
+            {connection
+              ? "Upload original company and file documents you are authorized to use. Files are stored in your private workspace; company and document permissions apply."
+              : "Use sample or redacted files in this local demo. Files stay in this browser and are not shared with your team."}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="form-stack">
@@ -385,7 +392,7 @@ export function UploadDocument({
             </strong>
             <span>Up to 10 files · 25 MB each · 100 MB per batch</span>
             <Input
-              aria-label="Select sample document"
+              aria-label="Select documents"
               type="file"
               multiple
               accept=".pdf,.txt,.csv,.png,.jpg,.jpeg"
@@ -460,7 +467,7 @@ export function UploadDocument({
                 ]}
               />
             </FieldLabel>
-            <FieldLabel label="Visibility label">
+            <FieldLabel label={connection ? "Document access" : "Visibility label"}>
               <Picker
                 value={visibility}
                 onChange={setVisibility}
@@ -474,8 +481,10 @@ export function UploadDocument({
             </FieldLabel>
           </div>
           <p className="form-note">
-            Uploading the same filename to the same company creates a new
-            version. Nothing is sent to an external service.
+            Uploading the same filename to the same company and linked order
+            creates a new version. {connection
+              ? "Saving does not email or publish these documents."
+              : "Files stay in this browser; visibility labels do not grant team access."}
           </p>
           <div className="form-actions">
             <Button
@@ -509,6 +518,7 @@ export function DocumentPreview({
   partnerMember?: string;
 }) {
   const { s, update, connection } = useWorkspace();
+  const connected = !!connection;
   const [url, setUrl] = useState("");
   const [text, setText] = useState(doc.text || "");
   const [error, setError] = useState("");
@@ -545,14 +555,16 @@ export function DocumentPreview({
         .catch(() => {
           if (alive)
             setError(
-              "This file is no longer available in this browser. Upload it again.",
+              connected
+                ? "This document could not be loaded from your workspace. Check your connection and document access, then reopen it."
+                : "This file is no longer available in this browser. Upload it again.",
             );
         });
     return () => {
       alive = false;
       if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
-  }, [doc, allowed]);
+  }, [doc, allowed, connected]);
   async function downloadDoc() {
     try {
       if (!permission.current) throw new Error("Publication unavailable");
@@ -608,17 +620,17 @@ export function DocumentPreview({
             <img className="image-preview" alt={doc.name} src={url} />
           )
         ) : (
-          <div className="empty-state">Loading local file…</div>
+          <div className="empty-state">Loading document…</div>
         )}
         {!partner && (
           <div className="document-sharing">
             <span>
               <Shield size={15} />
-              Visibility label
+              {connection ? "Document access" : "Visibility label"}
             </span>
             <Picker
               value={doc.visibility === "Partner" ? "Internal" : doc.visibility}
-              label="Change visibility label"
+              label={connection ? "Change document access" : "Change visibility label"}
               options={["Internal", "Restricted"]}
               onChange={async (v) =>
                 await update(
@@ -626,7 +638,7 @@ export function DocumentPreview({
                     d.documents.find((x) => x.id === doc.id)!.visibility =
                       v as VaultDoc["visibility"];
                   },
-                  "Document visibility label updated",
+                  connection ? "Document access updated" : "Document visibility label updated",
                   doc.name,
                 )
               }

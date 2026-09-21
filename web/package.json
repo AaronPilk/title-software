@@ -38,7 +38,8 @@
     "test:workspace:views": "node --test --test-concurrency=1 tests/company-create-access-ui.test.mjs tests/agency-overview-ui.test.mjs tests/workspace-view-ui.test.mjs",
     "test:daily-use:ui": "node --test tests/daily-use-ui.test.mjs",
     "test:staff:sql": "node scripts/backend/test-staff-lifecycle-sql.mjs",
-    "test:staff:assignment": "node --test tests/staff-assignment.test.mjs"
+    "test:staff:assignment": "node --test tests/staff-assignment.test.mjs",
+    "test:documents:ui": "node --test tests/document-storage-ui.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
