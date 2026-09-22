@@ -11,5 +11,5 @@
   "durable_objects":{"bindings":[{"name":"PERSONAL_ASSISTANT","class_name":"PersonalAssistant"}]},
   "migrations":[{"tag":"v1","new_sqlite_classes":["PersonalAssistant"]}],
   "vars":{"TITLE_API_URL":"https://yhneskzvmtcmbsknidlt.supabase.co/functions/v1/title-api"},
-  "observability":{"enabled":true,"logs":{"enabled":true,"invocation_logs":false}}
+  "observability":{"enabled":true,"redact_query_string":true,"logs":{"enabled":true,"invocation_logs":false}}
 }

@@ -1,6 +1,7 @@
 "use client";
 import { BufferedInput } from "./buffered-input";
 import { businessPeriod } from "@/lib/title/business-date";
+import { canConfirmWorkspaceFinance } from "@/lib/title/workspace-capabilities";
 import { ledgerLines } from "@/lib/title/business";
 import {
   remittanceUnderwriters,
@@ -32,6 +33,7 @@ import {
 } from "./shared";
 export function Financials() {
   const { s, update, connection } = useWorkspace();
+  const canConfirmReview = canConfirmWorkspaceFinance(connection);
   const [month, setMonth] = useState(() => businessPeriod());
   const [tab, setTab] = useState("Overview");
   const [checks, setChecks] = useState([false, false, false]);
@@ -203,6 +205,7 @@ export function Financials() {
             <section className="panel close-card">
               <h2>Month-end review</h2>
               <p>Check the source records before confirming this close.</p>
+              {!canConfirmReview && <p>An organization-wide finance account confirms the workspace month-end review. You can review your assigned companies here.</p>}
               {[
                 "Issued-policy totals reviewed",
                 "Underwriter terms verified for the period",
@@ -210,6 +213,7 @@ export function Financials() {
               ].map((label, i) => (
                 <label key={label}>
                   <Checkbox
+                    disabled={!canConfirmReview}
                     checked={checks[i]}
                     onCheckedChange={(v) =>
                       setChecks((prev) =>
@@ -221,7 +225,7 @@ export function Financials() {
                 </label>
               ))}
               <Button
-                disabled={!checks.every(Boolean) || !issued.length || approved}
+                disabled={!canConfirmReview || !checks.every(Boolean) || !issued.length || approved}
                 onClick={async () =>
                   await update(
                     (d) => d.approvedReports.push(reportKey),

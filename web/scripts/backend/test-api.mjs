@@ -11,5 +11,5 @@ try {
       build.onLoad({ filter: /.*/, namespace: "test-client" }, () => ({ contents: "export const createClient = () => globalThis.__titleHttpClient;", loader: "js" }));
     } }],
   });
-  execFileSync(process.execPath, ["--test", "tests/title-api-http.test.mjs", "tests/password-setup-http.test.mjs", "tests/member-invitation-http.test.mjs", "tests/member-directory-http.test.mjs", "tests/invitation-email-http.test.mjs", "tests/staff-assignment-http.test.mjs", "tests/security-inputs-http.test.mjs"], { stdio: "inherit" });
+  execFileSync(process.execPath, ["--test", "tests/title-api-http.test.mjs", "tests/password-setup-http.test.mjs", "tests/member-invitation-http.test.mjs", "tests/member-directory-http.test.mjs", "tests/invitation-email-http.test.mjs", "tests/staff-assignment-http.test.mjs", "tests/security-inputs-http.test.mjs", "tests/company-scope-http.test.mjs"], { stdio: "inherit" });
 } finally { await rm(dir, { recursive: true, force: true }); }

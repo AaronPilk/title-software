@@ -52,9 +52,9 @@ import {
   exportCsv,
   exportFullBackup,
   parseBackupFile,
-  restoreAssets,
   type WorkspaceBackup,
 } from "@/lib/title/store";
+import { MAX_BACKUP_FILE_BYTES } from "@/lib/title/backup-assets";
 import { money, type VaultDoc } from "@/lib/title/model";
 import {
   Heading,
@@ -324,6 +324,8 @@ export function Settings() {
     e.target.value = "";
     if (!file) return;
     try {
+      if (file.size > MAX_BACKUP_FILE_BYTES)
+        throw new Error("Choose a local backup file up to 96 MB.");
       const backup = parseBackupFile(await file.text());
       setPendingRestore(backup);
     } catch (error) {
@@ -338,8 +340,7 @@ export function Settings() {
     if (!pendingRestore) return;
     setRestoreBusy(true);
     try {
-      await restoreAssets(pendingRestore.assets);
-      restore(pendingRestore.workspace);
+      await restore(pendingRestore.workspace, pendingRestore.assets);
       setPendingRestore(null);
     } catch (error) {
       toast.error(

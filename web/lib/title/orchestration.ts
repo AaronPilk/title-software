@@ -315,7 +315,7 @@ export function validateOrchestrationMutation(before: Workspace, after: Workspac
     }
     if (key !== "proposals" && (next[key].length < previous[key].length || !previous[key].every((row, index) => same(row, next[key][index])))) throw new Error("Orchestration history is immutable. Record a new revision instead.");
   }
-  const sequence = (rows: (Stamp & { version: number })[], key: (row: any) => string) => {
+  const sequence = <T extends Stamp & { version: number }>(rows: T[], key: (row: T) => string) => {
     const versions = new Map<string, number>();
     for (const row of rows) {
       const expected = (versions.get(key(row)) || 0) + 1;
@@ -373,7 +373,10 @@ export function validateOrchestrationMutation(before: Workspace, after: Workspac
   for (const row of previous.proposals) {
     const candidate = next.proposals.find(p => p.id === row.id);
     if (!candidate) throw new Error("Proposals cannot be deleted.");
-    const { status: _a, review: _b, outcome: _c, ...original } = row, { status: _d, review: _e, outcome: _f, ...changed } = candidate;
+    const capturedEvidence = (proposal: ExternalChangeProposal) => Object.fromEntries(
+      Object.entries(proposal).filter(([key]) => !["status", "review", "outcome"].includes(key)),
+    );
+    const original = capturedEvidence(row), changed = capturedEvidence(candidate);
     if (!same(original, changed) || (row.review && !same(row.review, candidate.review)) || (row.outcome && !same(row.outcome, candidate.outcome))) throw new Error("Captured evidence, reviews and outcomes are immutable.");
     if (row.status !== candidate.status) {
       if (["Pending review", "Exception"].includes(row.status) && ["Approved", "Rejected"].includes(candidate.status)) {

@@ -11,6 +11,8 @@ import {
   type SourceRole,
 } from "@/lib/title/production";
 import { getCommitment } from "@/lib/title/business";
+import { safeDocumentMime } from "@/lib/title/backup-assets";
+import { PdfPreview } from "./pdf-preview";
 import { useEffect, useRef, useState } from "react";
 import { materials, partnerPublications } from "@/lib/title/materials";
 import { PublicationManager } from "./publications";
@@ -519,10 +521,13 @@ export function DocumentPreview({
 }) {
   const { s, update, connection } = useWorkspace();
   const connected = !!connection;
-  const [url, setUrl] = useState("");
-  const [text, setText] = useState(doc.text || "");
-  const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState<{ doc: VaultDoc; url?: string; text?: string; pdf?: Blob; error?: string } | null>(null);
+  const current = loaded?.doc === doc ? loaded : null;
+  const url = current?.url || "";
+  const text = current?.text ?? doc.text ?? "";
+  const error = current?.error || "";
   const allowed =
+    s.documents.some(d => d.id === doc.id && d.assetId === doc.assetId && d.mime === doc.mime) && (
     !partner ||
     (connection?.access.role === "partner" &&
       s.materials?.publications.some(
@@ -530,44 +535,48 @@ export function DocumentPreview({
       )) ||
     partnerPublications(s, doc.companyId, partnerMember).some(
       (p) => p.id === publicationId && p.documentId === doc.id,
-    );
+    ));
   const permission = useRef(allowed);
-  permission.current = allowed;
   useEffect(() => {
     let alive = true,
       blobUrl = "";
-    setError("");
-    setUrl("");
-    setText(doc.text || "");
+    permission.current = allowed;
     if (!allowed) return;
     if (doc.assetId)
       getAsset(doc.assetId)
         .then(async (blob) => {
           if (!alive) return;
+          const mime = doc.mime || "application/octet-stream";
+          if (!safeDocumentMime(mime) || (blob.type || "application/octet-stream") !== mime)
+            throw new Error("Document type mismatch");
           if (doc.mime?.startsWith("text/")) {
             const value = await blob.text();
-            if (alive) setText(value);
+            if (alive) setLoaded({ doc, text: value });
+          } else if (mime === "application/pdf") {
+            setLoaded({ doc, pdf: new Blob([blob], { type: mime }) });
           } else {
-            blobUrl = URL.createObjectURL(blob);
-            setUrl(blobUrl);
+            // The preview type is fixed by validated metadata, never by a restored Blob.
+            blobUrl = URL.createObjectURL(new Blob([blob], { type: mime }));
+            setLoaded({ doc, url: blobUrl });
           }
         })
         .catch(() => {
           if (alive)
-            setError(
+            setLoaded({ doc, error:
               connected
                 ? "This document could not be loaded from your workspace. Check your connection and document access, then reopen it."
                 : "This file is no longer available in this browser. Upload it again.",
-            );
+            });
         });
     return () => {
       alive = false;
+      permission.current = false;
       if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
   }, [doc, allowed, connected]);
   async function downloadDoc() {
     try {
-      if (!permission.current) throw new Error("Publication unavailable");
+      if (!allowed || !permission.current) throw new Error("Publication unavailable");
       const content = doc.assetId
         ? await getAsset(doc.assetId)
         : doc.text || "Demo document";
@@ -613,12 +622,10 @@ export function DocumentPreview({
           <Empty title="File unavailable" text={error} />
         ) : text ? (
           <pre className="text-preview">{text}</pre>
-        ) : url ? (
-          doc.mime === "application/pdf" ? (
-            <iframe title={doc.name} src={url} className="file-preview" />
-          ) : (
+        ) : current?.pdf ? <PdfPreview file={current.pdf} name={doc.name} /> : url ? (
+          doc.mime?.startsWith("image/") ? (
             <img className="image-preview" alt={doc.name} src={url} />
-          )
+          ) : <Empty title="Download to view this document" text="Use your approved document viewer for this file type." />
         ) : (
           <div className="empty-state">Loading document…</div>
         )}

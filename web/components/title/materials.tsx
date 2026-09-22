@@ -366,7 +366,7 @@ function MaterialEditor({
       </details>
       <p className="form-note">
         Material approval and partner publication are separate from the
-        company's onboarding launch review.
+        company&apos;s onboarding launch review.
       </p>
     </section>
   );

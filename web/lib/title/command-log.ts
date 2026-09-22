@@ -69,7 +69,9 @@ const tables = [
   "materials.publications",
 ];
 function rows(s: Workspace, path: string): Record<string, unknown>[] {
-  return path.split(".").reduce<any>((o, key) => o?.[key], s) || [];
+  const value = path.split(".").reduce<unknown>((o, key) =>
+    o && typeof o === "object" ? (o as Record<string, unknown>)[key] : undefined, s);
+  return (value || []) as Record<string, unknown>[];
 }
 const identity = (row: Record<string, unknown>) =>
   String(row.id || row.companyId || row.orderId || "");

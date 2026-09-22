@@ -15,13 +15,19 @@ export function AccountSecuritySetup({ security, recovering, onComplete, onSignO
   const [notice, setNotice] = useState(""), [pending, setPending] = useState(false);
   const [factors, setFactors] = useState<{ id: string; friendly_name?: string }[]>([]);
   const [factorId, setFactorId] = useState("");
-  const [loadingFactors, setLoadingFactors] = useState(false), [factorAttempt, setFactorAttempt] = useState(0);
+  const [loadingFactors, setLoadingFactors] = useState(step === "challenge"), [factorAttempt, setFactorAttempt] = useState(0);
   const [enrollment, setEnrollment] = useState<{ id: string; qr: string; secret: string } | null>(null);
-  useEffect(() => {
-    let active = true;
+  const [factorRequest, setFactorRequest] = useState({ step, attempt: factorAttempt });
+  if (factorRequest.step !== step || factorRequest.attempt !== factorAttempt) {
+    setFactorRequest({ step, attempt: factorAttempt });
     setCode(""); setError(""); setEnrollment(null);
     if (step === "challenge") {
       setLoadingFactors(true); setFactors([]); setFactorId("");
+    }
+  }
+  useEffect(() => {
+    let active = true;
+    if (step === "challenge") {
       void (async () => {
         try {
           const { data, error } = await supabase!.auth.mfa.listFactors();

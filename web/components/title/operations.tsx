@@ -417,7 +417,7 @@ export function InboxView({
           onClose={() => setUploadFile(false)}
         />
       )}
-      {previewDoc && (
+      {previewDoc && s.documents.some(d => d.id === previewDoc) && (
         <DocumentPreview
           doc={s.documents.find((d) => d.id === previewDoc)!}
           onClose={() => setPreviewDoc("")}

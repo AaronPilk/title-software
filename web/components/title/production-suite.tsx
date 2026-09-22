@@ -275,7 +275,7 @@ function SourcePackage({ order }: { order: Order }) {
           onClose={() => setUpload(false)}
         />
       )}{" "}
-      {preview && (
+      {preview && s.documents.some(d => d.id === preview) && (
         <DocumentPreview
           doc={s.documents.find((d) => d.id === preview)!}
           onClose={() => setPreview("")}
@@ -720,7 +720,7 @@ function PolicyEditor({
           <>
             {p.kind === "Loan" && (
               <div className="handoff-box">
-                <h4>This loan's security instrument</h4>
+                <h4>This loan&apos;s security instrument</h4>
                 <Picker
                   label="Product security document"
                   value={p.securityDocumentId || "none"}
@@ -755,7 +755,7 @@ function PolicyEditor({
             )}
             <h4>Final-policy exceptions</h4>
             <p className="subtle">
-              Record each item's destination in this policy. Loan-policy
+              Record each item&apos;s destination in this policy. Loan-policy
               subordinate matters require their own reviewed wording.
             </p>
             {exceptions.map((r) => {

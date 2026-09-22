@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { LogIn, ShieldCheck, RefreshCw, Cloud, LogOut } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -29,18 +29,19 @@ export function BackendAccess({
     [notice, setNotice] = useState(""),
     [remote, setRemote] = useState<RemoteState | null>(null),
     [authenticated, setAuthenticated] = useState(false),
-    [loading, setLoading] = useState(true),
+    [loading, setLoading] = useState(backendConfigured),
     [recovering, setRecovering] = useState(false);
   const [security, setSecurity] = useState<AccountSecurity | null>(null);
   const generation = useRef(0);
   const recovery = useRef(false);
-  function rememberRecoverySession(token?: string | null, mark = false) {
+  const rememberRecoverySession = useCallback((token?: string | null, mark = false) => {
     const next = recoveryIntent.read(token, mark);
     recovery.current = next;
     setRecovering(next);
-  }
-  async function connect() {
-    const current = ++generation.current;
+  }, []);
+  const invalidateConnection = useCallback(() => ++generation.current, []);
+  const connect = useCallback(async () => {
+    const current = invalidateConnection();
     setLoading(true);
     setError("");
     try {
@@ -85,24 +86,36 @@ export function BackendAccess({
     } finally {
       if (current === generation.current) setLoading(false);
     }
-  }
+  }, [invalidateConnection, rememberRecoverySession]);
   useEffect(() => {
-    if (!backendConfigured) {
-      setLoading(false);
-      return;
-    }
+    if (!backendConfigured) return;
+    let active = true;
+    const scheduled = new Set<ReturnType<typeof setTimeout>>();
+    const cancelScheduled = () => {
+      for (const timer of scheduled) clearTimeout(timer);
+      scheduled.clear();
+    };
+    // Defer Auth work outside its state-change callback and cancel it on cleanup.
+    const scheduleConnect = () => {
+      const timer = setTimeout(() => {
+        scheduled.delete(timer);
+        if (active) void connect();
+      }, 0);
+      scheduled.add(timer);
+    };
     const {
       data: { subscription },
     } = supabase!.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY") {
         rememberRecoverySession(session?.access_token, true);
-        generation.current++;
+        invalidateConnection();
         setRemote(null);
         setLoading(false);
-        setTimeout(() => void connect(), 0);
+        scheduleConnect();
       } else if (event === "SIGNED_OUT") {
+        cancelScheduled();
         rememberRecoverySession(null);
-        generation.current++;
+        invalidateConnection();
         setLoading(false);
         setPassword("");
         setSecurity(null);
@@ -111,16 +124,18 @@ export function BackendAccess({
         setActiveWorkspace("");
       } else if (["SIGNED_IN", "TOKEN_REFRESHED", "MFA_CHALLENGE_VERIFIED"].includes(event)) {
         rememberRecoverySession(session?.access_token);
-        setTimeout(() => void connect(), 0);
+        scheduleConnect();
       }
     });
-    void connect();
+    scheduleConnect();
     return () => {
+      active = false;
+      cancelScheduled();
       subscription.unsubscribe();
-      generation.current++;
+      invalidateConnection();
       setActiveWorkspace("");
     };
-  }, []);
+  }, [connect, invalidateConnection, rememberRecoverySession]);
   async function submit(kind: "login" | "signup" | "reset") {
     if (!supabase) return;
     setPending(true);

@@ -52,7 +52,7 @@ function deliveryState(
  * what a past record says was delivered.
  */
 export function StatementDeliveries({ period }: { period: ClosePeriod }) {
-  const { s, update } = useWorkspace();
+  const { s } = useWorkspace();
   const records = statementDeliveries(s, period.companyId)
     .filter((d) => d.closeId === period.id)
     .sort((a, b) => b.preparedAt.localeCompare(a.preparedAt));
@@ -62,7 +62,7 @@ export function StatementDeliveries({ period }: { period: ClosePeriod }) {
     <section className="panel business-panel delivery-register">
       <h2>Statement delivery register</h2>
       <p>
-        Record manual delivery of this revision's published member statements.
+        Record manual delivery of this revision&apos;s published member statements.
         Nothing here sends an email; the app only keeps the evidence of a
         delivery someone made.
       </p>
@@ -294,7 +294,7 @@ function DeliveryCard({ delivery: d }: { delivery: StatementDelivery }) {
         <div className="notice warning">
           <p>
             The published statement this record was prepared against has changed
-            or been withdrawn. It can't be exported or recorded as delivered;
+            or been withdrawn. It can&apos;t be exported or recorded as delivered;
             cancel it and prepare a new record from the current revision if the
             member still needs a statement.
           </p>

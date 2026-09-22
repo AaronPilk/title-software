@@ -8,6 +8,7 @@ import { useWorkspace } from "@/lib/title/store";
 import { importTargetFields, type ImportTargetField } from "@/lib/title/model";
 import { previewCsv, type CsvPreview } from "@/lib/title/csv";
 import { saveImportTemplate, deleteImportTemplate } from "@/lib/title/business";
+import { canConfirmWorkspaceFinance } from "@/lib/title/workspace-capabilities";
 import { Picker, FieldLabel, Empty, DataTable } from "./shared";
 
 /**
@@ -34,7 +35,8 @@ function guessTarget(header: string): ImportTargetField {
  * docs/implementation-coverage.md.
  */
 export function AccountingImport() {
-  const { s, update } = useWorkspace();
+  const { s, update, connection } = useWorkspace();
+  const canManageTemplates = canConfirmWorkspaceFinance(connection);
   const [fileName, setFileName] = useState("");
   const [preview, setPreview] = useState<CsvPreview | null>(null);
   const [map, setMap] = useState<Record<string, ImportTargetField>>({});
@@ -138,7 +140,7 @@ export function AccountingImport() {
                   size="sm"
                   onClick={() => applyTemplate(t.columnMap)}
                 >
-                  Load "{t.name}"
+                  Load &quot;{t.name}&quot;
                 </Button>
               ))}
             </div>
@@ -213,6 +215,7 @@ export function AccountingImport() {
               <FieldLabel label="Save this mapping as">
                 <Input
                   aria-label="Mapping template name"
+                  disabled={!canManageTemplates}
                   placeholder="e.g. Chase checking export"
                   value={templateName}
                   onChange={(e) => setTemplateName(e.target.value)}
@@ -220,6 +223,7 @@ export function AccountingImport() {
               </FieldLabel>
               <Button
                 variant="outline"
+                disabled={!canManageTemplates || !templateName.trim()}
                 onClick={async () => {
                   if (
                     await update((d) =>
@@ -232,6 +236,7 @@ export function AccountingImport() {
                 Save mapping
               </Button>
             </div>
+            {!canManageTemplates && <p className="inline-note">An organization-wide finance account manages shared column mappings. You can still preview and map this file.</p>}
           </>
         )}
       </section>
@@ -252,6 +257,7 @@ export function AccountingImport() {
                 variant="ghost"
                 size="sm"
                 aria-label={`Delete mapping ${t.name}`}
+                disabled={!canManageTemplates}
                 onClick={async () =>
                   await update(
                     (d) => deleteImportTemplate(d, t.id),

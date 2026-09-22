@@ -110,7 +110,7 @@ export function PublicationManager({
                 ))}
                 {!c.members.length && (
                   <p className="subtle">
-                    Record the company's members before preparing a
+                    Record the company&apos;s members before preparing a
                     selected-member audience.
                   </p>
                 )}

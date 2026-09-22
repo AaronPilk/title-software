@@ -5,7 +5,6 @@ import {
   Plus,
   ArrowRight,
   CheckCheck,
-  Mail,
   FileText,
   Download,
   RefreshCw,
@@ -835,7 +834,7 @@ function FieldRevisionDetail({
       )}
       <p className="form-note">
         Applying changes only the demo title file and prepares a reply draft.
-        Captured deed and deed-of-trust field reviews are kept; the file's
+        Captured deed and deed-of-trust field reviews are kept; the file&apos;s
         commitment version advances so earlier outputs and drafts go stale. No
         external record or message is changed.
       </p>

@@ -9,6 +9,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { createSeed, uid, type Workspace } from "./model";
+import { decodeBackupAssets, validateBackupReferences, safeDocumentMime, MAX_BACKUP_FILE_BYTES, MAX_ASSETS, MAX_ASSET_BYTES, MAX_DECODED_BYTES } from "./backup-assets";
 import { referencedSourcesShapeValid } from "./production";
 import { enrichWorkspace } from "./production";
 import { enrichBusiness, validateBusinessMutation } from "./business";
@@ -30,6 +31,12 @@ import {
   type RemoteState,
 } from "../backend/client";
 const KEY = "titleos.workspace.v1";
+type LocalWorkspace = Workspace & { localAssetNamespace?: string };
+function localAssetNamespace() {
+  const namespace = (JSON.parse(localStorage.getItem(KEY) || "{}") as LocalWorkspace).localAssetNamespace;
+  return typeof namespace === "string" && /^[a-f\d-]{36}$/i.test(namespace) ? namespace : "";
+}
+const assetKey = (id: string, namespace: string) => namespace ? namespace + ":" + id : id;
 const WORKSPACE_ARRAY_KEYS = [
   "companies",
   "orders",
@@ -90,7 +97,7 @@ type Store = {
     expectedRevision?: number,
   ) => Promise<boolean>;
   reset: () => void;
-  restore: (w: Workspace) => void;
+  restore: (w: Workspace, assets?: WorkspaceBackup["assets"]) => Promise<void>;
   connection?: {
     access: RemoteState["access"];
     revision: number;
@@ -256,7 +263,7 @@ function ConnectedWorkspaceProvider({
           toast.error(
             "Use an owner-reviewed server backup to recover shared records.",
           ),
-        restore: () => {
+        restore: async () => {
           throw new Error(
             "Local backup replacement is disabled for the shared workspace. Use server backups.",
           );
@@ -296,6 +303,11 @@ function LocalWorkspaceProvider({ children }: { children: ReactNode }) {
   const storageWarning = useRef(false);
   const latest = useRef(s);
   useEffect(() => {
+    let active = true;
+    // Browser storage is an external source; publish hydration after mount and
+    // ignore a queued read if this local provider has already been replaced.
+    queueMicrotask(() => {
+    if (!active) return;
     try {
       const raw = localStorage.getItem(KEY);
       if (raw) {
@@ -324,6 +336,8 @@ function LocalWorkspaceProvider({ children }: { children: ReactNode }) {
       );
     }
     setReady(true);
+    });
+    return () => { active = false; };
   }, []);
   useEffect(() => {
     if (!ready) return;
@@ -398,17 +412,28 @@ function LocalWorkspaceProvider({ children }: { children: ReactNode }) {
       },
     });
   }
-  function restore(w: Workspace) {
+  async function restore(w: Workspace, assets: WorkspaceBackup["assets"] = []) {
     if (!isWorkspaceShape(w))
       throw new Error("This backup contains invalid workspace records.");
     const previous = latest.current;
     const next = enrichBusiness(enrichWorkspace(structuredClone(w)));
+    validateBackupReferences(next, assets, []);
+    // Publish one metadata pointer only after a complete new file generation.
+    // Logical asset IDs stay stable for document evidence and publication history.
+    const namespace = crypto.randomUUID();
+    (next as LocalWorkspace).localAssetNamespace = namespace;
+    const serialized = JSON.stringify(next);
+    await restoreAssets(assets, namespace);
+    if (latest.current !== previous)
+      throw new Error("The workspace changed during restore. Please review and retry.");
+    localStorage.setItem(KEY, serialized);
     latest.current = next;
     setState(next);
     toast.success("Backup restored", {
       action: {
         label: "Undo",
         onClick: () => {
+          localStorage.setItem(KEY, JSON.stringify(previous));
           latest.current = previous;
           setState(previous);
         },
@@ -448,7 +473,7 @@ export async function saveAsset(
   const db = await openAssets();
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction("files", "readwrite");
-    tx.objectStore("files").put(file, id);
+    tx.objectStore("files").put(file, assetKey(id, localAssetNamespace()));
     tx.oncomplete = () => {
       db.close();
       resolve();
@@ -459,11 +484,12 @@ export async function saveAsset(
     };
   });
 }
-export async function getAsset(id: string): Promise<Blob> {
+export async function getAsset(id: string, namespace?: string): Promise<Blob> {
   if (activeWorkspace()) return downloadRemoteAsset(id);
+  const key = assetKey(id, namespace ?? localAssetNamespace());
   const db = await openAssets();
   return new Promise((resolve, reject) => {
-    const r = db.transaction("files").objectStore("files").get(id);
+    const r = db.transaction("files").objectStore("files").get(key);
     r.onsuccess = () => {
       db.close();
       r.result
@@ -535,49 +561,68 @@ function blobToBase64(blob: Blob): Promise<string> {
     reader.readAsDataURL(blob);
   });
 }
-function base64ToBlob(data: string, mime: string): Blob {
-  const bin = atob(data);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
-}
-export async function exportFullBackup(s: Workspace) {
-  const docs = s.documents.filter((d) => d.assetId);
+export async function createFullBackup(s: Workspace): Promise<WorkspaceBackup> {
+  const workspace = structuredClone(s);
+  // Undo or a restore may switch the active generation while file reads await.
+  const namespace = (workspace as LocalWorkspace).localAssetNamespace || "";
+  const docs = workspace.documents.filter((d) => d.assetId);
+  if (docs.length > MAX_ASSETS)
+    throw new Error("A local backup supports up to 2,000 files. Use the shared workspace for larger collections.");
   const assets: WorkspaceBackup["assets"] = [];
   const missingAssets: WorkspaceBackup["missingAssets"] = [];
+  const files: { doc: typeof docs[number]; blob: Blob; mime: string }[] = [];
+  let total = 0;
   for (const d of docs) {
+    let blob: Blob;
     try {
-      const blob = await getAsset(d.assetId!);
-      assets.push({
-        id: d.assetId!,
-        name: d.name,
-        mime: d.mime || blob.type || "application/octet-stream",
-        data: await blobToBase64(blob),
-      });
+      blob = await getAsset(d.assetId!, namespace);
     } catch {
       missingAssets.push({ id: d.assetId!, name: d.name });
+      continue;
     }
+    total += blob.size;
+    if (blob.size > MAX_ASSET_BYTES || total > MAX_DECODED_BYTES)
+      throw new Error("A local backup supports 64 MB of files, with up to 50 MB per file. Use the shared workspace for larger collections.");
+    const mime = d.mime || blob.type || "application/octet-stream";
+    if (!safeDocumentMime(mime) || (d.mime && blob.type && d.mime !== blob.type))
+      throw new Error("A stored file does not match its document type. Reattach the correct original before exporting.");
+    d.mime = mime;
+    files.push({ doc: d, blob, mime });
   }
+  // Preflight the whole collection before allocating base64 strings.
+  for (const { doc, blob, mime } of files)
+    assets.push({ id: doc.assetId!, name: doc.name, mime, data: await blobToBase64(blob) });
   const payload: WorkspaceBackup = {
     backup: true,
     version: 1,
     exportedAt: new Date().toISOString(),
-    workspace: s,
+    workspace,
     assets,
     missingAssets,
   };
+  decodeBackupAssets(assets);
+  validateBackupReferences(workspace, assets, missingAssets);
+  return payload;
+}
+export async function exportFullBackup(s: Workspace) {
+  const payload = await createFullBackup(s);
+  const serialized = JSON.stringify(payload);
+  if (new Blob([serialized]).size > MAX_BACKUP_FILE_BYTES)
+    throw new Error("This local backup exceeds the 96 MB file limit. Use the shared workspace for larger collections.");
   download(
     `titleos-full-backup-${new Date().toISOString().slice(0, 10)}.json`,
-    JSON.stringify(payload),
+    serialized,
     "application/json",
   );
   return {
-    total: docs.length,
-    saved: assets.length,
-    missing: missingAssets.map((m) => m.name),
+    total: payload.assets.length + payload.missingAssets.length,
+    saved: payload.assets.length,
+    missing: payload.missingAssets.map((m) => m.name),
   };
 }
 export function parseBackupFile(raw: string): WorkspaceBackup {
+  if (raw.length > MAX_BACKUP_FILE_BYTES)
+    throw new Error("Choose a local backup file up to 96 MB.");
   let data: unknown;
   try {
     data = JSON.parse(raw);
@@ -619,16 +664,26 @@ export function parseBackupFile(raw: string): WorkspaceBackup {
       "This backup file's missing-asset manifest is malformed and cannot be restored safely.",
     );
   b.missingAssets ??= [];
+  decodeBackupAssets(b.assets);
+  validateBackupReferences(b.workspace!, b.assets, b.missingAssets);
   return b as WorkspaceBackup;
 }
-export async function restoreAssets(assets: WorkspaceBackup["assets"]) {
+export async function restoreAssets(assets: WorkspaceBackup["assets"], namespace = localAssetNamespace()) {
   if (activeWorkspace())
     throw new Error(
       "Restore shared records through owner-reviewed server backups.",
     );
-  for (const a of assets)
-    await saveAsset(
-      a.id,
-      new File([base64ToBlob(a.data, a.mime)], a.name, { type: a.mime }),
-    );
+  const decoded = decodeBackupAssets(assets);
+  if (!decoded.length) return;
+  const db = await openAssets();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("files", "readwrite");
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onabort = () => { db.close(); reject(tx.error || new Error("File restore was canceled. Nothing was changed.")); };
+    try {
+      for (const asset of decoded) tx.objectStore("files").put(asset.file, assetKey(asset.id, namespace));
+    } catch {
+      tx.abort();
+    }
+  });
 }

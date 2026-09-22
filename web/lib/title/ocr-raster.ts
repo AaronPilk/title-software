@@ -1,6 +1,6 @@
 import type { PDFDocumentLoadingTask, RenderTask } from "pdfjs-dist";
 import { boundedRaster, imageDimensions, OCR_LIMITS, OcrError, type OcrRotation } from "./local-ocr-shared";
-export type OcrRaster = { image: Blob; width: number; height: number; page: number; rotation: OcrRotation };
+export type OcrRaster = { image: Blob; width: number; height: number; page: number; rotation: OcrRotation; totalPages?: number };
 class NoExternalData { async fetch(): Promise<never> { throw Error("External PDF resources are unavailable."); } }
 function check(signal: AbortSignal) { if (signal.aborted) throw new OcrError("cancelled", "OCR was cancelled."); }
 function png(canvas: HTMLCanvasElement): Promise<Blob> {
@@ -16,7 +16,7 @@ export async function prepareOcrRaster(file: Blob, pageNumber: number, signal: A
   if (![0, 90, 180, 270].includes(rotation)) throw new OcrError("page", "Choose one of the available page orientations.");
   const bytes = new Uint8Array(await file.arrayBuffer()); check(signal);
   const canvas = document.createElement("canvas");
-  let rotated: HTMLCanvasElement | undefined;
+  let rotated: HTMLCanvasElement | undefined, totalPages = 1;
   let task: PDFDocumentLoadingTask | undefined, render: RenderTask | undefined, bitmap: ImageBitmap | undefined;
   const cancel = () => { render?.cancel(); void task?.destroy().catch(() => undefined); };
   signal.addEventListener("abort", cancel, { once: true });
@@ -31,6 +31,7 @@ export async function prepareOcrRaster(file: Blob, pageNumber: number, signal: A
         isImageDecoderSupported: false, maxImageSize: OCR_LIMITS.sourcePixels, BinaryDataFactory: NoExternalData, verbosity: 0 });
       const pdf = await task.promise; check(signal);
       if (pdf.numPages > OCR_LIMITS.pages || pageNumber > pdf.numPages) throw new OcrError("page", "Local OCR supports PDFs up to 120 pages. Choose an existing physical page.");
+      totalPages = pdf.numPages;
       const page = await pdf.getPage(pageNumber); check(signal);
       const size = page.getViewport({ scale: 1 });
       const target = boundedRaster(size.width, size.height, 200 / 72);
@@ -58,7 +59,7 @@ export async function prepareOcrRaster(file: Blob, pageNumber: number, signal: A
       context.drawImage(canvas, -canvas.width / 2, -canvas.height / 2); rendered = rotated;
     }
     const image = await png(rendered); check(signal);
-    return { image, width: rendered.width, height: rendered.height, page: pageNumber, rotation };
+    return { image, width: rendered.width, height: rendered.height, page: pageNumber, rotation, totalPages };
   } catch (error) {
     if (signal.aborted) throw new OcrError("cancelled", "OCR was cancelled.");
     if (error instanceof OcrError) throw error;

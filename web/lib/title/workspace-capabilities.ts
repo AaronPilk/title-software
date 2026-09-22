@@ -10,7 +10,11 @@ export const canManageProduction = (connection: Connection) => allowed(connectio
 export const canManageTasks = (connection: Connection) => allowed(connection, ["operations", "onboarding", "finance"]);
 export const canManageCompanies = (connection: Connection) => allowed(connection, ["onboarding"]);
 export const canManageFinance = (connection: Connection) => allowed(connection, ["finance"]);
-export const canManageAutomations = (connection: Connection) => allowed(connection, []);
+export const canManageAutomations = (connection: Connection) =>
+  !connection || connection.access.role === "owner" ||
+  (connection.access.role === "admin" && connection.access.allCompanies);
+export const canConfirmWorkspaceFinance = (connection: Connection) =>
+  canManageFinance(connection) && (!connection || connection.access.allCompanies);
 export const canViewOnboardingEvidence = (connection: Connection) => !connection || connection.access.restricted;
 export const canManageOnboardingEvidence = (connection: Connection) =>
   canManageCompanies(connection) && canViewOnboardingEvidence(connection);

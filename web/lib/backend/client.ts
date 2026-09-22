@@ -27,7 +27,7 @@ export const activeWorkspace = () => workspaceId;
 export const setActiveWorkspace = (id: string) => {
   workspaceId = id;
 };
-export async function backendRequest<T = any>(
+export async function backendRequest<T = unknown>(
   path: string,
   data?: unknown,
   method = data === undefined ? "GET" : "POST",
@@ -51,16 +51,19 @@ export async function backendRequest<T = any>(
     cache: "no-store",
     signal: AbortSignal.timeout(timeoutMs),
   });
-  const result: any = await response.json();
+  const result: unknown = await response.json();
   if (!response.ok) {
-    const error = new Error(
-      result.error || "The server could not complete this request.",
-    ) as Error & { status: number; code?: string };
+    const error = responseError(result, "The server could not complete this request.") as Error & { status: number; code?: string };
     error.status = response.status;
-    error.code = result.code;
     throw error;
   }
-  return result;
+  return result as T;
+}
+function responseError(result: unknown, fallback: string): Error & { code?: string } {
+  const details = result && typeof result === "object" ? result as Record<string, unknown> : {};
+  const error = new Error(typeof details.error === "string" && details.error ? details.error : fallback) as Error & { code?: string };
+  if (typeof details.code === "string") error.code = details.code;
+  return error;
 }
 export async function uploadRemoteAsset(
   id: string,
@@ -87,8 +90,8 @@ export async function uploadRemoteAsset(
     body: form,
     signal: AbortSignal.timeout(120000),
   });
-  const result: any = await response.json();
-  if (!response.ok) throw new Error(result.error || "Upload failed.");
+  const result: unknown = await response.json();
+  if (!response.ok) throw responseError(result, "Upload failed.");
   return result;
 }
 export async function downloadRemoteAsset(id: string): Promise<Blob> {
@@ -108,8 +111,8 @@ export async function downloadRemoteAsset(id: string): Promise<Blob> {
     },
   );
   if (!response.ok) {
-    const result: any = await response.json();
-    throw new Error(result.error || "Download failed.");
+    const result: unknown = await response.json();
+    throw responseError(result, "Download failed.");
   }
   return response.blob();
 }

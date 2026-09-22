@@ -58,7 +58,7 @@ before(async () => {
           {...state.tasks[0],id:'different-id',title:'Different account with old label',owner:'reviewer@example.test',assigneeId:'${userId}'});
         state.inbox=[{id:'mail-test',companyId:state.companies[0].id,orderId:'',kind:'Company',from:'Synthetic Contact',email:'contact@example.test',subject:'Fictional company correspondence',body:'Synthetic message body',time:'Today',attachments:[],status:'New'}];
         if(q.has('missive')){state.inbox[0].missive={messageId:'message-test',sourceDocumentId:state.documents[0].id,importedAt:'2026-09-14T12:00:00Z',attachments:[{id:'att-saved',name:'Saved file.pdf',bytes:10},{id:'att-pending',name:'Pending file.pdf',bytes:20}]};state.documents.push({id:'saved-attachment',companyId:state.companies[0].id,name:'Saved file.pdf',assetId:'asset-test',version:1,providerSource:{provider:'Missive',sourceMailId:'mail-test',attachmentId:'att-saved'}});}
-        const access=role=>role==='demo'?undefined:{access:{role,userId:'${userId}',email:'operator@example.test',version:1,allCompanies:true,restricted:!q.has('restricted')},revision:1};
+        const access=role=>role==='demo'?undefined:{access:{role,userId:'${userId}',email:'operator@example.test',version:1,allCompanies:!q.has('scoped'),restricted:!q.has('restricted')},revision:1};
         let snapshot={s:state,connection:access(q.get('role')||'owner')};window.dailyUpdates=[];window.dailyDownloads=[];
         const emit=()=>listeners.forEach(fn=>fn());window.dailyState=()=>structuredClone(snapshot.s);
         window.setDailyRole=role=>{snapshot={...snapshot,connection:access(role)};emit();};
@@ -191,4 +191,19 @@ test('a reviewed assistant suggestion records the current account ID and preview
 });
 for(const role of ['viewer','partner'])test(`${role} assistant suggestions have no task creation action`,async()=>{
   await open('assistant',`role=${role}`);await page.getByText('Fictional review complete',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Review as task',exact:true}).count(),0);assert.deepEqual(await page.evaluate(()=>window.dailyUpdates),[]);
+});
+
+for (const role of ["finance","admin"]) test("company-scoped " + role + " sees read-only global finance controls",async()=>{
+  await open("financials","role="+role+"&scoped=1");
+  await page.getByText(/An organization-wide finance account confirms/).waitFor();
+  assert.equal(await page.getByRole("button",{name:"Confirm month-end review",exact:true}).isDisabled(),true);
+  assert.equal(await page.getByRole("checkbox").first().isDisabled(),true);
+  assert.deepEqual(await page.evaluate(()=>window.dailyUpdates),[]);
+});
+test("company-scoped admin cannot run global automations from the UI",async()=>{
+  await open("automation","role=admin&scoped=1");
+  assert.deepEqual(await page.evaluate(()=>window.dailyUpdates),[]);
+  assert.equal(await page.getByRole("button",{name:"Run enabled rules",exact:true}).isDisabled(),true);
+  assert.ok(await page.getByRole("switch").count()>0);
+  for(const toggle of await page.getByRole("switch").all())assert.equal(await toggle.isDisabled(),true);
 });

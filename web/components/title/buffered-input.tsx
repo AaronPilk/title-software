@@ -1,11 +1,15 @@
 "use client";
-import { useEffect, useState, type ComponentProps } from "react";
+import { useState, type ComponentProps } from "react";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 type Props = { value: string | number; onCommit: (value: string) => unknown };
 function useBuffer(value: string | number) {
   const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
+  const [previousValue, setPreviousValue] = useState(value);
+  if (!Object.is(previousValue, value)) {
+    setPreviousValue(value);
+    setDraft(String(value));
+  }
   return [draft, setDraft] as const;
 }
 /** Keep partially typed values local. Persist a complete edit when focus leaves the field. */

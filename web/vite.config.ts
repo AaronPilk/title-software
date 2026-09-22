@@ -23,7 +23,9 @@ const localBindingConfig = {
     services: [{binding: "TITLE_ASSISTANT", service: "title-personal-assistant"}],
   } : {}),
   main: "vinext/server/fetch-handler",
+  compatibility_date: "2026-09-21",
   compatibility_flags: ["nodejs_compat"],
+  observability: { enabled: true, redact_query_string: true, logs: { enabled: true, invocation_logs: false } },
   d1_databases: d1
     ? [
         {

@@ -10,7 +10,7 @@ import {
   outcomesByDate,
   backfillReceivedDate,
 } from "@/lib/title/business";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   AlertCircle,
   ArrowRight,
@@ -441,10 +441,12 @@ export function PolicyWorkbench({
       )
     : [];
   const locked = !canEdit || (!!order && productionLocked(s, order));
-  useEffect(() => {
+  const [reviewedSource, setReviewedSource] = useState({ id: order?.id, version: order?.production?.version });
+  if (reviewedSource.id !== order?.id || reviewedSource.version !== order?.production?.version) {
+    setReviewedSource({ id: order?.id, version: order?.production?.version });
     setAttorney(false);
     setAttorneyRef("");
-  }, [order?.id, order?.production?.version]);
+  }
   const currentCompany = order ? companyById(s, order.companyId) : undefined;
   function select(id: string) {
     onSelect(id);
