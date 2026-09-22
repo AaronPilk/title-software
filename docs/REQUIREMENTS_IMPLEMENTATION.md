@@ -29,7 +29,11 @@ The existing per-user staff assistant persists separate conversations and can re
 
 ## Verification and deployment status
 
-### Current deployed baseline — September 22 security release
+### Current deployed frontend — September 22 workflow follow-up
+
+Commit `e22ad58` fixes six source-capture, OCR-review and financial-review defects. All 908 automated checks passed; typecheck/builds passed and lint remains at zero errors and 33 warnings. Frontend Worker `64e9b208-ee0d-4a10-a3a8-3801bb828c5f` is deployed. API, assistant and database are unchanged from the security release below. See [workflow release evidence](testing/workflow-review-2026-09-22.md) and the [product comparison](research/product-comparison-2026-09-22.md).
+
+### Security baseline — September 22
 
 Application code `58fab50` and release record `0e6a44c` are on GitHub. The release passed 894 automated application checks, 1,317 explicitly counted disposable SQL assertions and 16 hosted perimeter checks. Typechecks/builds passed; full lint reports zero errors and 33 warnings; both dependency audits report zero vulnerabilities. The frontend and private assistant were deployed, with application API version 15 and JWT verification enabled. [Exact versions, scope and remaining acceptance](testing/security-remediation-2026-09-22.md).
 
