@@ -1,4 +1,6 @@
 import { invitationEmailRedirect, sendInvitationEmail, invitationDeliveryMessage } from "../../../web/lib/backend/invitation-email.ts";
+import { readRequestFormData, readRequestText, RequestBodyError } from "../../../web/lib/shared/request-body.ts";
+import { documentByteProblem } from "../../../web/lib/shared/document-bytes.ts";
 import { assistantContext } from "../../../web/lib/backend/assistant-context.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { accountSecurity, requireAccountReady } from "../../../web/lib/backend/account-security.ts";
@@ -87,8 +89,7 @@ function invitationGrant(input: any) {
     p_all_companies: input.allCompanies, p_restricted: input.restricted, p_partner_members: partners };
 }
 async function body(req: Request) {
-  const raw = await req.text();
-  if (raw.length > 8_000_000) error("Request exceeds 8 MB.", 413);
+  const raw = await readRequestText(req, { maxBytes: 8_000_000, tooLargeMessage: "Request exceeds 8 MB." });
   let value;
   try {
     value = JSON.parse(raw);
@@ -332,9 +333,7 @@ Deno.serve(async (req) => {
           ? null
           : await body(req);
     if (pathname === "/assets/upload" && req.method === "POST") {
-      const declared = Number(req.headers.get("Content-Length") || 0);
-      if (declared > 52_500_000) error("Upload exceeds 50 MB.", 413);
-      const form = await req.formData();
+      const form = await readRequestFormData(req, { maxBytes: 52_500_000, timeoutMs: 120_000, tooLargeMessage: "Upload exceeds 50 MB." });
       const wid = uuid(form.get("workspaceId")),
         id = ident(form.get("id")),
         companyId = ident(form.get("companyId")),
@@ -367,8 +366,10 @@ Deno.serve(async (req) => {
       ];
       const mime = file.type || "application/octet-stream";
       if (!allowed.includes(mime)) error("This file type is not supported.");
-      const bytes = await file.arrayBuffer(),
-        hash = await digest(bytes);
+      const bytes = await file.arrayBuffer();
+      const problem = documentByteProblem(new Uint8Array(bytes), mime);
+      if (problem) error(problem);
+      const hash = await digest(bytes);
       const prior = checked(
         await service
           .from("title_assets")
@@ -878,7 +879,7 @@ Deno.serve(async (req) => {
   } catch (e) {
     return response(
       { error: e instanceof Error ? e.message : "Request failed." },
-      e instanceof ApiError ? e.status : 500,
+      e instanceof ApiError || e instanceof RequestBodyError ? e.status : 500,
     );
   }
 });

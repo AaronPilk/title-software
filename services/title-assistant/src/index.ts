@@ -1,4 +1,5 @@
 import { Agent, getAgentByName } from "agents";
+import { readRequestText, RequestBodyError } from "../../../web/lib/shared/request-body";
 import { MODEL, modelMessages, responseFormat, parseResult, validateInput, advance, type AssistantState } from "./core";
 import type { AssistantContext, AssistantInput, AssistantResponse, AssistantThread, AssistantTurn } from "../../../web/lib/assistant/protocol";
 type State = AssistantState;
@@ -44,7 +45,7 @@ export default {
       const authorization=request.headers.get("Authorization") || "";
       const apikey=request.headers.get("apikey") || "";
       if (!authorization.startsWith("Bearer ") || !apikey) return json({error:"Sign in to use your assistant."},401);
-      const raw=await request.text(); if(raw.length>12000) return json({error:"Request is too large."},413);
+      const raw=await readRequestText(request, {maxBytes:12000,tooLargeMessage:"Request is too large."});
       const body=JSON.parse(raw);
       validateInput(body);
       const verification=await fetch(`${env.TITLE_API_URL}/assistant/context`,{method:"POST",headers:{Authorization:authorization,apikey,"Content-Type":"application/json"},
@@ -54,6 +55,6 @@ export default {
       // Identity never comes from a browser-provided name, URL or user id.
       const agent=await getAgentByName<Env,PersonalAssistant>(env.PERSONAL_ASSISTANT,`${context.workspaceId}:${context.userId}`);
       return json(await agent.handle(context,body));
-    } catch(e) {return json({error:e instanceof SyntaxError ? "Invalid request." : e instanceof Error ? e.message : "Assistant unavailable."},400);}
+    } catch(e) {return json({error:e instanceof SyntaxError ? "Invalid request." : e instanceof Error ? e.message : "Assistant unavailable."},e instanceof RequestBodyError ? e.status : 400);}
   }
 } satisfies ExportedHandler<Env>;

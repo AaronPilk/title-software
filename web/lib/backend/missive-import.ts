@@ -2,6 +2,7 @@ import { ApiError, executeCommands, type Access } from "./workspace";
 import { missiveReader, type MissiveConfig } from "./missive";
 import type { Workspace, Mail } from "../title/model";
 import { productionLocked } from "../title/production";
+import { htmlPlainText } from "../shared/html-text";
 
 export type MissiveMapping = {
   version: number; organizationId: string; teamId: string; teamName: string;
@@ -21,8 +22,8 @@ export type MissiveMessage = {
 };
 export type MissivePreview = Omit<MissiveMessage, "html"> & { body: string; fingerprint: string };
 const fail = (message = "Missive returned incomplete message data.", status = 502): never => { throw new ApiError(message, status); };
-const obj = (v: unknown): Record<string, any> => v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, any> : fail();
-const rows = (v: unknown): Record<string, any>[] => Array.isArray(v) && v.length <= 500 ? v.map(obj) : fail("This Missive page is too large or incomplete. Narrow the team inbox before trying again.");
+const obj = (v: unknown): Record<string, unknown> => v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : fail();
+const rows = (v: unknown): Record<string, unknown>[] => Array.isArray(v) && v.length <= 500 ? v.map(obj) : fail("This Missive page is too large or incomplete. Narrow the team inbox before trying again.");
 export const providerId = (v: unknown): string => typeof v === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(v) ? v : fail("Invalid Missive identifier.", 400);
 const str = (v: unknown, max = 2000): string => typeof v === "string" && v.length <= max ? v : fail();
 const timestamp = (v: unknown): number => typeof v === "number" && Number.isFinite(v) && v > 0 && v < 253402300799 ? v : fail();
@@ -40,7 +41,7 @@ export function requireMissiveDestination(s: Workspace, mapping: MissiveMapping,
   }
 }
 const queryUntil = (until: unknown) => until === undefined || until === null ? "" : `&until=${timestamp(until)}`;
-function page(values: Record<string, any>[], field: string, limit: number): MissivePage {
+function page(values: Record<string, unknown>[], field: string, limit: number): MissivePage {
   const times = values.map(r => timestamp(r[field]));
   return {
     rows: values.map((r, i) => ({ id: providerId(r.id), subject: str(r.subject ?? r.latest_message_subject ?? "(No subject)"), at: times[i] })),
@@ -82,8 +83,8 @@ export async function readMissiveMessage(config: MissiveConfig, workspaceId: str
   const addresses = (v: unknown) => rows(v).map(a => ({ name: str(a.name ?? "", 1000), address: str(a.address, 320) }));
   const references = (v: unknown) => Array.isArray(v) && v.length <= 500 ? v.map(value => str(value, 2000)) : fail();
   const attachments = rows(m.attachments).map(a => {
-    if (!Number.isSafeInteger(a.size) || a.size < 0) fail();
-    return { id: providerId(a.id), name: str(a.filename, 1000), mime: `${str(a.media_type, 100)}/${str(a.sub_type, 100)}`, bytes: a.size, status: "not_downloaded" as const };
+    const size = typeof a.size === "number" && Number.isSafeInteger(a.size) && a.size >= 0 ? a.size : fail();
+    return { id: providerId(a.id), name: str(a.filename, 1000), mime: `${str(a.media_type, 100)}/${str(a.sub_type, 100)}`, bytes: size, status: "not_downloaded" as const };
   });
   if (new Set(attachments.map(a => a.id)).size !== attachments.length) fail();
   return {
@@ -103,14 +104,7 @@ export async function readMissiveMessage(config: MissiveConfig, workspaceId: str
 export function missivePlainText(html: string): string {
   // Display only. The exact HTML is preserved in the immutable source snapshot.
   // No HTML is ever inserted into the DOM or used to load links/images.
-  const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
-  return html.replace(/<!--[\s\S]*?-->/g, "").replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
-    .replace(/<\s*(?:br\b[^>]*|\/(?:p|div|li|tr|h[1-6]))\s*>/gi, "\n").replace(/<\/(?:td|th)\s*>/gi, " | ").replace(/<[^>]*>/g, "")
-    .replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (match, entity: string) => {
-      if (!entity.startsWith("#")) return entities[entity.toLowerCase()] || match;
-      const n = entity[1].toLowerCase() === "x" ? parseInt(entity.slice(2), 16) : Number(entity.slice(1));
-      return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : "�";
-    }).replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return htmlPlainText(html);
 }
 export async function previewMissiveMessage(m: MissiveMessage): Promise<MissivePreview> {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(m)));

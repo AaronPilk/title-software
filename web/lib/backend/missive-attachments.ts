@@ -2,6 +2,7 @@ import { ApiError, executeCommands, projectWorkspace, normalizeWorkspace, type A
 import { missiveReader, type MissiveConfig } from "./missive";
 import { providerId, readMissiveMessage, requireMissiveDestination, type MissiveMapping } from "./missive-import";
 import type { Workspace, VaultDoc } from "../title/model";
+import { documentByteProblem } from "../shared/document-bytes";
 
 export type MissiveAttachmentConfig = MissiveConfig & { attachmentOrigins?: string[] };
 export type MissiveAttachmentSource = {
@@ -76,21 +77,9 @@ function checkMetadata(a: { name: string; mime: string; bytes: number }) {
     fail("Choose a nonempty attachment up to 50 MB.", 413);
 }
 function validateBytes(bytes: Uint8Array, mime: string) {
-  const starts = (sequence: number[]) => sequence.every((b, i) => bytes[i] === b);
-  const ascii = (offset: number, length: number) => String.fromCharCode(...bytes.slice(offset, offset + length));
-  const valid = mime === "application/pdf" ? ascii(0, 5) === "%PDF-" :
-    mime === "image/png" ? starts([137, 80, 78, 71, 13, 10, 26, 10]) :
-    mime === "image/jpeg" ? starts([255, 216, 255]) :
-    mime === "image/gif" ? ["GIF87a", "GIF89a"].includes(ascii(0, 6)) :
-    mime === "image/webp" ? ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP" :
-    mime.includes("openxmlformats") ? starts([80, 75, 3, 4]) :
-    ["application/msword", "application/vnd.ms-excel"].includes(mime) ? starts([208, 207, 17, 224, 161, 177, 26, 225]) :
-    !bytes.includes(0);
-  if (!valid) fail("Attachment contents do not match the declared file type. The file was not imported.", 502);
-  if (mime.startsWith("text/")) {
-    try { new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
-    catch { fail("Text attachments must use UTF-8 encoding.", 409); }
-  }
+  const problem = documentByteProblem(bytes, mime);
+  if (problem?.includes("UTF-8")) fail("Text attachments must use UTF-8 encoding.", 409);
+  if (problem) fail("Attachment contents do not match the declared file type. The file was not imported.", 502);
 }
 async function sha256(bytes: Uint8Array) {
   return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes.slice().buffer))).map(b => b.toString(16).padStart(2, "0")).join("");
