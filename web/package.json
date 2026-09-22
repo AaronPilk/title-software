@@ -41,6 +41,7 @@
     "test:staff:assignment": "node --test tests/staff-assignment.test.mjs",
     "test:documents:ui": "node --test tests/document-storage-ui.test.mjs",
     "test:backup:ui": "node --test tests/backup-restore-ui.test.mjs tests/pdf-preview-ui.test.mjs",
+    "test:review:ui": "node --test tests/final-source-capture-ui.test.mjs tests/document-text-review-ui.test.mjs tests/financial-review-ui.test.mjs",
     "test:pilot:security": "node --test tests/pilot-security-smoke.test.mjs"
   },
   "dependencies": {

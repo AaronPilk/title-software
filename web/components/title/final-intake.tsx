@@ -41,6 +41,7 @@ import { FieldLabel, Picker, Status, Empty } from "./shared";
 import { UploadDocument, DocumentPreview } from "./documents";
 import { AttorneyFollowups } from "./followups";
 import { createFollowup } from "@/lib/title/followups";
+import { businessDay } from "@/lib/title/business-date";
 
 export function FinalSources({ order }: { order: Order }) {
   const { s, update } = useWorkspace();
@@ -92,8 +93,9 @@ export function FinalSources({ order }: { order: Order }) {
       </div>
       <p className="inline-note">
         One combined PDF or several attachments can be linked here. For a
-        combined file, add a section reference for each document type. Values
-        are captured by a person in this local MVP; OCR is not connected.
+        combined file, add a section reference for each document type. Open an
+        attachment to read its text or use OCR on a scanned page, then capture
+        and review the values against that source.
       </p>
       {docs.map((d) => (
         <div className="source-document" key={d.id}>
@@ -156,7 +158,7 @@ export function FinalSources({ order }: { order: Order }) {
       {!docs.length && (
         <Empty
           title="Attach the final package"
-          text="Upload sample files, or add a labeled source excerpt to walk through a new order."
+          text="Upload the original documents, or add a labeled source excerpt with its page reference."
         />
       )}
       <div className="source-actions">
@@ -283,6 +285,8 @@ function AddSource({ order, onClose }: { order: Order; onClose: () => void }) {
         const parentDoc = d.documents.find(
           (x) => x.id === parent && x.orderId === order.id,
         );
+        if (parent !== "none" && !parentDoc)
+          throw new Error("The selected parent attachment is no longer available. Choose its current source again.");
         d.documents.unshift({
           id: uid("source"),
           companyId: order.companyId,
@@ -292,7 +296,7 @@ function AddSource({ order, onClose }: { order: Order; onClose: () => void }) {
           name,
           category: "Policy documents",
           visibility: "Internal",
-          date: new Date().toISOString().slice(0, 10),
+          date: businessDay(),
           size: `${Math.max(1, Math.ceil(text.length / 1024))} KB`,
           version: 1,
           text: `OPERATOR-CAPTURED SOURCE REFERENCE\n${parentDoc ? `Parent file: ${parentDoc.name} (${parentDoc.id})\n` : ""}\n${text}`,
@@ -324,8 +328,8 @@ function AddSource({ order, onClose }: { order: Order; onClose: () => void }) {
         <DialogHeader>
           <DialogTitle>Add source reference</DialogTitle>
           <DialogDescription>
-            Record a section of a combined file or a fictional excerpt for local
-            evaluation. This does not verify authenticity or a signature.
+            Record exact wording and its page reference from the original.
+            This does not verify authenticity or a signature.
           </DialogDescription>
         </DialogHeader>
         <form className="form-stack" onSubmit={submit}>
@@ -343,7 +347,7 @@ function AddSource({ order, onClose }: { order: Order; onClose: () => void }) {
               onChange={setParent}
               label="Parent attachment"
               options={[
-                { value: "none", label: "Standalone demo excerpt" },
+                { value: "none", label: "Standalone source excerpt" },
                 ...orderSources(s, order.id).map((d) => ({
                   value: d.id,
                   label: d.name,
@@ -426,7 +430,7 @@ function CaptureFields({
                   name={f.id}
                   required
                   defaultValue={
-                    order.fields.find((x) => x.id === f.id)?.sourceValue || ""
+                    order.fields.find((x) => x.id === f.id && x.documentId === doc.id)?.sourceValue || ""
                   }
                   maxLength={500}
                 />

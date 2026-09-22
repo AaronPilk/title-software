@@ -1,12 +1,12 @@
 # TitleOS system blueprint
 
-Updated September 11, 2026; policy-correction workflow, full backup/restore, multi-loan revisions, the rejected-file recovery pipeline, the accounting CSV import scaffold, commitment field revisions, duplicate-company warnings and the statement delivery register UI (domain by Codex) added September 12, 2026 by Claude. This describes the current local implementation. The [54-row transcript matrix](discovery/all-transcript-traceability.md) preserves discovery evidence and pre-expansion gaps; [implementation coverage](implementation-coverage.md) reconciles that baseline with this build.
+Historical implementation baseline from September 11–12, 2026. Policy corrections, full backup/restore, multi-loan and field revisions, rejected-file recovery, accounting CSV preview, duplicate-company warnings and statement delivery UI were added during that period. The [54-row transcript matrix](discovery/all-transcript-traceability.md) preserves discovery evidence and pre-expansion gaps. For the current implementation and its remaining boundaries, use [requirements coverage](REQUIREMENTS_IMPLEMENTATION.md), [security remediation](testing/security-remediation-2026-09-22.md) and the [product comparison](research/product-comparison-2026-09-22.md).
 
 ## Product and operating model
 
 TitleOS connects Stephenie’s company onboarding, Tyler’s title production, John’s reported month-end workflow, and partner access in one Apple-inspired workspace. North Carolina and South Carolina are the initial jurisdictions, with formation and operating states kept separate. Both complete call transcripts informed the design. John’s accounting procedures were reported secondhand and still need his direct review.
 
-This is a working local MVP with fictional records, persistent state, reviewed preparation workflows and explicit outcome references. Authentication, shared storage, OCR, provider connections, real policy generation, external sending, filings and payments are deferred until local workflow review.
+As of September 22, the app has a hosted pilot with Supabase authentication and company-scoped data/storage, separate Agency and Production views, document text/OCR, a scoped staff assistant and Missive integration code. These are later additions to the local baseline below. Original documents can be evaluated in the private authorized workspace. Live provider activation must be checked separately: there is no supported live SoftPro reader/writer yet, and the app does not generate insurer-issued policies, file government applications or move money. Recording a reviewed external outcome is distinct from performing it.
 
 ## Implemented workspace
 

@@ -140,7 +140,7 @@ export const integrations = [
     color: "amber",
     description: "Extract candidate fields with page-level evidence.",
     requirements: [
-      "Evaluate a redacted NC and SC document set.",
+      "Evaluate owner-authorized NC and SC originals in the private workspace.",
       "Measure exact-match accuracy by field and exception type.",
       "Choose an approved data-processing and retention arrangement.",
       "Keep source excerpts immutable and require professional review.",

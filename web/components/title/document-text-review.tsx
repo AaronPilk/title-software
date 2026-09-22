@@ -56,13 +56,17 @@ export function DocumentTextReview({ doc }: { doc: VaultDoc }) {
         const result = await recognizeDocumentPage(typed, targetPage, { signal: abort.signal, rotation, onProgress: update => {
           if (alive.current && !abort.signal.aborted) setProgress(`${update.phase}… ${Math.round(update.progress * 100)}%`);
         } });
-        if (alive.current && !abort.signal.aborted) { setOcrPages(previous => ({ ...previous, [targetPage]: result })); setNotice(result.text ? "OCR is ready. Compare names, amounts and legal wording with the original before copying." : "No text was recognized. Review the original or try a clearer scan."); }
+        if (alive.current && !abort.signal.aborted) {
+          setOcrPages(previous => ({ ...previous, [targetPage]: result }));
+          setOcrSelected(""); setVerified(false);
+          setNotice(result.text ? "OCR is ready. Compare names, amounts and legal wording with the original before copying." : "No text was recognized. Review the original or try a clearer scan.");
+        }
       } catch (error) { if (alive.current && !abort.signal.aborted) setNotice(error instanceof OcrError ? error.message : "OCR could not read this page. Review the original document."); }
     } catch { if (alive.current && !abort.signal.aborted) setNotice("The stored file could not be opened. Check that the original document is available."); }
     finally { if (alive.current && controller.current === abort) { setBusy(null); setProgress(""); } }
   }
   async function copy(text: string, fromOcr = false) {
-    if (!text.trim() || (fromOcr && (!ocr || !verified)) || (!fromOcr && !page)) return;
+    if (!text.trim() || (fromOcr && (busy || !ocr || !verified)) || (!fromOcr && !page)) return;
     try {
       const citation = fromOcr ? (await import("@/lib/title/local-ocr")).ocrCitation(current!, ocr!, text) : (await import("@/lib/title/pdf-text")).pdfPageCitation(current!, page!.page, text);
       await navigator.clipboard.writeText(citation);
@@ -106,8 +110,8 @@ export function DocumentTextReview({ doc }: { doc: VaultDoc }) {
           <p className="form-note">Lowest-confidence words first. Position is measured in the rendered {ocr.width} × {ocr.height} pixel page. Showing up to 200 words.</p>
           <div style={{ maxHeight: 220, overflow: "auto" }}><table style={{ width: "100%", fontSize: 12 }}><thead><tr><th align="left">Word</th><th align="left">Confidence</th><th align="left">Position</th></tr></thead><tbody>{[...ocr.words].sort((a,b) => a.confidence - b.confidence).slice(0,200).map((word,index) => <tr key={index}><td>{word.text}</td><td>{Math.round(word.confidence)}/100</td><td>{word.box.x0}, {word.box.y0}</td></tr>)}</tbody></table></div>
         </details>
-        <label className="form-note" style={{ display: "flex", alignItems: "flex-start", gap: 8 }}><input type="checkbox" checked={verified} onChange={event => setVerified(event.target.checked)} />I compared this OCR result with the original document.</label>
-        <div style={rowStyle}><Button variant="outline" size="sm" disabled={!verified || !ocrSelected.trim()} onClick={() => void copy(ocrSelected, true)}><Copy size={15} />Copy reviewed OCR excerpt with source</Button><Button variant="ghost" size="sm" disabled={!verified} onClick={() => void copy(ocr.text, true)}>Copy reviewed OCR page with source</Button></div>
+        <label className="form-note" style={{ display: "flex", alignItems: "flex-start", gap: 8 }}><input type="checkbox" checked={verified} disabled={!!busy} onChange={event => setVerified(event.target.checked)} />I compared this OCR result with the original document.</label>
+        <div style={rowStyle}><Button variant="outline" size="sm" disabled={!!busy || !verified || !ocrSelected.trim()} onClick={() => void copy(ocrSelected, true)}><Copy size={15} />Copy reviewed OCR excerpt with source</Button><Button variant="ghost" size="sm" disabled={!!busy || !verified} onClick={() => void copy(ocr.text, true)}>Copy reviewed OCR page with source</Button></div>
       </>}
     </div>}
   </section>;

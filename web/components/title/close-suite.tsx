@@ -30,11 +30,20 @@ import {
 import { Picker, FieldLabel, Status, Empty, DataTable, Metric } from "./shared";
 import { StatementDeliveries } from "./statement-deliveries";
 
-export function CloseWorkspace() {
+type CloseWorkspaceProps = {
+  reportingMonth: string;
+  onReportingMonthChange: (month: string) => void;
+} | {
+  reportingMonth?: undefined;
+  onReportingMonthChange?: undefined;
+};
+
+export function CloseWorkspace({ reportingMonth, onReportingMonthChange }: CloseWorkspaceProps = {}) {
   const { s, update } = useWorkspace();
   const [company, setCompany] = useState(s.companies[0]?.id || ""),
-    [month, setMonth] = useState(() => businessPeriod()),
+    [localMonth, setLocalMonth] = useState(() => businessPeriod()),
     [selected, setSelected] = useState("");
+  const month = reportingMonth ?? localMonth;
   const closes = business(s).closes.filter(
     (p) => p.companyId === company && p.month === month,
   );
@@ -57,7 +66,9 @@ export function CloseWorkspace() {
             aria-label="Close reporting month"
             value={month}
             onChange={(e) => {
-              setMonth(e.target.value);
+              if (!e.target.value) return;
+              if (onReportingMonthChange) onReportingMonthChange(e.target.value);
+              else setLocalMonth(e.target.value);
               setSelected("");
             }}
           />

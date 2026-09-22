@@ -36,7 +36,7 @@ export function Financials() {
   const canConfirmReview = canConfirmWorkspaceFinance(connection);
   const [month, setMonth] = useState(() => businessPeriod());
   const [tab, setTab] = useState("Overview");
-  const [checks, setChecks] = useState([false, false, false]);
+  const [review, setReview] = useState({ reportKey: "", checks: [false, false, false] });
   const expenses = Object.fromEntries(
     Object.entries(s.expenses || {})
       .filter(([key]) => key.startsWith(month + ":"))
@@ -73,6 +73,14 @@ export function Financials() {
         ]),
     );
   const approved = s.approvedReports.includes(reportKey);
+  // A confirmation only covers the exact figures and ownership reviewed.
+  // Workspace refreshes can change those sources without changing the month.
+  const checks = review.reportKey === reportKey ? review.checks : [false, false, false];
+  function changeMonth(value: string) {
+    if (!value) return;
+    setMonth(value);
+    setReview({ reportKey: "", checks: [false, false, false] });
+  }
   function exportReport() {
     exportCsv(`titleos-${month}-draft-report.csv`, [
       [connection ? "WORKSPACE ESTIMATES - NOT PAYMENT INSTRUCTIONS" : "DEMO ESTIMATES - NOT PAYMENT INSTRUCTIONS"],
@@ -106,11 +114,7 @@ export function Financials() {
           type="month"
           aria-label="Reporting month"
           value={month}
-          onChange={(e) => {
-            if (!e.target.value) return;
-            setMonth(e.target.value);
-            setChecks([false, false, false]);
-          }}
+          onChange={(e) => changeMonth(e.target.value)}
         />
         <Button variant="outline" onClick={exportReport}>
           <Download />
@@ -153,7 +157,7 @@ export function Financials() {
         />
         <span className="subtle-pill">{connection ? "Recorded figures · review required" : "Illustrative demo figures"}</span>
       </div>
-      {tab === "Company closes" && <CloseWorkspace />}
+      {tab === "Company closes" && <CloseWorkspace reportingMonth={month} onReportingMonthChange={changeMonth} />}
       {tab === "Accounting import" && <AccountingImport />}
       {tab === "Overview" && (
         <>
@@ -216,9 +220,11 @@ export function Financials() {
                     disabled={!canConfirmReview}
                     checked={checks[i]}
                     onCheckedChange={(v) =>
-                      setChecks((prev) =>
-                        prev.map((x, j) => (j === i ? v === true : x)),
-                      )
+                      setReview((prev) => ({
+                        reportKey,
+                        checks: (prev.reportKey === reportKey ? prev.checks : [false, false, false])
+                          .map((x, j) => (j === i ? v === true : x)),
+                      }))
                     }
                   />
                   <span>{label}</span>
