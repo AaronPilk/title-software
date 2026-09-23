@@ -1,5 +1,6 @@
 import { projectPartnerSummary } from "./partner-summary";
 import { validateCompanyIntake, companyProfileMissing, companyCandidateKey } from "../title/company-intake";
+import { buildOperatingConfirmation, companyDisplayStage } from "../title/company-operating-status";
 import { normalizeMemberContacts } from "../title/member-directory";
 import type { Workspace, Company, Order, VaultDoc } from "../title/model";
 import { createSeed } from "../title/model";
@@ -524,6 +525,7 @@ function applyEdit(
   edit: DraftEdit,
   a: Access,
   baseline: Workspace,
+  timestamp: string,
 ) {
   object(edit);
   if (edit.insert && typeof edit.id === "string" && edit.id.startsWith("missive:"))
@@ -625,8 +627,21 @@ function applyEdit(
         "location",
         "intake",
         "jurisdiction",
+        "operatingStatus",
       ]);
       const previous = current as Company;
+      if (has(v, "operatingStatus")) {
+        permitWorkspaceAdmin(a);
+        if (v.operatingStatus !== null) {
+          const confirmation = object(v.operatingStatus);
+          keys(confirmation, ["status", "confirmedBy", "confirmedAt", "note"]);
+          if (confirmation.status !== "Active" || typeof confirmation.note !== "string")
+            fail("Confirm that this company is already operating and explain the source.");
+          // This records an existing business fact, not completion of a launch
+          // review. Actor/time come from this authenticated command only.
+          v.operatingStatus = buildOperatingConfirmation(a.email, confirmation.note, timestamp);
+        }
+      }
       if (has(v, "intake")) {
         if (!previous.intake) fail("Company intake provenance cannot be added to an existing profile.");
         const next = validateCompanyIntake(v.intake);
@@ -1223,7 +1238,7 @@ export function executeCommands(
       if (cmd.name === "editDraft") {
         if (!Array.isArray(cmd.args[0])) fail("Invalid draft edits.");
         for (const edit of cmd.args[0] as DraftEdit[])
-          applyEdit(next, edit, a, prior);
+          applyEdit(next, edit, a, prior, timestamp);
       } else if ((OR.orchestrationActionNames as readonly string[]).includes(cmd.name)) {
         const configuration = ["saveCompanyProfile", "saveExternalFieldMap", "setOrchestrationControl", "attestReadiness"].includes(cmd.name);
         permit(a, configuration ? "admin" : "production");
@@ -1337,6 +1352,8 @@ export function projectWorkspace(source: Workspace, a: Access): Workspace {
       } else
         result.companies.push({
           ...c,
+          stage: companyDisplayStage(c),
+          operatingStatus: undefined,
           contact: "",
           email: "",
           authorizations: [],

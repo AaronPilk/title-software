@@ -1,6 +1,7 @@
 "use client";
 import { StaffAssignmentPicker } from "./staff-assignment-picker";
 import { canCreateCompany, canManageCompanies, canViewOnboardingEvidence, canManageOnboardingEvidence } from "@/lib/title/workspace-capabilities";
+import { companyDisplayStage } from "@/lib/title/company-operating-status";
 import { useState } from "react";
 import {
   Plus,
@@ -56,18 +57,23 @@ export function OnboardingHub({
   const canAddCompany = canCreateCompany(connection);
   const evidenceVisible = canViewOnboardingEvidence(connection);
   const [selected, setSelected] = useState(
-    s.companies.find((c) => c.stage === "Onboarding")?.id ||
+    s.companies.find((c) => companyDisplayStage(c) === "Onboarding")?.id ||
       s.companies[0]?.id ||
       "",
   );
   const [tab, setTab] = useState("Company cases");
   const c = s.companies.find((c) => c.id === selected) || s.companies[0];
   const due = business(s).credentials.filter((r) => !credentialCurrent(r));
+  const incompleteEvidence = evidenceVisible ? s.companies.filter((company) => {
+    const application = getOnboarding(s, company);
+    return application.applicationStatus !== "Reviewed" || !application.launchedAt || onboardingSteps.some((_, step) =>
+      !evidenceCurrent(s, company.id, application.evidence.find((evidence) => evidence.step === step))) || companyProblems(s, company).length > 0;
+  }).length : null;
   return (
     <>
       <Heading
-        title="Company onboarding"
-        description="Application, evidence and approvals in one shared case."
+        title="Company setup and reviews"
+        description="Company records, applications and evidence reviews for new and existing businesses."
       >
         {canAddCompany && <Button onClick={onNew}>
           <Plus />
@@ -76,18 +82,14 @@ export function OnboardingHub({
       </Heading>
       <div className="metrics">
         <Metric
-          label="In onboarding"
-          value={s.companies.filter((c) => c.stage === "Onboarding").length}
-          detail="Company workspaces in progress"
+          label="New companies"
+          value={s.companies.filter((c) => companyDisplayStage(c) === "Onboarding").length}
+          detail="Business status is still onboarding"
         />
         <Metric
-          label="Applications reviewed"
-          value={
-            evidenceVisible ? business(s).onboarding.filter(
-              (c) => c.applicationStatus === "Reviewed",
-            ).length : "Access needed"
-          }
-          detail={evidenceVisible ? "Secure intake references recorded" : "Application evidence is restricted"}
+          label="Incomplete workspace evidence"
+          value={incompleteEvidence ?? "Access needed"}
+          detail={evidenceVisible ? "Includes active companies with records to review" : "Application evidence is restricted"}
         />
         <Metric
           label="Authority reviews"
@@ -95,9 +97,9 @@ export function OnboardingHub({
           detail="Open, expired or due for review"
         />
         <Metric
-          label="Evidence-based launches"
+          label="Setup approvals recorded"
           value={evidenceVisible ? business(s).onboarding.filter((c) => c.launchedAt).length : "Access needed"}
-          detail={evidenceVisible ? "Launch review recorded" : "Launch evidence is restricted"}
+          detail={evidenceVisible ? "Evidence-based setup review completed" : "Setup approval evidence is restricted"}
         />
       </div>
       <div className="toolbar">
@@ -108,7 +110,7 @@ export function OnboardingHub({
         />
         <Picker
           value={c?.id || ""}
-          label="Onboarding company"
+          label="Company for setup and reviews"
           onChange={setSelected}
           options={s.companies.map((c) => ({ value: c.id, label: c.name }))}
         />
@@ -125,8 +127,8 @@ export function OnboardingHub({
                   onClick={() => setSelected(x.id)}
                 >
                   <strong>{x.name}</strong>
-                  <span>{evidenceVisible ? getOnboarding(s, x).applicationStatus : "Application evidence requires access"}</span>
-                  <Status value={x.stage} />
+                  <span>{evidenceVisible ? `Workspace application: ${getOnboarding(s, x).applicationStatus}` : "Application evidence requires access"}</span>
+                  <Status value={companyDisplayStage(x)} />
                 </button>
               ))}
             </aside>
@@ -288,7 +290,7 @@ export function OnboardingCasePanel({ company }: { company: Company }) {
         </fieldset>
         {errors.length > 0 && (
           <div className="readiness-list">
-            <strong>Launch checks still open</strong>
+            <strong>{companyDisplayStage(company) === "Active" ? "Workspace evidence checks still open" : "Launch checks still open"}</strong>
             {errors.map((e, i) => (
               <span key={i}>{e}</span>
             ))}

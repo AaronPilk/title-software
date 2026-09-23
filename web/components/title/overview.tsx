@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useWorkspace } from "@/lib/title/store";
 import { companyById, money, type Page } from "@/lib/title/model";
+import { companyDisplayStage } from "@/lib/title/company-operating-status";
 import {
   Heading,
   Metric,
@@ -47,6 +48,8 @@ export function Overview({
   const canManageAccess = !!access && (access.role === "owner" || (access.role === "admin" && access.allCompanies));
   const canAddOrder = !access || ["owner", "admin", "operations"].includes(access.role);
   const firstRun = !!connection && !s.orders.length;
+  const activeCompanies = s.companies.filter((company) => companyDisplayStage(company) === "Active").length;
+  const newCompanies = s.companies.filter((company) => companyDisplayStage(company) === "Onboarding").length;
   const attention = s.orders.filter((o) =>
     ["Needs review", "Ready for jacket"].includes(o.status),
   );
@@ -105,8 +108,8 @@ export function Overview({
         />
         <Metric
           label="Active companies"
-          value={s.companies.filter((c) => c.stage === "Active").length}
-          detail={`${s.companies.filter((c) => c.stage === "Onboarding").length} companies onboarding`}
+          value={activeCompanies}
+          detail={`${newCompanies} new ${newCompanies === 1 ? "company" : "companies"} in setup`}
         />
         <Metric
           label={`${date.month} premium`}
@@ -224,7 +227,7 @@ export function Overview({
                   {c.contact} · {c.jurisdiction}
                 </small>
               </div>
-              <Status value={c.stage} />
+              <Status value={companyDisplayStage(c)} />
               <ChevronRight size={16} />
             </button>
           ))}

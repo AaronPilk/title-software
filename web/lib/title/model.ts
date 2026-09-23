@@ -1,5 +1,6 @@
 import { commandUuid } from "./command-log";
 import type { CompanyIntakeSource } from "./company-intake";
+import type { OperatingConfirmation } from "./company-operating-status";
 import {
   enrichWorkspace,
   type TitleFile,
@@ -44,6 +45,8 @@ export type AuthorityRecord = {
 };
 export type Company = {
   intake?: CompanyIntakeSource;
+  /** Confirmed business operation, independent of this workspace's evidence review. */
+  operatingStatus?: OperatingConfirmation | null;
   id: string;
   name: string;
   initials: string;

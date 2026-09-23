@@ -30,6 +30,10 @@ before(async () => {
         if(q.has('stale'))s.documents.push({id:'doc-v2',companyId:'A',name:'Formation.pdf',version:2});
       }
       if(q.has('limited'))s.business.credentials.push({companyId:'A',status:'Needs review'});
+      if(q.has('confirmed')) {
+        s.companies.forEach(company=>{company.stage='Onboarding';company.steps=Array(7).fill(false);});
+        s.companies[0].operatingStatus={status:'Active',confirmedBy:'owner@example.test',confirmedAt:'2026-09-23T12:00:00.000Z',note:'Confirmed existing operating business.'};
+      }
       window.agencyFixture={s,connection:q.has('demo')?undefined:{access:{role:q.get('role')||'operations',allCompanies:q.has('all'),restricted:!q.has('limited'),email:'staff@example.test'}}};
       window.agencyActions=[];
       createRoot(document.getElementById('root')).render(<AgencyOverview navigate={page=>window.agencyActions.push({page})} newCompany={()=>window.agencyActions.push({newCompany:true})} openCompany={id=>window.agencyActions.push({company:id})}/>);
@@ -71,7 +75,7 @@ async function open(query = "", viewport = { width: 1360, height: 1000 }) {
 const section = (name) => page.getByRole("region", { name });
 test("legacy checklist ticks do not imply reviewed evidence or complete licensing", async () => {
   await open();
-  const row = section("Keep onboarding moving").getByRole("button").filter({ hasText: "Agency Test Title" });
+  const row = section("Company setup and reviews").getByRole("button").filter({ hasText: "Agency Test Title" });
   assert.match(await row.innerText(), /Next: Review application/);
   assert.match(await row.innerText(), /0 \/ 7 evidence steps current/);
   assert.match(await section("Company readiness").innerText(), /2 companies need evidence or credential review/);
@@ -80,11 +84,11 @@ test("legacy checklist ticks do not imply reviewed evidence or complete licensin
 });
 test("current document evidence advances a case while a replacement sends it back to review", async () => {
   await open("evidence=1");
-  let row = section("Keep onboarding moving").getByRole("button").filter({ hasText: "Agency Test Title" });
+  let row = section("Company setup and reviews").getByRole("button").filter({ hasText: "Agency Test Title" });
   assert.match(await row.innerText(), /Next: Licensing review/);
   assert.match(await row.innerText(), /3 \/ 7 evidence steps current/);
   await page.goto(`${origin}/?evidence=1&stale=1`);
-  row = section("Keep onboarding moving").getByRole("button").filter({ hasText: "Agency Test Title" });
+  row = section("Company setup and reviews").getByRole("button").filter({ hasText: "Agency Test Title" });
   await row.waitFor();
   assert.match(await row.innerText(), /Next: Company formation/);
   assert.match(await row.innerText(), /2 \/ 7 evidence steps current/);
@@ -102,9 +106,9 @@ test("a John display name does not grant company creation or financial navigatio
 });
 test("withheld application cases are described as unavailable, while visible credentials and ownership remain usable", async () => {
   await open("limited=1");
-  const onboarding = await section("Keep onboarding moving").innerText();
+  const onboarding = await section("Company setup and reviews").innerText();
   assert.match(onboarding, /Application evidence requires additional access/);
-  assert.doesNotMatch(onboarding, /Not started|Review application|0 \/ 7|No onboarding steps outstanding/);
+  assert.doesNotMatch(onboarding, /Not started|Review application|0 \/ 7|No company reviews outstanding/);
   const readiness = await section("Company readiness").innerText();
   assert.match(readiness, /Review the credential records available to your account/);
   assert.doesNotMatch(readiness, /companies need evidence or credential review/);
@@ -117,7 +121,7 @@ test("authorized agency actions open existing company, onboarding, document and 
   await open("role=owner&all=1");
   await page.getByRole("button", { name: "Add company", exact: true }).click();
   await section("Company portfolio records").getByRole("button").filter({ hasText: "Agency Test Title" }).click();
-  await page.getByRole("button", { name: "Open onboarding", exact: true }).click();
+  await page.getByRole("button", { name: "Open company reviews", exact: true }).click();
   await page.getByRole("button", { name: /Company document vault/ }).click();
   await page.getByRole("button", { name: /Monthly close & member reports/ }).click();
   assert.deepEqual(await page.evaluate(() => window.agencyActions), [{ newCompany: true }, { company: "A" }, { page: "Onboarding" }, { page: "Documents" }, { page: "Financials" }]);
@@ -136,4 +140,17 @@ test("agency rows remain usable without horizontal overflow on a phone-sized vie
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await section("Company portfolio records").getByRole("button").filter({ hasText: "Review Test Title" }).click();
   assert.deepEqual(await page.evaluate(() => window.agencyActions), [{ company: "B" }]);
+});
+test("confirmed existing companies count and display as active while their incomplete evidence stays in the review queue", async () => {
+  await open("confirmed=1");
+  const metric = page.locator(".metric").filter({ hasText: "Active companies" });
+  assert.equal(await metric.locator("strong").innerText(), "1"); assert.match(await metric.innerText(), /1 new company in setup/);
+  const portfolio = section("Company portfolio records").getByRole("button").filter({ hasText: "Agency Test Title" });
+  assert.equal(await portfolio.locator(".status").innerText(), "Active");
+  const evidence = section("Company setup and reviews").getByRole("button").filter({ hasText: "Agency Test Title" });
+  assert.match(await evidence.innerText(), /Review application|0 \/ 7 evidence steps current/);
+  assert.match(await section("Company readiness").innerText(), /2 companies need evidence or credential review/);
+  const state = await page.evaluate(() => window.agencyFixture.s);
+  assert.equal(state.companies[0].stage, "Onboarding"); assert.ok(state.companies[0].steps.every(step => step === false));
+  assert.deepEqual(state.business.onboarding, []);
 });

@@ -52,6 +52,7 @@
     "test:packages:sql": "node scripts/backend/test-document-packages-sql.mjs",
     "test:package": "node --test tests/package-reader.test.mjs tests/document-packages.test.mjs tests/document-intelligence.test.mjs tests/package-backend-flow.test.mjs",
     "test:company-intake": "node --test tests/company-intake.test.mjs tests/company-intake-backend.test.mjs tests/company-intake-ui.test.mjs",
+    "test:company-status": "node --test tests/company-operating-status.test.mjs tests/company-operating-status-backend.test.mjs tests/company-operating-status-ui.test.mjs tests/company-status-display-ui.test.mjs",
     "test:vendors": "node --test tests/docusign.test.mjs tests/quickbooks.test.mjs tests/vendor-callback.test.mjs tests/vendor-http.test.mjs tests/vendor-settings-ui.test.mjs tests/vendor-oauth-return-ui.test.mjs tests/vendor-refresh-retry.test.mjs",
     "test:vendors:sql": "node scripts/backend/test-vendor-sql.mjs"
   },

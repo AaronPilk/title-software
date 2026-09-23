@@ -3,6 +3,7 @@ import { ApiError, projectWorkspace, type Access } from "./workspace";
 import type { AssistantContext, AssistantSource } from "../assistant/protocol";
 import { finalsQueue } from "../title/finals-queue";
 import { orderSources, referencedSourceProblems } from "../title/production";
+import { companyDisplayStage } from "../title/company-operating-status";
 
 // Only reviewed app records and document metadata enter the assistant. File bytes,
 // mail bodies, onboarding applications, credentials and contact details are omitted.
@@ -26,11 +27,11 @@ export function assistantContext(state: Workspace, access: Access, workspaceId: 
     }
   }
   if (!company) {
-    for (const c of s.companies) add(`company:${c.id}`, c.name, "Companies", {stage:c.stage, operatingStates:c.operatingStates || [c.jurisdiction]});
+    for (const c of s.companies) add(`company:${c.id}`, c.name, "Companies", {businessStatus:companyDisplayStage(c), workspaceSetupStage:c.stage, operatingStates:c.operatingStates || [c.jurisdiction]});
     add("workspace", "Workspace setup", "Overview", {companyCount:s.companies.length, visibleOrderCount:s.orders.length,
       visibleOpenTaskCount:s.tasks.filter(t=>!t.done).length, guidance:s.companies.length ? "Choose a company to review its files." : "Add a company, assign team access, then create or import a file."});
   } else {
-    add(`company:${company.id}`, company.name, "Companies", {stage:company.stage, operatingStates:company.operatingStates || [company.jurisdiction], completedOnboardingSteps:company.steps.filter(Boolean).length, totalOnboardingSteps:company.steps.length});
+    add(`company:${company.id}`, company.name, "Companies", {businessStatus:companyDisplayStage(company), workspaceSetupStage:company.stage, operatingStates:company.operatingStates || [company.jurisdiction], completedOnboardingSteps:company.steps.filter(Boolean).length, totalOnboardingSteps:company.steps.length});
     const orders = s.orders.filter(o=>o.companyId===companyId && (!orderId || o.id===orderId));
     const finals = new Map(finalsQueue({...s, orders}).map(row=>[row.order.id, row]));
     const currentSourceIds = new Set(orders.flatMap(o=>orderSources(s,o.id).map(d=>d.id)));

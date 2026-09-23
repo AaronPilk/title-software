@@ -5,6 +5,7 @@ import { PartnerDocuments } from "./partner-documents";
 import { partnerPeriod } from "@/lib/title/followups";
 import { selectPartnerSummary, summarizePartnerCompany } from "@/lib/backend/partner-summary";
 import { reportingDate } from "./overview-summary";
+import { companyDisplayStage } from "@/lib/title/company-operating-status";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -219,7 +220,7 @@ export function PartnerPortal() {
           <h2>{c.name}</h2>
           <p>{isPartner ? "Company activity, your statements, and shared documents." : `Welcome back, ${c.contact.split(" ")[0] || "partner"}.`}</p>
         </div>
-        <Status value={c.stage} />
+        <Status value={companyDisplayStage(c)} />
       </div>
       {summary ? (
         <>

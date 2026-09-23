@@ -1,4 +1,6 @@
 "use client";
+import { ConfirmActiveCompaniesButton, CompanyOperatingStatusDetails } from "./company-operating-status";
+import { companyDisplayStage, validateOperatingConfirmation } from "@/lib/title/company-operating-status";
 import { OwnershipHistoryPanel } from "./ownership";
 import { OnboardingCasePanel, CredentialCenter } from "./onboarding-suite";
 import { CompanyMaterials } from "./materials";
@@ -71,7 +73,7 @@ export function Companies({
   const [filter, setFilter] = useState("All companies");
   const rows = s.companies.filter(
     (c) =>
-      (filter === "All companies" || c.stage === filter) &&
+      (filter === "All companies" || companyDisplayStage(c) === filter) &&
       `${c.name} ${c.contact} ${c.jurisdiction}`
         .toLowerCase()
         .includes(q.toLowerCase()),
@@ -82,6 +84,7 @@ export function Companies({
         title="Companies"
         description="A home for every company in your portfolio."
       >
+        <ConfirmActiveCompaniesButton />
         <MissiveCompanyIntakeButton />
         {canAddCompany && <Button onClick={onNew}>
           <Plus />
@@ -105,7 +108,7 @@ export function Companies({
           >
             <div className="company-card-top">
               <CompanyAvatar company={c} large />
-              <Status value={c.stage} />
+              <Status value={companyDisplayStage(c)} />
             </div>
             <h2>{c.name}</h2>
             <p>
@@ -331,7 +334,7 @@ export function NewCompany({
                     <li key={m.company.id}>
                       <span>
                         <b>{m.company.name}</b> · {m.company.location} ·{" "}
-                        {m.company.contact} · {m.company.stage}
+                        {m.company.contact} · {companyDisplayStage(m.company)}
                       </span>
                       <small>{m.reasons.join(" · ")}</small>
                     </li>
@@ -390,6 +393,8 @@ export function CompanyDetail({
   const [profileCapture, setProfileCapture] = useState<(CompanyProfileCapture & { companySnapshot: string }) | null>(null);
   const c = s.companies.find((x) => x.id === id);
   if (!c) return null;
+  let existingOperationsConfirmed = false;
+  try { existingOperationsConfirmed = !!validateOperatingConfirmation(c.operatingStatus ?? null); } catch { /* Invalid legacy metadata cannot confirm operations. */ }
   const docs = s.documents.filter((d) => d.companyId === id);
   const canEditProfile = !connection || (["owner", "admin", "onboarding"].includes(connection.access.role) && (connection.access.allCompanies || connection.access.companyIds.includes(c.id)));
   const profileCaptureCurrent = !!profileCapture && profileCapture.companySnapshot === JSON.stringify(c) && profileCapture.sourceIdentities.every(source => {
@@ -421,6 +426,7 @@ export function CompanyDetail({
           />
           {tab === "Overview" && (
             <>
+              <CompanyOperatingStatusDetails company={c} />
               <CompanyIntakeProfile company={c} />
               <div className="detail-grid">
                 <div>
@@ -439,11 +445,11 @@ export function CompanyDetail({
                 </div>
                 <div>
                   <small>Company status</small>
-                  <Status value={c.stage} />
+                  <Status value={companyDisplayStage(c)} />
                 </div>
               </div>
               <div className="checklist-title">
-                <h3>Onboarding checklist</h3>
+                <h3>{existingOperationsConfirmed ? "Workspace setup checklist" : "Onboarding checklist"}</h3>
                 <span>
                   {c.steps.filter(Boolean).length} / {onboardingSteps.length}
                 </span>
@@ -474,9 +480,9 @@ export function CompanyDetail({
               <div className="notice">
                 <Building2 size={17} />
                 <p>
-                  {c.jurisdiction || "The company"} checklist is a planning template. State
-                  licensing, attorney review, and underwriter evidence need
-                  confirmation before launch.
+                  {existingOperationsConfirmed
+                    ? "This workspace checklist tracks company records. Confirming existing operations does not verify licensing, attorney review, or underwriter evidence."
+                    : `${c.jurisdiction || "The company"} checklist is a planning template. State licensing, attorney review, and underwriter evidence need confirmation before launch.`}
                 </p>
               </div>
             </>
@@ -537,7 +543,7 @@ export function Onboarding({
 }) {
   const { s, connection } = useWorkspace();
   const canAddCompany = !connection || (connection.access.allCompanies && ["owner", "admin", "onboarding"].includes(connection.access.role));
-  const active = s.companies.filter((c) => c.stage === "Onboarding");
+  const active = s.companies.filter((c) => companyDisplayStage(c) === "Onboarding");
   const buckets = [
     { name: "Application", test: (n: number) => n < 1, color: "blue" },
     {
@@ -565,9 +571,9 @@ export function Onboarding({
         </span>
         <span>
           <strong>
-            {s.companies.filter((c) => c.stage === "Active").length}
+            {s.companies.filter((c) => companyDisplayStage(c) === "Active").length}
           </strong>{" "}
-          launched
+          active
         </span>
         <span>
           <MapPin size={15} /> North Carolina & South Carolina
