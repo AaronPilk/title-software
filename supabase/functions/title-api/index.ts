@@ -1,4 +1,5 @@
 import { invitationEmailRedirect, sendInvitationEmail, invitationDeliveryMessage } from "../../../web/lib/backend/invitation-email.ts";
+import { vendorRequest } from "../../../web/lib/backend/vendor-integrations.ts";
 import { feedbackSubmission, feedbackUpdate, feedbackList } from "../../../web/lib/backend/feedback-validation.ts";
 import { readRequestFormData, readRequestText, RequestBodyError } from "../../../web/lib/shared/request-body.ts";
 import { documentByteProblem } from "../../../web/lib/shared/document-bytes.ts";
@@ -365,7 +366,7 @@ Deno.serve(async (req) => {
         ? Object.fromEntries(new URL(req.url).searchParams)
         : pathname === "/assets/upload"
           ? null
-          : await body(req);
+          : await body(req, pathname.startsWith("/integrations/vendors") ? 32_768 : 8_000_000);
     if (pathname === "/assets/upload" && req.method === "POST") {
       const form = await readRequestFormData(req, { maxBytes: 52_500_000, timeoutMs: 120_000, tooLargeMessage: "Upload exceeds 50 MB." });
       const wid = uuid(form.get("workspaceId")),
@@ -447,8 +448,26 @@ Deno.serve(async (req) => {
       }
       return response({ id, sha256: hash, bytes: file.size });
     }
+    if (pathname.startsWith("/integrations/vendors") && (!input || typeof input !== "object" || Array.isArray(input)))
+      error("Invalid connection request.");
     const wid = uuid(input.workspaceId),
       a = await access(wid, user);
+    if (pathname.startsWith("/integrations/vendors")) {
+      return response(await vendorRequest(pathname, req.method, input, {
+        workspaceId: wid, access: a, env: name => Deno.env.get(name),
+        rpc: async (name, args) => {
+          let result;
+          try { result = await service.rpc(name, args); }
+          catch { error("The connection service is temporarily unavailable. Try again from Settings.", 500); }
+          if (result.error) error(result.error.code === "42501" ? "Administrator access changed. Sign in again." :
+            result.error.code === "PT429" ? "DocuSign status was checked recently. Wait at least 15 minutes before checking again." :
+            result.error.code === "PT409" || result.error.code === "40001" ? "The connection changed or is busy. Refresh settings and try again." :
+            "The connection could not be saved or loaded. Contact your developer.",
+            result.error.code === "42501" ? 403 : result.error.code === "PT429" ? 429 : ["PT409", "40001"].includes(result.error.code) ? 409 : 500);
+          return result.data;
+        },
+      }));
+    }
     if (pathname === "/assistant/context" && req.method === "POST") {
       const w = await workspace(wid);
       return response(assistantContext(w.state, a, wid, w.revision,

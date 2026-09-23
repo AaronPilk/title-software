@@ -116,34 +116,34 @@ export const integrations = [
     name: "Docusign",
     initials: "D",
     color: "violet",
-    status: "Connector not built",
-    statusColor: "neutral",
-    action: "View next steps",
-    description: "Onboarding records and signed-document uploads are available. Sending signature requests and fetching completed documents from Docusign are not connected.",
+    status: "Account setup needed",
+    statusColor: "blue",
+    action: "View setup steps",
+    description: "Connect a company account, load approved templates, prepare reviewed drafts and check envelope status in the shared workspace.",
     requirements: [
-      "Use an approved application template without exposing sensitive fields.",
-      "Confirm plan eligibility and production integration type.",
-      "Configure OAuth, callbacks, and envelope status webhooks.",
-      "Store references and approved completed documents in the vault.",
+      "Create a DocuSign developer app and have its integration key and secret installed on the server.",
+      "Register the pilot callback address, then connect the intended DocuSign account to the title company.",
+      "Test an approved template and its recipient roles in the sandbox before completing production Go-Live.",
+      "Prepare the draft here; review and send it in DocuSign. Check its recorded status here afterwards.",
     ],
-    note: "The Docusign connector still needs implementation and testing. Recording a signature reference or uploading a document does not verify its status with Docusign.",
+    note: "Live account acceptance is pending vendor credentials. Draft preparation does not send an envelope. Automatic completed-document retrieval and status webhooks are not included.",
     url: "https://developers.docusign.com/docs/esign-rest-api/",
   },
   {
     name: "QuickBooks",
     initials: "qb",
     color: "green",
-    status: "Connector not built",
-    statusColor: "neutral",
-    action: "View next steps",
-    description: "Accounting CSV preview and column mapping are available. Automatic QuickBooks imports and synchronization are not connected.",
+    status: "Account setup needed",
+    statusColor: "blue",
+    action: "View setup steps",
+    description: "Connect each company’s QuickBooks Online account and review dated Profit and Loss reports with the chosen accounting basis.",
     requirements: [
-      "Confirm John’s actual accounting software first.",
-      "Map each authorized company to its QuickBooks realm.",
-      "Confirm the export format and reconciliation rules, then build and test read-only imports against a known month.",
-      "Do not enable payments or bank transaction execution.",
+      "Create an Intuit developer app and have its client ID and secret installed on the server.",
+      "Register the pilot callback address and authorize the correct QuickBooks realm for each title company.",
+      "Compare a sandbox report against the same period and Cash or Accrual basis in QuickBooks.",
+      "Finish Intuit’s production requirements, install production credentials and reconnect the live company.",
     ],
-    note: "Try Financials → Accounting import for CSV preview and reusable column mappings. This preview does not post to a close, ledger or remittance record.",
+    note: "Live account acceptance is pending vendor credentials. Reports are read-only and do not post to a close, ledger or remittance record. CSV preview remains available in Financials.",
     url: "https://developer.intuit.com/app/developer/qbo/docs/develop",
   },
   {
@@ -389,7 +389,7 @@ export function Settings() {
             </p>
           </div>
           <div className="integration-grid">
-            {integrations.filter((i) => !sharedConnection || i.name !== "Missive").map((i) => (
+            {integrations.filter((i) => !sharedConnection || !["Missive", "Docusign", "QuickBooks"].includes(i.name)).map((i) => (
               <section className="panel integration-card" key={i.name} aria-label={i.name}>
                 <div>
                   <span className={`integration-logo ${i.color}`}>

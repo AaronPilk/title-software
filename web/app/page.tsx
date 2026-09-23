@@ -91,6 +91,7 @@ import { ProductionSuite } from "@/components/title/production-suite";
 import { PartnerPortal, Settings } from "@/components/title/workspace";
 import { Assistant } from "@/components/title/assistant";
 import { DeveloperFeedback } from "@/components/title/developer-feedback";
+import { VendorOAuthReturn } from "@/components/title/vendor-oauth-return";
 import { activeWorkspace, hostedPilot } from "@/lib/backend/client";
 const navigation: { label: Page; icon: typeof LayoutGrid }[] = [
   { label: "Overview", icon: LayoutGrid },
@@ -547,6 +548,7 @@ function Workspace() {
           </footer>
         </div>
       </main>
+      {connection && <VendorOAuthReturn workspaceId={activeWorkspace()} access={connection.access} />}
       {connection && <DeveloperFeedback
         workspaceId={activeWorkspace()}
         access={connection.access}

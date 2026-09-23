@@ -12,6 +12,7 @@ import {
 } from "@/lib/backend/client";
 import { Picker } from "./shared";
 import { MissiveSettings } from "./missive-settings";
+import { VendorSettings } from "./vendor-settings";
 import { TeamAccess } from "./team-access";
 import { OriginalFileRecovery } from "./original-file-recovery";
 
@@ -98,7 +99,7 @@ function BackendSettingsContent({ section }: { section: BackendSettingsSection }
       {!admin && section !== "Account" && <p className="form-note">An organization-wide administrator manages {section === "Connections" ? "vendor connections" : section === "Recovery" ? "recovery points" : "team access"}. Your assigned role and companies are shown in Account.</p>}
       {admin && (
         <>
-          {section === "Connections" && <MissiveSettings key={workspaceId} workspaceId={workspaceId} />}
+          {section === "Connections" && <><MissiveSettings key={workspaceId} workspaceId={workspaceId} /><VendorSettings workspaceId={workspaceId} access={connection.access} companies={s.companies} /></>}
           {section === "Recovery" && <div className="backend-settings-section">
             <h3>
               <Archive size={18} /> Server recovery points

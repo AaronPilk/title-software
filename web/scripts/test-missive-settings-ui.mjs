@@ -101,6 +101,7 @@ async function scenario(name, test) {
       if (status !== 200) body = { error: "Synthetic temporary failure" };
       else if (url.pathname === "/auth/v1/user") body = user;
       else if (url.pathname === `${prefix}/state`) body = current;
+      else if (url.pathname === `${prefix}/integrations/vendors`) body = { providers: [], connections: [] };
       else if (url.pathname === endpoint("/credential")) {
         if (req.method() === "POST") {
           if (input.expectedRevision !== statusRecord.revision) { status = 409; body = { error: "Missive connection changed. Refresh before saving." }; }

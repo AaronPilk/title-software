@@ -2,11 +2,13 @@ import { createClient } from "@supabase/supabase-js";
 import type { Workspace } from "../title/model";
 import type { Access } from "./workspace";
 import { recoveryIntent } from "./recovery-intent";
+import { captureVendorCallback } from "./vendor-callback";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
 export const backendConfigured = !!url && !!key;
 export const hostedPilot = process.env.NEXT_PUBLIC_TITLE_HOSTED_PILOT === "true";
+captureVendorCallback();
 export const supabase = backendConfigured ? createClient(url, key) : null;
 // Redirect events can arrive before React mounts and are not replayed as recovery.
 // Capture the intent synchronously; do not call async Auth methods in this callback.
@@ -39,7 +41,7 @@ export async function backendRequest<T = unknown>(
   const { data: session } = await supabase.auth.getSession();
   if (!session.session) throw new Error("Sign in to continue.");
   if (expectedUserId && session.session.user.id !== expectedUserId)
-    throw Object.assign(new Error("Your signed-in account changed. Reopen feedback to continue."), { status: 403 });
+    throw Object.assign(new Error("Your signed-in account changed. Reopen this page to continue."), { status: 403 });
   const query =
     method === "GET" && requestWorkspaceId
       ? `${path.includes("?") ? "&" : "?"}workspaceId=${encodeURIComponent(requestWorkspaceId)}`
