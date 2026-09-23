@@ -44,7 +44,9 @@
     "test:review:ui": "node --test tests/final-source-capture-ui.test.mjs tests/document-text-review-ui.test.mjs tests/financial-review-ui.test.mjs",
     "test:pilot:security": "node --test tests/pilot-security-smoke.test.mjs",
     "test:extraction": "node --test tests/field-extraction.test.mjs tests/source-field-reader.test.mjs tests/source-capture-evidence.test.mjs tests/source-field-assistant-ui.test.mjs",
-    "test:originals:ui": "node --test tests/original-file-recovery-ui.test.mjs"
+    "test:originals:ui": "node --test tests/original-file-recovery-ui.test.mjs",
+    "test:feedback": "node --test tests/feedback-client.test.mjs tests/developer-feedback-http.test.mjs tests/developer-feedback-ui.test.mjs",
+    "test:feedback:sql": "node scripts/backend/test-feedback-sql.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

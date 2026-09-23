@@ -1,4 +1,5 @@
 import { invitationEmailRedirect, sendInvitationEmail, invitationDeliveryMessage } from "../../../web/lib/backend/invitation-email.ts";
+import { feedbackSubmission, feedbackUpdate, feedbackList } from "../../../web/lib/backend/feedback-validation.ts";
 import { readRequestFormData, readRequestText, RequestBodyError } from "../../../web/lib/shared/request-body.ts";
 import { documentByteProblem } from "../../../web/lib/shared/document-bytes.ts";
 import { assistantContext } from "../../../web/lib/backend/assistant-context.ts";
@@ -50,6 +51,10 @@ const checked = (result: any) => {
       result.error.message,
       ["40001", "PT409"].includes(result.error.code)
         ? 409
+        : result.error.code === "PT404"
+          ? 404
+        : result.error.code === "PT429"
+          ? 429
         : result.error.code === "42501"
           ? 403
           : 400,
@@ -88,8 +93,8 @@ function invitationGrant(input: any) {
   return { p_recipient: input.email.trim().toLowerCase(), p_role: input.role, p_companies: companies,
     p_all_companies: input.allCompanies, p_restricted: input.restricted, p_partner_members: partners };
 }
-async function body(req: Request) {
-  const raw = await readRequestText(req, { maxBytes: 8_000_000, tooLargeMessage: "Request exceeds 8 MB." });
+async function body(req: Request, maxBytes = 8_000_000) {
+  const raw = await readRequestText(req, { maxBytes, tooLargeMessage: maxBytes === 8_000_000 ? "Request exceeds 8 MB." : "Feedback request exceeds 32 KiB." });
   let value;
   try {
     value = JSON.parse(raw);
@@ -325,6 +330,35 @@ Deno.serve(async (req) => {
           .eq("active", true),
       );
       return response({ user: { id: user.id, email: user.email }, workspaces: rows });
+    }
+    if (pathname === "/feedback" || pathname === "/feedback/update") {
+      if (pathname === "/feedback" && req.method === "GET") {
+        const params = new URL(req.url).searchParams;
+        if (new Set(params.keys()).size !== [...params.keys()].length) error("Duplicate feedback query fields.");
+        const input = feedbackList(Object.fromEntries(params));
+        const a = await access(input.workspaceId, user);
+        return response(checked(await service.rpc("title_list_feedback", {
+          p_workspace: input.workspaceId, p_actor: user.id, p_actor_version: a.version,
+          p_limit: input.limit, p_before: input.before, p_before_id: input.beforeId,
+        })));
+      }
+      if (req.method !== "POST") error("Feedback supports GET and POST only.", 405);
+      const raw = await body(req, 32_768);
+      if (pathname === "/feedback") {
+        const input = feedbackSubmission(raw);
+        const a = await access(input.workspaceId, user);
+        return response(checked(await service.rpc("title_submit_feedback", {
+          p_workspace: input.workspaceId, p_actor: user.id, p_email: user.email, p_actor_version: a.version,
+          p_id: input.id, p_kind: input.kind, p_message: input.message, p_page: input.page, p_view: input.view,
+        })));
+      }
+      const input = feedbackUpdate(raw);
+      const a = await access(input.workspaceId, user);
+      if (a.role !== "owner") error("Only the workspace owner can respond to feedback.", 403);
+      return response(checked(await service.rpc("title_update_feedback", {
+        p_workspace: input.workspaceId, p_actor: user.id, p_actor_version: a.version,
+        p_id: input.id, p_expected_version: input.expectedVersion, p_status: input.status, p_reply: input.reply,
+      })));
     }
     const input =
       req.method === "GET"

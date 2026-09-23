@@ -90,6 +90,7 @@ import { OnboardingHub } from "@/components/title/onboarding-suite";
 import { ProductionSuite } from "@/components/title/production-suite";
 import { PartnerPortal, Settings } from "@/components/title/workspace";
 import { Assistant } from "@/components/title/assistant";
+import { DeveloperFeedback } from "@/components/title/developer-feedback";
 import { activeWorkspace, hostedPilot } from "@/lib/backend/client";
 const navigation: { label: Page; icon: typeof LayoutGrid }[] = [
   { label: "Overview", icon: LayoutGrid },
@@ -546,6 +547,12 @@ function Workspace() {
           </footer>
         </div>
       </main>
+      {connection && <DeveloperFeedback
+        workspaceId={activeWorkspace()}
+        access={connection.access}
+        page={page}
+        view={connection.access.role === "partner" ? "partner" : view}
+      />}
       <Dialog open={search} onOpenChange={setSearch}>
         <DialogContent className="command-modal" showCloseButton={false}>
           <DialogHeader className="sr-only">

@@ -32,13 +32,17 @@ export async function backendRequest<T = unknown>(
   data?: unknown,
   method = data === undefined ? "GET" : "POST",
   timeoutMs = 30000,
+  requestWorkspaceId = workspaceId,
+  expectedUserId?: string,
 ): Promise<T> {
   if (!supabase) throw new Error("The shared backend is not configured.");
   const { data: session } = await supabase.auth.getSession();
   if (!session.session) throw new Error("Sign in to continue.");
+  if (expectedUserId && session.session.user.id !== expectedUserId)
+    throw Object.assign(new Error("Your signed-in account changed. Reopen feedback to continue."), { status: 403 });
   const query =
-    method === "GET" && workspaceId
-      ? `?workspaceId=${encodeURIComponent(workspaceId)}`
+    method === "GET" && requestWorkspaceId
+      ? `${path.includes("?") ? "&" : "?"}workspaceId=${encodeURIComponent(requestWorkspaceId)}`
       : "";
   const response = await fetch(`${url}/functions/v1/title-api${path}${query}`, {
     method,
