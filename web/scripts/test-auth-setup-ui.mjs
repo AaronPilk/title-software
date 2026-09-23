@@ -18,6 +18,7 @@ const result = await build({
         getSession: () => window.authSetupFixture.getSession(),
         onAuthStateChange: listener => window.authSetupFixture.subscribe(listener),
         signInWithPassword: input => window.authSetupFixture.signIn(input),
+        resetPasswordForEmail: (email, options) => window.authSetupFixture.requestRecovery(email, options),
         signOut: () => window.authSetupFixture.signOut(),
         mfa: {
           listFactors: () => window.authSetupFixture.listFactors(),

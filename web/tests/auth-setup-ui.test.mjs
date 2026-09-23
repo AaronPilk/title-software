@@ -84,6 +84,64 @@ test("first sign-in retries an ordinary password failure, then enrolls and verif
   await verify();
 });
 
+async function requestEmailSetup(scenario) {
+  await open(scenario);
+  await page.getByLabel("Email", { exact: true }).fill("setup-reviewer@example.test");
+  assert.equal(await page.getByLabel("Password", { exact: true }).inputValue(), "");
+  assert.equal(await page.getByRole("button", { name: "Create account", exact: true }).count(), 0);
+  await page.getByRole("button", { name: "Set up or reset password", exact: true }).click();
+  await page.getByRole("status").waitFor();
+  assert.match(await page.getByRole("status").innerText(), /If .*email/i);
+  assert.deepEqual(await page.evaluate(() => window.authSetupFixture.recoveryRequests), [
+    { email: "setup-reviewer@example.test", redirectTo: process.env.AUTH_SETUP_ORIGIN },
+  ]);
+  assert.equal(await page.evaluate(() => window.authSetupFixture.session), null);
+  assert.equal(await page.evaluate(() => window.authSetupFixture.calls.some(call => ["signIn", "/security/status", "/security/password", "/session", "/state"].includes(call))), false);
+  assert.equal(await page.getByRole("heading", { name: "Choose your own password", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("heading", { name: "Authenticated synthetic workspace", exact: true }).count(), 0);
+}
+
+test("email-only first-time setup waits for its callback, password and authenticator before opening records", async () => {
+  await requestEmailSetup("email-setup");
+  await page.evaluate(() => window.authSetupFixture.completeRecovery());
+  await page.getByRole("heading", { name: "Choose your own password", exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.authSetupFixture.calls.includes("/session")), false);
+  await page.getByLabel("New password", { exact: true }).fill("Synthetic personal password 456");
+  await page.getByLabel("Confirm password", { exact: true }).fill("Synthetic personal password 456");
+  await page.getByRole("button", { name: "Save password and continue", exact: true }).click();
+  await page.getByRole("heading", { name: "Set up your authenticator", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Set up authenticator", exact: true }).click();
+  await page.getByLabel("Authenticator code", { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.authSetupFixture.calls.includes("/session")), false);
+  await verify();
+  const calls = await page.evaluate(() => window.authSetupFixture.calls);
+  assert(calls.indexOf("emailCallback") < calls.indexOf("/security/password"));
+  assert(calls.indexOf("/security/password") < calls.indexOf("verify"));
+  assert(calls.indexOf("verify") < calls.indexOf("/session"));
+  assert.equal(calls.includes("signIn"), false);
+});
+
+test("email recovery challenges an existing authenticator before changing the password", async () => {
+  await requestEmailSetup("email-recovery-factor");
+  await page.evaluate(() => window.authSetupFixture.completeRecovery());
+  await page.getByRole("heading", { name: "Verify your sign-in", exact: true }).waitFor();
+  assert.equal(await page.getByLabel("New password", { exact: true }).count(), 0);
+  assert.equal(await page.evaluate(() => window.authSetupFixture.calls.some(call => ["/security/password", "/session"].includes(call))), false);
+  await page.getByLabel("Authenticator code", { exact: true }).fill("123456");
+  await page.getByRole("button", { name: "Verify and continue", exact: true }).click();
+  await page.getByRole("heading", { name: "Choose your own password", exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.authSetupFixture.calls.includes("/session")), false);
+  await page.getByLabel("New password", { exact: true }).fill("Synthetic replacement password 789");
+  await page.getByLabel("Confirm password", { exact: true }).fill("Synthetic replacement password 789");
+  await page.getByRole("button", { name: "Save password and continue", exact: true }).click();
+  await page.getByRole("heading", { name: "Authenticated synthetic workspace", exact: true }).waitFor();
+  const calls = await page.evaluate(() => window.authSetupFixture.calls);
+  assert(calls.indexOf("verify") < calls.indexOf("/security/password"));
+  assert(calls.indexOf("/security/password") < calls.indexOf("/session"));
+  assert.equal(calls.includes("enroll"), false);
+  assert.equal(calls.includes("unenroll"), false);
+});
+
 test("an acknowledged password change with incomplete setup clears the submitted password and verification code", async () => {
   await open("first-login");
   await page.getByLabel("Email", { exact: true }).fill("setup-reviewer@example.test");

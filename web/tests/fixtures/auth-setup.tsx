@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { BackendAccess } from "../../components/title/backend-access";
-import type { AccountSecurity } from "../../lib/backend/account-security";
+import { accountSecurity } from "../../lib/backend/account-security";
 
 type Session = { access_token: string };
 type Listener = (event: string, session: Session | null) => void;
@@ -10,10 +10,13 @@ const scenario = new URLSearchParams(location.search).get("scenario") || "challe
 const listeners = new Set<Listener>();
 const session = { access_token: `synthetic.${btoa(JSON.stringify({ session_id: "11111111-1111-4111-8111-111111111111" }))}.synthetic` };
 const factor = { id: "synthetic-factor", friendly_name: "Test authenticator", status: "verified", factor_type: "totp" };
-const security: AccountSecurity = { email: "setup-reviewer@example.test", passwordChangeRequired: scenario === "first-login", step: scenario === "first-login" ? "password" : "challenge" };
+const firstSetup = ["first-login", "email-setup"].includes(scenario);
+const securityFacts = { session_valid: true, password_change_required: firstSetup, has_totp: !firstSetup, session_totp: false };
+const security = accountSecurity("setup-reviewer@example.test", "aal1", securityFacts);
 const fixture = {
-  session: scenario === "first-login" ? null as Session | null : session,
+  session: firstSetup || scenario === "email-recovery-factor" ? null as Session | null : session,
   security, workspaceId: "", calls: [] as string[],
+  recoveryRequests: [] as { email: string; redirectTo: string }[],
   listFailures: scenario === "factor-returned-error" ? ["returned"] : scenario === "factor-rejected-error" ? ["rejected"] : [] as string[],
   passwordFailures: [] as (string | { message: string; code: string })[],
   releaseSecurity: null as null | (() => void),
@@ -34,13 +37,23 @@ const fixture = {
     fixture.calls.push("signIn"); fixture.session = session; fixture.emit("SIGNED_IN");
     return { data: { session }, error: null };
   },
+  async requestRecovery(email: string, options: { redirectTo: string }) {
+    fixture.calls.push("resetPasswordForEmail");
+    fixture.recoveryRequests.push({ email, redirectTo: options.redirectTo });
+    return { data: {}, error: null };
+  },
+  completeRecovery() {
+    fixture.calls.push("emailCallback"); fixture.session = session;
+    fixture.emit("PASSWORD_RECOVERY");
+  },
   async signOut() { fixture.calls.push("signOut"); fixture.session = null; fixture.emit("SIGNED_OUT"); return { error: null }; },
   async listFactors(): Promise<FactorResult> {
     fixture.calls.push("listFactors");
     const failure = fixture.listFailures.shift();
     if (failure === "rejected") throw new Error("Synthetic authenticator request interrupted");
     if (failure === "returned") return { data: null, error: { message: "Synthetic authenticator temporarily unavailable" } };
-    return { data: { all: [factor], totp: [factor] }, error: null };
+    const verifiedFactors = securityFacts.has_totp ? [factor] : [];
+    return { data: { all: verifiedFactors, totp: verifiedFactors }, error: null };
   },
   async enroll() {
     fixture.calls.push("enroll");
@@ -51,7 +64,8 @@ const fixture = {
     fixture.calls.push("verify");
     if (![factor.id, "synthetic-enrollment"].includes(input.factorId) || input.code !== "123456")
       return { data: null, error: { message: "Synthetic authenticator code was not accepted" } };
-    fixture.security.step = "ready"; fixture.emit("MFA_CHALLENGE_VERIFIED");
+    securityFacts.has_totp = true; securityFacts.session_totp = true;
+    fixture.emit("MFA_CHALLENGE_VERIFIED");
     return { data: {}, error: null };
   },
 };
@@ -63,6 +77,7 @@ window.authSetupFixture = fixture;
 window.authSetupTransport = async path => {
   fixture.calls.push(path);
   if (path === "/security/status") {
+    Object.assign(fixture.security, accountSecurity(fixture.security.email, securityFacts.session_totp ? "aal2" : "aal1", securityFacts));
     const captured = structuredClone(fixture.security);
     if (fixture.holdSecurity) await new Promise<void>(done => { fixture.releaseSecurity = done; });
     return captured;
@@ -70,7 +85,7 @@ window.authSetupTransport = async path => {
   if (path === "/security/password") {
     const failure = fixture.passwordFailures.shift();
     if (failure) throw typeof failure === "string" ? new Error(failure) : Object.assign(new Error(failure.message), { code: failure.code });
-    fixture.security.passwordChangeRequired = false; fixture.security.step = "enroll";
+    securityFacts.password_change_required = false;
     return { updated: true };
   }
   if (path === "/session") return { workspaces: [{ workspace_id: "synthetic-workspace" }] };

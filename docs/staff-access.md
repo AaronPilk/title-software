@@ -27,6 +27,14 @@ A new account receives Supabase's invite flow. An existing account receives its 
 
 **Sent** means the email provider accepted the request, not that the recipient received it. Definitive rejection is **Failed**. A timeout or uncertain response is **Unknown**. A saved delivery-attempt ID is reused when retrying an uncertain HTTP response; this may finish the original request if it never reached the server. A deliberately new attempt after an unknown result can duplicate an email, and the UI says so. Calls are rate-limited per invitation, and in-flight attempts block new sends. Cancellation/revocation cannot recall an already submitted email, but its link cannot revive the canceled grant.
 
+## First-time sign-in
+
+Cloudflare's email-code check opens the private site. It does not sign the recipient into their workspace. After completing that check, open the setup email's sign-in link in the same browser. The app then prompts for a personal password and authenticator setup as required.
+
+If the recipient instead reaches the app's Email/Password screen without a password, enter the invited email and choose **Set up or reset password**; the password field can remain blank. Open the requested email link in the same browser and finish the displayed security steps. This uses the existing account recovery flow, does not create an account or change company access, and gives a generic response regardless of account eligibility. An already-enrolled authenticator must still be verified when required.
+
+After security setup, the app automatically claims the prepared invitation. The owner can refresh Team & access to verify **Accepted** and the intended role and company scope. A successful admin sign-in does not by itself test another staff member's company restrictions.
+
 ## Staff assignments
 
 Connected task/order pickers list eligible, active accounts for the selected company. Order assignments require production access; task assignments also support onboarding and finance. The API resolves the current account email and stores the stable account ID. The database rechecks assignment eligibility during the save, including concurrent access changes.

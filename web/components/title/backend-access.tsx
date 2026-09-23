@@ -148,7 +148,7 @@ export function BackendAccess({
         });
         if (result.error) throw result.error;
         setNotice(
-          "If this account can receive recovery email, a recovery link has been requested.",
+          "If this account can receive email, a password setup or recovery link has been requested. Open the link in this browser to choose your password and complete any required authenticator steps.",
         );
       } else {
         const result =
@@ -236,6 +236,12 @@ export function BackendAccess({
                   void submit("login");
                 }}
               >
+                {hostedPilot && <p>
+                  <strong>First time here?</strong> Open your setup email’s sign-in
+                  link in this browser. Or enter your invited email below and choose
+                  <strong> Set up or reset password</strong>, leaving Password blank.
+                  Cloudflare’s email code is separate from your workspace sign-in.
+                </p>}
                 <label>
                   Email
                   <Input
@@ -278,7 +284,7 @@ export function BackendAccess({
                     disabled={pending || !email}
                     onClick={() => void submit("reset")}
                   >
-                    Reset password
+                    Set up or reset password
                   </Button>
                 </div>
               </form>
