@@ -382,7 +382,7 @@ export function CompanyDetail({
 }: {
   id: string;
   onClose: () => void;
-  onDoc: (doc: VaultDoc) => void;
+  onDoc: (doc: VaultDoc, physicalPage?: number) => void;
   onUpload: (id: string) => void;
 }) {
   const { s, connection } = useWorkspace();

@@ -118,3 +118,18 @@ test('legal-description references to exhibits never stand in for the full exhib
  assert.deepEqual(values(result,'legalDescription'),[]);assert.match(row(result,'legalDescription').warnings.join(' '),/reference alone/);
  }
 });
+
+test('contact name is extracted only in an explicit company application with exact evidence',()=>{
+ const text='COMPANY APPLICATION\nCompany legal name: Cedar Example Title, LLC\nContact name: Fictional Test Person\nContact email: contact@example.test';
+ const result=analyzeTitleDocuments([doc(text,'application')]);
+ assert.deepEqual(values(result,'companyContact'),['Fictional Test Person']);
+ const [candidate]=row(result,'companyContact').candidates;
+ assert.equal(candidate.evidence.documentId,'application');
+ assert.equal(candidate.evidence.page,1);
+ assert.equal(candidate.evidence.quote,'Contact name: Fictional Test Person');
+ assert.equal(text.slice(candidate.evidence.start,candidate.evidence.end),candidate.evidence.quote);
+ assert.equal(row(result,'companyContact').status,'suggested');
+ for(const unrelated of ['GENERAL WARRANTY DEED\nContact name: Fictional Test Person','Contact name: Fictional Test Person']) {
+  assert.deepEqual(values(analyzeTitleDocuments([doc(unrelated)]),'companyContact'),[]);
+ }
+});

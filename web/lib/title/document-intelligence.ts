@@ -61,7 +61,7 @@ label("formationDate", ["Date of formation", "Formation date", "Date filed", "Fi
 label("formationState", ["State of formation", "State of organization", "State of incorporation"]);
 label("registeredAgent", ["Registered agent", "Name of registered agent"]);
 label("companyAddress", ["Company mailing address", "Principal office address", "Principal business address"]);
-label("companyContact", ["Company contact", "Primary contact", "Application contact"]);
+label("companyContact", ["Company contact", "Primary contact", "Application contact", "Contact name"]);
 label("companyEmail", ["Company email", "Primary contact email", "Contact email"]);
 label("memberOwnership", ["Member ownership", "Member and ownership interest"]);
 label("propertyAddress", ["Property address", "Street address of property", "Premises address"]);

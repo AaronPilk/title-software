@@ -510,12 +510,14 @@ export function DocumentPreview({
   partner = false,
   publicationId,
   partnerMember = "",
+  initialPage = 1,
 }: {
   doc: VaultDoc;
   onClose: () => void;
   partner?: boolean;
   publicationId?: string;
   partnerMember?: string;
+  initialPage?: number;
 }) {
   const { s, update, connection } = useWorkspace();
   const connected = !!connection;
@@ -620,7 +622,7 @@ export function DocumentPreview({
           <Empty title="File unavailable" text={error} />
         ) : text ? (
           <pre className="text-preview">{text}</pre>
-        ) : current?.pdf ? <PdfPreview file={current.pdf} name={doc.name} /> : url ? (
+        ) : current?.pdf ? <PdfPreview file={current.pdf} name={doc.name} initialPage={initialPage} /> : url ? (
           doc.mime?.startsWith("image/") ? (
             // Private browser blob URLs must not be sent through an image optimizer.
             // eslint-disable-next-line @next/next/no-img-element

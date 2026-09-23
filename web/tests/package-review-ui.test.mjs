@@ -17,7 +17,7 @@ before(async () => {
   const bundle = await build({ absWorkingDir: web, write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent", define: { "process.env.NODE_ENV": '"production"' },
     stdin: { resolveDir: web, loader: "tsx", contents: `
       import React from 'react';import {createRoot} from 'react-dom/client';import {PackageReviewButton} from './components/title/package-review';import {useWorkspace} from '@/lib/title/store';
-      function App(){const {s}=useWorkspace();return <><PackageReviewButton documents={s.documents} onOpenOriginal={doc=>window.openedOriginals.push(doc.id)} captureFields={Object.fromEntries(s.documents.map(d=>[d.id,['name','loanAmount']]))} onCapture={(doc,values)=>window.captured.push({documentId:doc.id,values})}/><div id="ready"/></>;}
+      function App(){const {s}=useWorkspace();return <><PackageReviewButton documents={s.documents} onOpenOriginal={(doc,physicalPage)=>window.openedOriginals.push({id:doc.id,physicalPage})} captureFields={Object.fromEntries(s.documents.map(d=>[d.id,['name','loanAmount']]))} onCapture={(doc,values)=>window.captured.push({documentId:doc.id,values})}/><div id="ready"/></>;}
       createRoot(document.getElementById('root')).render(<App/>);
     ` },
     plugins: [{ name: "fictional-package-service", setup(builder) {
@@ -87,7 +87,7 @@ async function acceptAmount(value = "$250,000.00") { const article = amount(); a
 test("real package read saves bytes-bound page receipts and correct field citations without browser storage", async () => {
   await open(); await review(); await scan(); assert.equal(Object.keys(persisted.pages).length, 2); assert.equal(persisted.checkpoint.status, "complete");
   assert.match(await amount().innerText(), /security.txt · version 1 · page 1 · source text/); assert.match(await amount().innerText(), /Loan amount: \$250,000.00/);
-  await amount().getByRole("button", { name: "Compare page 1 with original" }).click(); assert.deepEqual(await page.evaluate(() => window.openedOriginals), ["security"]);
+  await amount().getByRole("button", { name: "Compare page 1 with original" }).click(); assert.deepEqual(await page.evaluate(() => window.openedOriginals), [{id:"security",physicalPage:1}]);
   assert.deepEqual(await page.evaluate(() => ({ local: Object.keys(localStorage), session: Object.keys(sessionStorage) })), { local: [], session: [] });
   assert.deepEqual(await page.evaluate(() => window.captured), []);
 });

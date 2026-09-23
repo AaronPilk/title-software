@@ -51,6 +51,7 @@ export function FinalSources({ order }: { order: Order }) {
   const { s, update, connection } = useWorkspace();
   const [upload, setUpload] = useState(false);
   const [preview, setPreview] = useState("");
+  const [previewTarget, setPreviewTarget] = useState<{ identity: string; page: number } | null>(null);
   const [capture, setCapture] = useState("");
   const [packageCapture, setPackageCapture] = useState<{ identity: string; values: PackageCaptureValue[] } | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
@@ -106,7 +107,7 @@ export function FinalSources({ order }: { order: Order }) {
         <div className="source-document" key={d.id}>
           <button
             className="source-document-title"
-            onClick={() => setPreview(d.id)}
+            onClick={() => { setPreviewTarget(null); setPreview(d.id); }}
           >
             <FileText size={22} />
             <span>
@@ -169,7 +170,7 @@ export function FinalSources({ order }: { order: Order }) {
       <div className="source-actions">
         <PackageReviewButton
           documents={docs}
-          onOpenOriginal={source => setPreview(source.id)}
+          onOpenOriginal={(source, page) => { setPreviewTarget(page ? { identity: documentScanIdentity(source, connection), page } : null); setPreview(source.id); }}
           captureFields={Object.fromEntries(docs.map(source => [source.id, neededFields(order).filter(field => field.role === source.sourceRole).map(field => field.id)]))}
           onCapture={productionLocked(s, order) ? undefined : (source, values) => { setPackageCapture({ identity: documentScanIdentity(source, connection), values }); setCapture(source.id); }}
         />
@@ -200,7 +201,7 @@ export function FinalSources({ order }: { order: Order }) {
           onClose={() => setUpload(false)}
         />
       )}
-      {doc && <DocumentPreview doc={doc} onClose={() => setPreview("")} />}
+      {doc && <DocumentPreview key={documentScanIdentity(doc, connection)} doc={doc} initialPage={previewTarget?.identity === documentScanIdentity(doc, connection) ? previewTarget.page : 1} onClose={() => { setPreview(""); setPreviewTarget(null); }} />}
       {captureDoc && (
         <CaptureFields
           key={documentScanIdentity(captureDoc, connection)}

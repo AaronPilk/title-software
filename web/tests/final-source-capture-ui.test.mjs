@@ -31,9 +31,9 @@ before(async()=>{
       b.onLoad({filter:/.*/,namespace:"worker"},()=>({contents:'export default "/unused-worker.mjs";'}));
       b.onResolve({filter:/^\.\/documents$/},()=>({path:"documents",namespace:"child"}));
       b.onResolve({filter:/^\.\/followups$/},()=>({path:"followups",namespace:"child"}));
-      b.onLoad({filter:/.*/,namespace:"child"},()=>({contents:"export const UploadDocument=()=>null,DocumentPreview=()=>null,AttorneyFollowups=()=>null;"}));
+      b.onLoad({filter:/.*/,namespace:"child"},()=>({loader:'tsx',resolveDir:root,contents:"import React from 'react';export const UploadDocument=()=>null,AttorneyFollowups=()=>null;export const DocumentPreview=({initialPage=1,onClose})=><div><output aria-label='Fixture preview physical page'>{initialPage}</output><button onClick={onClose}>Close fixture original</button></div>;"}));
       b.onResolve({filter:/^\.\/package-review$/},()=>({path:"package",namespace:"package-fixture"}));
-      b.onLoad({filter:/.*/,namespace:"package-fixture"},()=>({loader:'tsx',resolveDir:root,contents:"import React from 'react';export function PackageReviewButton({documents,onCapture,captureFields}){return <button onClick={()=>{const d=documents.find(d=>d.id==='B');onCapture(d,captureFields[d.id].map(id=>({id,value:'Package '+id,evidence:{page:'Text page 1',method:'source-text',quote:'Exact source Package '+id,suggestedValue:'Package '+id}})));}}>Fixture reviewed package capture</button>}"}));
+      b.onLoad({filter:/.*/,namespace:"package-fixture"},()=>({loader:'tsx',resolveDir:root,contents:"import React from 'react';export function PackageReviewButton({documents,onCapture,captureFields,onOpenOriginal}){return <><button onClick={()=>{const d=documents.find(d=>d.id==='B');onCapture(d,captureFields[d.id].map(id=>({id,value:'Package '+id,evidence:{page:'Text page 1',method:'source-text',quote:'Exact source Package '+id,suggestedValue:'Package '+id}})));}}>Fixture reviewed package capture</button><button onClick={()=>onOpenOriginal(documents.find(d=>d.id==='B'),30)}>Fixture compare physical page 30</button></>}"}));
     }}]});
   server=createServer((req,res)=>{res.setHeader("content-type",req.url==="/app.mjs"?"text/javascript":"text/html");res.end(req.url==="/app.mjs"?result.outputFiles[0].text:'<!doctype html><div id="root"></div><script type="module" src="/app.mjs"></script>')});
   await new Promise(r=>server.listen(0,"127.0.0.1",r));origin="http://127.0.0.1:"+server.address().port;
@@ -74,4 +74,11 @@ for(const kind of ['version','asset','visibility','access'])test(`package-prefil
   await page.evaluate(kind=>window.changeCapturedSource(kind),kind);
   for(const f of await page.evaluate(()=>window.captureDefs))assert.equal(await page.locator(`input[name="${f.id}"]`).inputValue(),'');
   assert.equal(await page.getByLabel('Page or section reference',{exact:true}).inputValue(),'');assert.deepEqual(await page.evaluate(()=>window.captureSaves),[]);
+});
+test('package page comparison opens the cited physical page; a normal open restarts at one',async()=>{
+  await open();await page.getByRole('button',{name:'Fixture compare physical page 30'}).click();assert.equal(await page.getByLabel('Fixture preview physical page').innerText(),'30');
+  await page.getByRole('button',{name:'Close fixture original'}).click();await row('B').getByRole('button',{name:'Fictional source B.txt'}).click();assert.equal(await page.getByLabel('Fixture preview physical page').innerText(),'1');
+});
+for(const kind of ['version','asset','visibility','access'])test(`a package preview target clears after source ${kind} changes`,async()=>{
+  await open();await page.getByRole('button',{name:'Fixture compare physical page 30'}).click();assert.equal(await page.getByLabel('Fixture preview physical page').innerText(),'30');await page.evaluate(kind=>window.changeCapturedSource(kind),kind);assert.equal(await page.getByLabel('Fixture preview physical page').innerText(),'1');
 });

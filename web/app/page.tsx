@@ -93,6 +93,7 @@ import { Assistant } from "@/components/title/assistant";
 import { DeveloperFeedback } from "@/components/title/developer-feedback";
 import { VendorOAuthReturn } from "@/components/title/vendor-oauth-return";
 import { activeWorkspace, hostedPilot } from "@/lib/backend/client";
+import { documentScanIdentity } from "@/components/title/use-document-scan";
 const navigation: { label: Page; icon: typeof LayoutGrid }[] = [
   { label: "Overview", icon: LayoutGrid },
   { label: "Assistant", icon: Sparkles },
@@ -140,6 +141,7 @@ function Workspace() {
   const [policyId, setPolicyId] = useState("T-2026-1048");
   const [companyId, setCompanyId] = useState("");
   const [docId, setDocId] = useState("");
+  const [docTarget, setDocTarget] = useState<{ identity: string; page: number } | null>(null);
   const [newOrder, setNewOrder] = useState(false);
   const [newCompany, setNewCompany] = useState(false);
   const [uploadCompany, setUploadCompany] = useState<string | null>(null);
@@ -168,6 +170,7 @@ function Workspace() {
     setOrderId("");
     setCompanyId("");
     setDocId("");
+    setDocTarget(null);
     window.scrollTo({ top: 0, behavior: "instant" });
   }
   function switchView(next: WorkspaceView) {
@@ -178,6 +181,7 @@ function Workspace() {
     setOrderId("");
     setCompanyId("");
     setDocId("");
+    setDocTarget(null);
     window.scrollTo({ top: 0, behavior: "instant" });
   }
   const navRef = useRef(navigate);
@@ -283,7 +287,10 @@ function Workspace() {
     setUploadOpen(true);
   }
   const doc = s.documents.find((d) => d.id === docId);
-  const openDoc = (d: VaultDoc) => setDocId(d.id);
+  const openDoc = (d: VaultDoc, physicalPage?: number) => {
+    setDocTarget(physicalPage ? { identity: documentScanIdentity(d, connection), page: physicalPage } : null);
+    setDocId(d.id);
+  };
   const initials = connection
     ? connection.access.email.split("@")[0].split(/[. _-]+/).map(part => part[0]).slice(0,2).join("").toUpperCase()
     : s.user === "Stephenie" ? "ST" : s.user === "Tyler" ? "TY" : "JO";
@@ -612,7 +619,7 @@ function Workspace() {
                     value={`${d.name} ${d.companyId} ${d.id}`}
                     onSelect={() => {
                       navigate("Documents");
-                      setDocId(d.id);
+                      openDoc(d);
                     }}
                   >
                     <FileTextIcon />
@@ -675,10 +682,11 @@ function Workspace() {
       )}{" "}
       {doc && (
         <DocumentPreview
-          key={doc.id}
+          key={documentScanIdentity(doc, connection)}
           doc={doc}
+          initialPage={docTarget?.identity === documentScanIdentity(doc, connection) ? docTarget.page : 1}
           partner={page === "Partner portal"}
-          onClose={() => setDocId("")}
+          onClose={() => { setDocId(""); setDocTarget(null); }}
         />
       )}{" "}
       {uploadOpen && (

@@ -36,10 +36,10 @@ before(async () => {
     stdin: { resolveDir: web, loader: "tsx", contents: `
       import React,{useState} from 'react'; import {createRoot} from 'react-dom/client';
       import {PdfPreview} from './components/title/pdf-preview';
-      const files=await Promise.all(['/two-pages.pdf','/one-page.pdf'].map(async path=>new Blob([await(await fetch(path)).arrayBuffer()],{type:'application/pdf'})));
-      function Fixture(){const [open,setOpen]=useState(true),[selected,setSelected]=useState(0);return <main>
-        <h1>Fictional PDF preview</h1><button onClick={()=>setOpen(v=>!v)}>{open?'Close preview':'Open preview'}</button><button onClick={()=>setSelected(v=>1-v)}>Change fictional document</button>
-        {open?<PdfPreview file={files[selected]} name={selected?'Replacement fixture.pdf':'Fictional fixture.pdf'}/>:<p>Preview closed</p>}
+      const files=await Promise.all(['/two-pages.pdf','/one-page.pdf','/long-package.pdf'].map(async path=>new Blob([await(await fetch(path)).arrayBuffer()],{type:'application/pdf'})));
+      function Fixture(){const query=new URLSearchParams(location.search);const [open,setOpen]=useState(true),[selected,setSelected]=useState(query.has('long')?2:0),[requested,setRequested]=useState(query.has('page')?Number(query.get('page')):undefined);window.selectCitedPage=page=>setRequested(page);return <main>
+        <h1>Fictional PDF preview</h1><button onClick={()=>setOpen(v=>!v)}>{open?'Close preview':'Open preview'}</button><button onClick={()=>{setSelected(v=>v===0?1:0);setRequested(undefined)}}>Change fictional document</button>
+        {open?<PdfPreview file={files[selected]} name={selected===2?'Long fixture.pdf':selected?'Replacement fixture.pdf':'Fictional fixture.pdf'} initialPage={requested}/>:<p>Preview closed</p>}
       </main>}; createRoot(document.getElementById('root')).render(<Fixture/>);
     ` },
     plugins: [{ name: "local-pdf-worker", setup(builder) {
@@ -55,7 +55,7 @@ before(async () => {
     for (const [name,value] of policies) res.setHeader(name,value);
     const pathname = new URL(req.url, "http://localhost").pathname;
     if (pathname === "/app.mjs" || pathname === "/pdf.worker.mjs") { res.writeHead(200, { "content-type": "text/javascript", "cache-control": "no-store" }); res.end(pathname === "/app.mjs" ? source : worker); }
-    else if (pathname.endsWith(".pdf")) { res.writeHead(200, { "content-type": "application/pdf" }); res.end(pdfFixture(pathname === "/two-pages.pdf" ? ["Page one: company records", "Page two: review checklist"] : ["Replacement document: one page"])); }
+    else if (pathname.endsWith(".pdf")) { res.writeHead(200, { "content-type": "application/pdf" }); res.end(pdfFixture(pathname === "/long-package.pdf" ? Array.from({length:1000},(_,i)=>`Physical page ${i+1}: fictional title package`) : pathname === "/two-pages.pdf" ? ["Page one: company records", "Page two: review checklist"] : ["Replacement document: one page"])); }
     else {
       res.writeHead(200, { "content-type": "text/html" });
       res.end('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fictional PDF preview</title><style>*{box-sizing:border-box}body{margin:24px;font-family:Arial;color:#233549}main{max-width:780px;margin:auto}button{font:inherit;margin:4px;padding:9px 14px;border:1px solid #b7c7d8;border-radius:7px;background:#fff;cursor:pointer}button:disabled{opacity:.45;cursor:default}button svg{vertical-align:middle;width:16px;height:16px}h1{font-size:24px}button:focus-visible{outline:3px solid #1f5896}</style></head><body><div id="root"></div><script type="module" src="/app.mjs"></script></body></html>');
@@ -70,7 +70,7 @@ before(async () => {
 afterEach(async () => { await context?.close(); assert.deepEqual(errors, []); });
 after(async () => { await browser?.close(); if (server) { server.closeAllConnections(); await new Promise((done) => server.close(done)); } });
 
-async function open({ delayWorker = false, width = 1000 } = {}) {
+async function open({ delayWorker = false, width = 1000, initialPage, long = false } = {}) {
   context = await browser.newContext({ viewport: { width, height: 1100 } });
   await context.addInitScript(() => {
     const NativeWorker = window.Worker;
@@ -91,7 +91,7 @@ async function open({ delayWorker = false, width = 1000 } = {}) {
   });
   page = await context.newPage(); page.setDefaultTimeout(10000);
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(origin);
+  await page.goto(`${origin}/?${new URLSearchParams({...(initialPage!==undefined?{page:String(initialPage)}:{}),...(long?{long:'1'}:{})})}`);
   await page.getByRole("heading", { name: "Fictional PDF preview" }).waitFor();
 }
 
@@ -162,4 +162,25 @@ test("normal page preview and navigation fit a phone-sized viewport", async () =
   await open({ width: 390 }); await waitForPage(1);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await page.getByRole("button", { name: "Next PDF page" }).click(); await waitForPage(2);
+});
+
+test("a cited physical page opens directly and a 1,000-page original supports bounded keyboard page jumps", async () => {
+  await open({long:true,initialPage:30});await waitForPage(30,'Long fixture.pdf',1000);
+  const input=page.getByRole('spinbutton',{name:'PDF page number'}),go=page.getByRole('button',{name:'Go',exact:true});
+  assert.equal(await input.inputValue(),'30');await input.fill('750');await input.press('Enter');await waitForPage(750,'Long fixture.pdf',1000);
+  for(const invalid of ['0','1001','1.5','-1']){await input.fill(invalid);assert.equal(await go.isDisabled(),true);assert.equal(await input.getAttribute('aria-invalid'),'true');}
+  await input.fill('1000');await go.click();await waitForPage(1000,'Long fixture.pdf',1000);assert.equal(await page.getByRole('button',{name:'Next PDF page'}).isDisabled(),true);
+  await page.getByRole('button',{name:'Previous PDF page'}).click();await waitForPage(999,'Long fixture.pdf',1000);
+  assert.equal(await page.evaluate(()=>window.previewUrls.size),1);assert.equal(await page.locator('iframe,object,embed').count(),0);
+});
+
+test("a new citation changes the target on the same original and ordinary document replacement starts at one", async () => {
+  await open({long:true,initialPage:30});const old=await(await waitForPage(30,'Long fixture.pdf',1000)).getAttribute('src');
+  await page.evaluate(()=>window.selectCitedPage(750));await waitForPage(750,'Long fixture.pdf',1000);assert.equal(await page.evaluate(url=>window.previewUrls.has(url),old),false);
+  await page.getByRole('button',{name:'Change fictional document'}).click();await waitForPage(1);assert.equal(await page.getByRole('spinbutton',{name:'PDF page number'}).inputValue(),'1');
+});
+
+test("invalid initial page requests use page one; valid but unavailable pages show a recoverable error", async () => {
+  await open({initialPage:1001});await waitForPage(1);await page.evaluate(()=>window.selectCitedPage(3));await page.getByRole('alert').waitFor();assert.match(await page.getByRole('alert').innerText(),/physical page is unavailable/);
+  await page.getByRole('spinbutton',{name:'PDF page number'}).fill('2');await page.getByRole('button',{name:'Go',exact:true}).click();await waitForPage(2);
 });
