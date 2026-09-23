@@ -32,6 +32,7 @@ before(async () => {
         };
         window.captureFixture=()=>structuredClone(snapshot.s);
         window.mutateCaptureFixture=(kind)=>{const next=structuredClone(snapshot.s);change(next,kind);snapshot={...snapshot,s:next};emit()};
+        window.changeCaptureScope=(kind)=>{const next=structuredClone(snapshot);if(kind==='access-version')next.connection.access.version++;else if(kind==='visibility')next.s.documents[0].visibility='Restricted';snapshot=next;emit()};
         window.switchCaptureWorkspace=()=>{const next=structuredClone(snapshot.s);next.user='Second workspace staff';next.orders[0].client='Other workspace insured';next.orders[0].production.loanAmount=222222;next.orders[0].fields=[];snapshot={s:next,error:'',connection:{...snapshot.connection,workspaceId:'workspace-b'}};emit()};
         window.configureCaptureFixture({kind:'source-text',pages:[],totalPages:1,unreadPages:[],notes:[]});
         export function useWorkspace(){const value=useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>snapshot);return {...value,update:async(fn,title)=>{
@@ -44,8 +45,9 @@ before(async () => {
       build.onLoad({ filter: /^reader$/, namespace: "fixture" }, () => ({ loader: "js", contents: `
         export async function readFieldSource(doc,blob,options){
           const config=structuredClone(window.captureReadConfig),result={pages:config.pages,totalPages:config.totalPages||config.pages.length,unreadPages:config.unreadPages||[],notes:config.notes||[]};
-          const call={documentId:doc.id,version:doc.version,hasBlob:!!blob,blobType:blob?.type,scanPages:options.scanPages,rotation:options.rotation,signal:options.signal};window.readCalls.push(call);
+          const call={priorPages:options.priorResult?.pages.map(p=>p.page)||[],sourceIdentity:options.sourceIdentity,documentId:doc.id,version:doc.version,hasBlob:!!blob,blobType:blob?.type,scanPages:options.scanPages,rotation:options.rotation,signal:options.signal};window.readCalls.push(call);
           options.onProgress?.('Reading fictional source pages…');
+          for(const snapshot of config.snapshots||[])options.onSnapshot?.(snapshot);
           if(config.pending)await new Promise(resolve=>window.pendingReads.push(resolve));
           // Deliberately resolve even after abort to verify the UI discards late transport results.
           window.readSettled++;options.onProgress?.('Fictional source complete');return result;
@@ -241,4 +243,60 @@ test("same-ID workspace switch discards an in-flight read from the former worksp
   assert.equal(await input("name").inputValue(), ""); assert.equal(await acknowledgement().count(), 0);
   assert.equal(await page.evaluate(() => window.readCalls[0].signal.aborted), true);
   assert.equal((await snapshot()).orders[0].fields.length, 0); assert.deepEqual(await page.evaluate(() => window.captureSaves), []);
+});
+
+test("resume clears capture review and blocks applying partial candidates until late-page ambiguity is known", async () => {
+  await open({kind:'pdf',pages:[source(deedText,1,'pdf-text')],totalPages:30,unreadPages:Array.from({length:29},(_,i)=>i+2)});
+  await analyze();await bulkFill();await acknowledgement().check();
+  await page.evaluate(()=>{window.captureReadConfig={...window.captureReadConfig,pending:true,pages:[...window.captureReadConfig.pages,{page:30,text:'Grantee: Other Later Grantee',method:'pdf-text'}],unreadPages:[],snapshots:[{pages:window.captureReadConfig.pages,totalPages:30,unreadPages:[30],notes:[],issues:[],status:'reading'}]};});
+  await page.getByRole('button',{name:'Resume / retry unread pages',exact:true}).click();
+  await page.waitForFunction(()=>window.pendingReads.length===1);
+  assert.equal(await acknowledgement().isChecked(),false);assert.equal(await acknowledgement().isDisabled(),true);assert.equal(await saveButton().isDisabled(),true);
+  assert.equal(await page.getByRole('button',{name:'Fill unambiguous suggestions for review',exact:true}).count(),0);
+  assert.deepEqual(await page.evaluate(()=>window.readCalls[1].priorPages),[1]);
+  await page.evaluate(()=>window.pendingReads.shift()());
+  await page.getByRole('button',{name:'Fill unambiguous suggestions for review',exact:true}).waitFor();
+  assert.equal(await acknowledgement().isChecked(),false);assert.equal(await saveButton().isDisabled(),true);
+  await page.getByText('More review is needed. Choose only after comparing the source.',{exact:true}).waitFor();
+  assert.equal(await input('name').inputValue(),deedValues.name,'scan does not silently rewrite already captured input');
+  assert.deepEqual(await page.evaluate(()=>window.assetReads),['fictional-asset']);
+});
+
+test("scan orientation control cannot rewrite the provenance of previously read pages",async()=>{
+  await open({kind:'pdf',pages:[{...source(deedText,3,'ocr',94),rotation:90}],totalPages:3,unreadPages:[1,2]});await analyze();
+  await page.getByRole('combobox',{name:'Field suggestion scan orientation'}).selectOption('180');await bulkFill();
+  assert.equal(await input('page').inputValue(),'PDF page 3 · OCR 90°');
+});
+
+test("source extraction limits show an actionable error instead of crashing the capture dialog",async()=>{
+  await open({kind:'pdf',pages:[source('Unexpected line\n'.repeat(12001),1,'pdf-text')]});
+  await page.getByRole('button',{name:'Find field suggestions',exact:true}).click();
+  await page.getByRole('alert').filter({hasText:'capture values manually from the original'}).waitFor();
+  assert.equal(await page.getByRole('dialog').count(),1);assert.equal(await input('name').inputValue(),'');
+  assert.deepEqual(await page.evaluate(()=>window.captureSaves),[]);
+});
+
+for (const change of ['access-version', 'visibility']) test(`mid-scan ${change} remounts the entire capture form and permits a fresh reviewed save`, async()=>{
+  await open({kind:'pdf',pages:[source(deedText,1,'pdf-text')],connected:true,pending:true});
+  await page.getByRole('button',{name:'Find field suggestions',exact:true}).click();
+  await page.waitForFunction(()=>window.pendingReads.length===1);
+  assert.equal(await saveButton().isDisabled(),true);
+  await page.evaluate(kind=>window.changeCaptureScope(kind),change);await finishLateRead();
+  assert.equal(await saveButton().isDisabled(),false,'new form does not retain the former scanner busy flag');
+  assert.equal(await input('name').inputValue(),'');assert.equal(await acknowledgement().count(),0);
+  await page.evaluate(()=>{window.captureReadConfig.pending=false;});await analyze();await bulkFill();
+  assert.equal(await acknowledgement().isChecked(),false);await acknowledgement().check();await saveButton().click();
+  await page.getByRole('dialog').waitFor({state:'detached'});
+  assert.deepEqual(await page.evaluate(()=>window.captureSaves),['Source values captured']);
+  assert.equal(await page.evaluate(()=>window.readCalls[0].signal.aborted),true);
+});
+
+test('cancelling before PDF indexing finishes never claims an empty document is completely read',async()=>{
+  await open({kind:'pdf',pages:[],totalPages:0,pending:true,snapshots:[{pages:[],totalPages:0,unreadPages:[],notes:[],issues:[],status:'reading'}]});
+  await page.getByRole('button',{name:'Find field suggestions',exact:true}).click();await page.waitForFunction(()=>window.pendingReads.length===1);
+  await page.getByText('Counting document pages…',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Cancel reading',exact:true}).click();await finishLateRead();
+  await page.getByText('The page count is incomplete. Resume reading to count and read the document.',{exact:true}).waitFor();
+  assert.equal(await page.getByText('All pages are ready for review.',{exact:false}).count(),0);
+  assert.equal(await page.getByRole('button',{name:'Resume / retry unread pages',exact:true}).isEnabled(),true);
 });

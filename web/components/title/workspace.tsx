@@ -72,7 +72,7 @@ export const integrations = [
       "In Documents, open an uploaded original and choose Read document text.",
       "For field suggestions, open a title file's final sources in Production, attach the deed or security instrument, and choose Capture fields → Find field suggestions.",
       "Check each proposed value, source quote and page against the original before saving. Unclear values need manual capture.",
-      "Scanned PDFs are read up to six pages per run. Select another page group when needed; unfamiliar layouts and handwriting may need manual entry.",
+      "Read the whole PDF, including scanned pages, with progress and page-by-page results. Pause and resume or retry unread pages while this review stays open. Up to 120 pages and 25 MB; unfamiliar layouts and handwriting may need manual entry.",
     ],
     note: "Staff need access to the file and its originals. Saving suggestions does not approve a policy or update SoftPro. Representative documents are still needed to measure accuracy; uploads do not automatically train a model.",
     url: null,

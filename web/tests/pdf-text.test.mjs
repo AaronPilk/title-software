@@ -24,12 +24,12 @@ function pdfFixture(texts) {
   return new Blob([source], { type: "application/pdf" });
 }
 const file = pdfFixture(["Synthetic title evidence"]);
-function fakeEngine({ pages = [[{ str: "Synthetic text", hasEOL: true }]], count = pages.length, error, stall = false, onDestroy, onOptions } = {}) {
+function fakeEngine({ pages = [[{ str: "Synthetic text", hasEOL: true }]], count = pages.length, error, stall = false, onDestroy, onOptions, pageErrors = {}, textErrors = {}, operators = {}, operatorError, onOperatorList, onPage, onCleanup } = {}) {
   const task = { destroyed: false, destroy: async () => { task.destroyed = true; onDestroy?.(); } };
-  return { task, getDocument(options) {
+  return { task, imagePaintOps: new Set([83, 84, 85, 86, 87, 88, 89, 90]), getDocument(options) {
     onOptions?.(options);
     task.promise = stall ? new Promise(() => {}) : error ? Promise.reject(error) : Promise.resolve({ numPages: count,
-      getPage: async number => ({ getTextContent: async () => ({ items: pages[number - 1] }), cleanup() {} }) });
+      getPage: async number => { onPage?.(number);if (pageErrors[number]) throw pageErrors[number];return { getTextContent: async () => { if (textErrors[number]) throw textErrors[number];return { items: pages[number - 1] }; }, getOperatorList: async () => { onOperatorList?.(number);if (operatorError) throw operatorError;return { fnArray: operators[number] || [] }; }, cleanup() { onCleanup?.(number); } }; } });
     return task;
   } };
 }
@@ -108,4 +108,42 @@ test("copied excerpts include a stable document/version and physical page refere
   assert.equal(citation, "Deed.pdf · version 3 · PDF page 7\nDocument: doc-original\n\nReviewed wording");
   assert.throws(() => pdfPageCitation({ id: "d", name: "D", version: 1 }, 0, "wording"));
   assert.throws(() => pdfPageCitation({ id: "d", name: "D", version: 1 }, 1, " "));
+});
+
+
+test("opt-in page recovery retains exact later page numbers and reports text-index failures", async () => {
+  const read = [], cleaned = [], progress = [], engine = fakeEngine({ pages: [[{ str: "First" }], [{ str: "Second" }], [{ str: "Third" }]],
+    pageErrors: { 1: Error("private getPage details") }, textErrors: { 2: Error("private text details") }, onPage: number => read.push(number), onCleanup: number => cleaned.push(number) });
+  const result = await extractPdfText(file, { engine, continueOnPageError: true, onProgress: (page, total) => progress.push([page, total]) });
+  assert.equal(result.status, "partial");assert.deepEqual(result.failedPages, [1, 2]);assert.deepEqual(result.pages.map(page => [page.page, page.text]), [[1, ""], [2, ""], [3, "Third"]]);
+  assert.deepEqual(read, [1, 2, 3]);assert.deepEqual(cleaned, [2, 3]);assert.deepEqual(progress, [[1, 3], [2, 3], [3, 3]]);assert.equal(engine.task.destroyed, true);assert.ok(!JSON.stringify(result).includes("private"));
+});
+test("ordinary PDF text reads retain fail-closed behavior on an individual page error", async () => {
+  const pages = [], engine = fakeEngine({ count: 3, textErrors: { 1: Error("private") }, onPage: number => pages.push(number) });
+  const result = await extractPdfText(file, { engine });assert.equal(result.reason, "unreadable");assert.deepEqual(result.pages, []);assert.deepEqual(pages, [1]);assert.equal(engine.task.destroyed, true);
+});
+test("opt-in page recovery does not bypass passwords, text limits, page limits or timeouts", async () => {
+  const password = fakeEngine({ textErrors: { 1: Object.assign(Error("private"), { name: "PasswordException" }) } });
+  assert.equal((await extractPdfText(file, { engine: password, continueOnPageError: true })).reason, "password");
+  const huge = fakeEngine({ pages: [[{ str: "x".repeat(PDF_TEXT_LIMITS.pageCharacters + 1) }]] });
+  const result = await extractPdfText(file, { engine: huge, continueOnPageError: true });assert.equal(result.reason, "text_limit");assert.deepEqual(result.pages, []);
+  assert.equal((await extractPdfText(file, { engine: fakeEngine({ count: 121 }), continueOnPageError: true })).reason, "page_limit");
+  assert.equal((await extractPdfText(file, { engine: fakeEngine({ stall: true }), timeoutMs: 1, continueOnPageError: true })).reason, "timeout");
+});
+
+test("full-reader raster inspection marks every image-paint kind without treating pure text as complete image content", async () => {
+  for (const operation of [83, 84, 85, 86, 87, 88, 89, 90]) {
+    const engine = fakeEngine({ pages: [[{ str: "Page 1" }], [{ str: "Pure text" }]], operators: { 1: [operation], 2: [31, 44] } });
+    const result = await extractPdfText(file, { engine, detectRasterContent: true, continueOnPageError: true });
+    assert.equal(result.status, "partial");assert.equal(result.pages[0].requiresOcr, true);assert.equal(result.pages[0].text, "Page 1");assert.equal(result.pages[1].requiresOcr, undefined);
+  }
+});
+test("ordinary selectable-text reads do not inspect image operators", async () => {
+  const engine = fakeEngine({ onOperatorList: () => assert.fail("unexpected image inspection"), operators: { 1: [85] } });
+  const result = await extractPdfText(file, { engine });assert.equal(result.status, "ready");assert.equal(result.pages[0].requiresOcr, undefined);
+});
+test("image-inspection errors become unread page placeholders instead of trusting selectable footers", async () => {
+  const engine = fakeEngine({ operatorError: Error("private image operator detail") });
+  const result = await extractPdfText(file, { engine, detectRasterContent: true, continueOnPageError: true });
+  assert.deepEqual(result.failedPages, [1]);assert.deepEqual(result.pages, [{ page: 1, text: "", status: "empty" }]);assert.equal(result.status, "needs_review");assert.ok(!JSON.stringify(result).includes("private"));
 });

@@ -1,14 +1,14 @@
-import type { PDFDocumentLoadingTask } from "pdfjs-dist";
+import type { PDFDocumentLoadingTask, PDFPageProxy } from "pdfjs-dist";
 
 export const PDF_TEXT_LIMITS = { bytes: 26_214_400, pages: 120, characters: 500_000, pageCharacters: 50_000, milliseconds: 20_000 } as const;
-export type PdfTextPage = { page: number; text: string; status: "text" | "empty" };
+export type PdfTextPage = { page: number; text: string; status: "text" | "empty"; requiresOcr?: boolean };
 export type PdfTextReview = {
   status: "ready" | "partial" | "needs_review";
   reason?: "empty" | "password" | "unreadable" | "too_large" | "page_limit" | "text_limit" | "timeout" | "cancelled";
-  pages: PdfTextPage[]; totalPages: number; message: string;
+  pages: PdfTextPage[]; totalPages: number; message: string; failedPages?: number[];
 };
-type Engine = { getDocument: (options: Record<string, unknown>) => PDFDocumentLoadingTask };
-type Options = { signal?: AbortSignal; onProgress?: (completed: number, total: number) => void; engine?: Engine; timeoutMs?: number };
+type Engine = { getDocument: (options: Record<string, unknown>) => PDFDocumentLoadingTask; imagePaintOps?: ReadonlySet<number> };
+type Options = { signal?: AbortSignal; onProgress?: (completed: number, total: number) => void; engine?: Engine; timeoutMs?: number; continueOnPageError?: boolean; detectRasterContent?: boolean };
 class ReviewStop extends Error {
   constructor(public readonly reason: NonNullable<PdfTextReview["reason"]>, message: string) { super(message); }
 }
@@ -23,7 +23,11 @@ async function engine(): Promise<Engine> {
     const worker = await import("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url");
     pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
   }
-  return { getDocument: options => pdfjs.getDocument(options) };
+  return { getDocument: options => pdfjs.getDocument(options), imagePaintOps: new Set([
+    pdfjs.OPS.paintImageMaskXObject, pdfjs.OPS.paintImageMaskXObjectGroup, pdfjs.OPS.paintImageXObject,
+    pdfjs.OPS.paintInlineImageXObject, pdfjs.OPS.paintInlineImageXObjectGroup, pdfjs.OPS.paintImageXObjectRepeat,
+    pdfjs.OPS.paintImageMaskXObjectRepeat, pdfjs.OPS.paintSolidColorImageMask,
+  ]) };
 }
 /** Read selectable text only. Page numbers always refer to physical PDF pages (starting at one). */
 export async function extractPdfText(file: Blob, options: Options = {}): Promise<PdfTextReview> {
@@ -57,11 +61,12 @@ export async function extractPdfText(file: Blob, options: Options = {}): Promise
       totalPages = pdf.numPages;
       if (!Number.isSafeInteger(totalPages) || totalPages < 1 || totalPages > PDF_TEXT_LIMITS.pages)
         throw new ReviewStop("page_limit", "Local text review supports up to 120 pages. Split a copy into a smaller document or review the original.");
-      const pages: PdfTextPage[] = []; let characters = 0;
+      const pages: PdfTextPage[] = [], failedPages: number[] = []; let characters = 0;
       for (let pageNumber = 1; pageNumber <= totalPages; pageNumber++) {
         if (stopped || options.signal?.aborted) throw new ReviewStop("cancelled", "Document text review was cancelled.");
-        const page = await pdf.getPage(pageNumber);
+        let page: PDFPageProxy | undefined;
         try {
+          page = await pdf.getPage(pageNumber);
           const content = await page.getTextContent({ includeMarkedContent: false, disableNormalization: false });
           let text = "";
           for (const item of content.items) {
@@ -72,15 +77,36 @@ export async function extractPdfText(file: Blob, options: Options = {}): Promise
               throw new ReviewStop("text_limit", "This PDF contains more text than local review can safely display. Review a smaller document or the original.");
           }
           text = text.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+          let requiresOcr = false;
+          if (text && options.detectRasterContent) {
+            // A selectable footer or incomplete text layer cannot stand in for
+            // a scanned body. Check actual paint operations (not merely image
+            // resources, which may be unused). Logos also conservatively trigger
+            // full-page OCR. All operator/image data stays in this local parser.
+            if (!pdfjs.imagePaintOps?.size) throw new Error("Image-content inspection unavailable.");
+            const operators = await page.getOperatorList();
+            requiresOcr = operators.fnArray.some(operation => pdfjs.imagePaintOps!.has(operation));
+          }
           characters += text.length;
-          pages.push({ page: pageNumber, text, status: text ? "text" : "empty" });
-          options.onProgress?.(pageNumber, totalPages);
-        } finally { page.cleanup(); }
+          pages.push({ page: pageNumber, text, status: text ? "text" : "empty", ...(requiresOcr ? { requiresOcr } : {}) });
+        } catch (error) {
+          if (stopped || options.signal?.aborted) throw new ReviewStop("cancelled", "Document text review was cancelled.");
+          const password = error && typeof error === "object" && "name" in error && error.name === "PasswordException";
+          // Full-document OCR can recover an individual page whose text layer is
+          // damaged. Global limits/password/cancellation still stop the document.
+          if (!options.continueOnPageError || error instanceof ReviewStop || password) throw error;
+          pages.push({ page: pageNumber, text: "", status: "empty" }); failedPages.push(pageNumber);
+        } finally { page?.cleanup(); }
+        options.onProgress?.(pageNumber, totalPages);
       }
       const empty = pages.filter(p => p.status === "empty").length;
-      if (empty === totalPages) return { status: "needs_review", reason: "empty", pages, totalPages,
+      const failures = failedPages.length ? { failedPages } : {};
+      if (empty === totalPages) return { status: "needs_review", reason: "empty", pages, totalPages, ...failures,
         message: "No selectable text was found. This PDF may be scanned; review the original or use OCR before capturing evidence." };
-      return { status: empty ? "partial" : "ready", pages, totalPages,
+      const hybrid = pages.filter(page => page.requiresOcr).length;
+      if (hybrid) return { status: "partial", pages, totalPages, ...failures,
+        message: `${hybrid} page(s) combine selectable text and images and require full-page OCR. Review all results against the original.` };
+      return { status: empty ? "partial" : "ready", pages, totalPages, ...failures,
         message: empty ? `${empty} page${empty === 1 ? " has" : "s have"} no selectable text. Review those pages in the original or use OCR.` : "Selectable text is ready for page-by-page review." };
     };
     return await Promise.race([read(), interrupted]);

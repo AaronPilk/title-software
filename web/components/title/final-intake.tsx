@@ -40,6 +40,7 @@ import {
 } from "@/lib/title/production";
 import { FieldLabel, Picker, Empty } from "./shared";
 import { SourceFieldAssistant } from "./source-field-assistant";
+import { documentScanIdentity } from "./use-document-scan";
 import { UploadDocument, DocumentPreview } from "./documents";
 import { AttorneyFollowups } from "./followups";
 import { createFollowup } from "@/lib/title/followups";
@@ -194,7 +195,7 @@ export function FinalSources({ order }: { order: Order }) {
       {doc && <DocumentPreview doc={doc} onClose={() => setPreview("")} />}
       {captureDoc && (
         <CaptureFields
-          key={`${connection?.workspaceId || "local"}:${connection?.access.userId || "local"}:${captureDoc.id}:${captureDoc.version}:${captureDoc.assetId || ""}:${captureDoc.sourceRole}`}
+          key={documentScanIdentity(captureDoc, connection)}
           order={order}
           doc={captureDoc}
           onClose={() => setCapture("")}
@@ -389,11 +390,12 @@ function CaptureFields({
   const [pageReference, setPageReference] = useState("");
   const [evidence, setEvidence] = useState<SourceCaptureContext["fields"]>({});
   const [verified, setVerified] = useState(false), [preview, setPreview] = useState(false);
+  const [reading, setReading] = useState(false);
   const [orderVersion] = useState(() => titleFile(order).version);
   const assisted = Object.keys(evidence).length > 0;
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (assisted && !verified) return;
+    if (reading || (assisted && !verified)) return;
     const capture: SourceCaptureContext = {
       documentVersion: doc.version, assetId: doc.assetId || "", sourceRole: doc.sourceRole!, orderVersion,
       fields: Object.fromEntries(Object.entries(evidence).map(([id, value]) => [id, value.method === "source-text" ? { ...value, page: pageReference } : value])),
@@ -427,7 +429,7 @@ function CaptureFields({
         </DialogHeader>
         <form className="form-stack" onSubmit={submit}>
           <Button type="button" variant="outline" onClick={() => setPreview(true)}>Open original for comparison</Button>
-          <SourceFieldAssistant doc={doc} defs={defs} onFill={items => {
+          <SourceFieldAssistant doc={doc} defs={defs} onActivityChange={busy => { setReading(busy); setVerified(false); }} onFill={items => {
             setValues(prior => ({ ...prior, ...Object.fromEntries(items.map(item => [item.id, item.value])) }));
             setEvidence(prior => ({ ...prior, ...Object.fromEntries(items.map(item => [item.id, item.evidence])) }));
             setVerified(false);
@@ -461,8 +463,8 @@ function CaptureFields({
             Saving preserves these source values separately from proposed
             corrections and reopens the affected field reviews.
           </p>
-          {assisted && <label className="form-note" style={{ display: "flex", alignItems: "flex-start", gap: 8 }}><input type="checkbox" checked={verified} onChange={event => setVerified(event.target.checked)} />I compared every captured value with the original, including any unread pages.</label>}
-          <Button type="submit" disabled={assisted && !verified}>
+          {assisted && <label className="form-note" style={{ display: "flex", alignItems: "flex-start", gap: 8 }}><input type="checkbox" checked={verified} disabled={reading} onChange={event => setVerified(event.target.checked)} />I compared every captured value with the original, including any unread pages.</label>}
+          <Button type="submit" disabled={reading || (assisted && !verified)}>
             Save for field review
             <ArrowRight />
           </Button>

@@ -1,8 +1,11 @@
-.switcher { padding: 0 2px 2px; }
-.label { margin: 0 0 9px 3px; color: var(--brand-muted); font-size: 10px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; }
-.choices { display: flex; gap: 3px; padding: 4px; background: #dfe7ef; border: 1px solid #d0dce7; border-radius: 11px; }
-.choices button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 39px; padding: 8px 5px; border-radius: 8px; color: #516579; font-size: 12px; font-weight: 600; transition: background .15s, box-shadow .15s; }
-.choices button[aria-pressed="true"] { background: white; color: var(--brand-primary); box-shadow: 0 1px 4px #16334d14; }
-.choices button:hover { color: var(--brand-primary); background: #ffffff85; }
+.switcher { padding: 0 1px 2px; }
+.label { margin: 0 0 9px 3px; color: var(--brand-muted); font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
+.choices { display: flex; gap: 3px; padding: 4px; background: #dfe9f3; border: 1px solid #c9d8e7; border-radius: 16px; box-shadow: inset 0 1px 2px #17375b08, 0 1px 0 #fff; }
+.choices button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 41px; padding: 8px 4px; border: 1px solid transparent; border-radius: 12px; color: #425e76; font-size: 12px; font-weight: 600; transition: background-color .15s, box-shadow .15s; }
+.choices button:hover { color: var(--brand-primary); background: #f3f8fd; }
+.choices button[aria-pressed="true"] { background: linear-gradient(150deg, #fff, #f7faff); color: var(--brand-primary); border-color: #fff; box-shadow: 0 3px 7px #16334d1c, inset 0 1px 0 #fff; }
 .choices button:focus-visible { outline-offset: 2px; }
-.description { min-height: 29px; margin: 10px 3px 0; color: var(--brand-muted); font-size: 11px; line-height: 1.4; }
+.description { min-height: 29px; margin: 10px 3px 0; color: var(--brand-muted); font-size: 11px; line-height: 1.5; }
+@media (prefers-reduced-motion: reduce) { .choices button { transition: none; } }
+@media (prefers-contrast: more) { .choices { border-color: #7593af; } .choices button[aria-pressed="true"] { border-color: var(--brand-primary); } }
+@media (forced-colors: active) { .choices { border-color: ButtonText; background: Canvas; } .choices button[aria-pressed="true"] { background: Highlight; color: HighlightText; border: 2px solid Highlight; } }

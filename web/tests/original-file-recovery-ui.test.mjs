@@ -41,8 +41,8 @@ before(async () => {
         export async function backendRequest(path,data){if(data){window.remoteWrites.push({path,data});throw Error('Unexpected hosted write')}if(path==='/backups')return {backups:[]};throw Error('Unexpected endpoint')}
         export async function downloadRemoteAsset(id){window.remoteReads.push(id);if(window.holdOriginal)await new Promise(done=>window.releaseOriginal=done);if(!window.originalsAvailable||id!=='asset-A')throw Error('Fictional hosted file unavailable');return new Blob([new Uint8Array(${JSON.stringify([...png])})],{type:'image/png'})}
       ` }));
-      builder.onResolve({ filter: /^\.\/(missive-settings|team-access)$/ }, () => ({ path: "unused", namespace: "child" }));
-      builder.onLoad({ filter: /.*/, namespace: "child" }, () => ({ contents: "export const MissiveSettings=()=>null,TeamAccess=()=>null;" }));
+      builder.onResolve({ filter: /^\.\/(missive-settings|team-access|vendor-settings)$/ }, () => ({ path: "unused", namespace: "child" }));
+      builder.onLoad({ filter: /.*/, namespace: "child" }, () => ({ contents: "export const MissiveSettings=()=>null,TeamAccess=()=>null,VendorSettings=()=>null;" }));
     } }],
   });
   server = createServer((req, res) => {

@@ -1,13 +1,14 @@
 .setup {
   padding: 26px;
   margin-bottom: 24px;
-  border-top: 3px solid var(--brand-accent);
+  border: 1px solid #d2e0ed;
+  background: linear-gradient(130deg, #f1f7fd, #fff 75%);
 }
 .setup h2 { font-size: 24px; margin-bottom: 8px; }
 .setup > p { color: var(--muted-foreground); max-width: 65ch; }
 .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; margin-top: 24px; }
 .step { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
-.number { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--secondary); color: var(--brand-accent); font-weight: 600; }
+.number { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 11px; background: #e3edf7; color: var(--brand-accent); font-weight: 600; }
 .step h3 { font-size: 16px; margin: 0; }
 .step p { color: var(--muted-foreground); font-size: 13px; line-height: 1.6; flex: 1; margin: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
