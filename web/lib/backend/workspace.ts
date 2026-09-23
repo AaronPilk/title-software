@@ -639,7 +639,9 @@ function applyEdit(
             fail("Confirm that this company is already operating and explain the source.");
           // This records an existing business fact, not completion of a launch
           // review. Actor/time come from this authenticated command only.
-          v.operatingStatus = buildOperatingConfirmation(a.email, confirmation.note, timestamp);
+          workflowError(() => {
+            v.operatingStatus = buildOperatingConfirmation(a.email, confirmation.note as string, timestamp);
+          });
         }
       }
       if (has(v, "intake")) {

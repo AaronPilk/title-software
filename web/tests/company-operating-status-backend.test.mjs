@@ -58,8 +58,8 @@ test('confirmation cannot set launch stage, complete steps or add unreviewed evi
 });
 
 test('invalid or unbounded confirmation data is rejected', () => {
-  for (const value of [false, [], {}, { ...confirmation, status: 'Licensed' }, { ...confirmation, note: '' }, { ...confirmation, note: ' '.repeat(5) }, { ...confirmation, note: 'x'.repeat(1001) }, { ...confirmation, extra: true }]) {
-    assert.throws(() => apply(state(), value));
+  for (const value of [false, [], {}, { ...confirmation, status: 'Licensed' }, { ...confirmation, note: '' }, { ...confirmation, note: ' '.repeat(5) }, { ...confirmation, note: 'x'.repeat(1001) }, { ...confirmation, note: 'Bad\u0000note' }, { ...confirmation, extra: true }]) {
+    assert.throws(() => apply(state(), value), error => error.status === 400);
   }
 });
 
