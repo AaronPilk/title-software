@@ -61,83 +61,107 @@ import {
 } from "./shared";
 export const integrations = [
   {
+    name: "Document intelligence",
+    initials: "OCR",
+    color: "teal",
+    status: "Ready for review",
+    statusColor: "green",
+    action: "How to use document review",
+    description: "Read PDFs and scans, then review deed and security-instrument field suggestions against the original. Built in; no external AI account needed.",
+    requirements: [
+      "In Documents, open an uploaded original and choose Read document text.",
+      "For field suggestions, open a title file's final sources in Production, attach the deed or security instrument, and choose Capture fields → Find field suggestions.",
+      "Check each proposed value, source quote and page against the original before saving. Unclear values need manual capture.",
+      "Scanned PDFs are read up to six pages per run. Select another page group when needed; unfamiliar layouts and handwriting may need manual entry.",
+    ],
+    note: "Staff need access to the file and its originals. Saving suggestions does not approve a policy or update SoftPro. Representative documents are still needed to measure accuracy; uploads do not automatically train a model.",
+    url: null,
+  },
+  {
     name: "SoftPro",
     initials: "SP",
     color: "blue",
-    description: "Orders, document attachments, and policy preparation.",
+    status: "Vendor access needed",
+    statusColor: "amber",
+    action: "View next steps",
+    description: "Company mappings and reviewed handoffs are available. Direct SoftPro reads and writes still need vendor access and connector development.",
     requirements: [
       "SoftPro Select is confirmed; verify build, hosting arrangement, and administrator.",
       "Verify ProInterface API / SDK entitlement and supported operations.",
       "Map company, order, policy, and document identifiers.",
-      "Start with read-only sandbox access; writeback requires review.",
+      "Build and test the supported connection in a vendor sandbox before enabling reviewed writes.",
     ],
+    note: "Deferred until vendor access is available. Connections currently records manually verified setup, proposals and outcomes; it does not synchronize with SoftPro.",
     url: "https://www.softprocorp.com/real-estate-software-solutions/softpro-select/",
   },
   {
     name: "Missive",
     initials: "MI",
     color: "blue",
+    status: "Shared workspace only",
+    statusColor: "blue",
+    action: "View setup steps",
     description:
-      "Attorney requests, final attachments, and reviewed reply drafts.",
+      "Reviewed incoming email and attachment imports are built for the shared workspace. Sample mode does not connect to Missive.",
     requirements: [
       "Map authorized shared mailboxes to their company profiles.",
       "Keep the personal bearer token on the server and restrict account access.",
-      "Deduplicate conversation/message events and recheck reply threading.",
-      "Create drafts with attachments; omit send and send_at until separately enabled.",
+      "Check the connection, preview incoming messages and choose the correct title file before importing.",
+      "Review original attachments and the imported record before using them in a file.",
     ],
+    note: "The shared workspace shows the actual Missive connection status above. Outgoing drafts, sends and scheduled polling are not implemented.",
     url: "https://missiveapp.com/docs/developers/rest-api",
   },
   {
     name: "Docusign",
     initials: "D",
     color: "violet",
-    description: "Welcome letters, applications, and signature status.",
+    status: "Connector not built",
+    statusColor: "neutral",
+    action: "View next steps",
+    description: "Onboarding records and signed-document uploads are available. Sending signature requests and fetching completed documents from Docusign are not connected.",
     requirements: [
       "Use an approved application template without exposing sensitive fields.",
       "Confirm plan eligibility and production integration type.",
       "Configure OAuth, callbacks, and envelope status webhooks.",
       "Store references and approved completed documents in the vault.",
     ],
+    note: "The Docusign connector still needs implementation and testing. Recording a signature reference or uploading a document does not verify its status with Docusign.",
     url: "https://developers.docusign.com/docs/esign-rest-api/",
   },
   {
     name: "QuickBooks",
     initials: "qb",
     color: "green",
-    description: "Company accounting and month-end report imports.",
+    status: "Connector not built",
+    statusColor: "neutral",
+    action: "View next steps",
+    description: "Accounting CSV preview and column mapping are available. Automatic QuickBooks imports and synchronization are not connected.",
     requirements: [
       "Confirm John’s actual accounting software first.",
       "Map each authorized company to its QuickBooks realm.",
-      "Use an allowlist of read operations for initial report imports.",
+      "Confirm the export format and reconciliation rules, then build and test read-only imports against a known month.",
       "Do not enable payments or bank transaction execution.",
     ],
+    note: "Try Financials → Accounting import for CSV preview and reusable column mappings. This preview does not post to a close, ledger or remittance record.",
     url: "https://developer.intuit.com/app/developer/qbo/docs/develop",
   },
   {
     name: "SoftPro 360",
     initials: "360",
     color: "teal",
-    description: "WFG and agentTRAX underwriter workflows.",
+    status: "Vendor access needed",
+    statusColor: "amber",
+    action: "View next steps",
+    description: "CPL and policy handoff tracking is available. Automated underwriter requests and returned documents are not connected.",
     requirements: [
       "Confirm existing 360 integrations and underwriter authority.",
       "Verify jacket, endorsement, final-policy image, and remittance workflows.",
       "Keep provider confirmations distinct from local preparation.",
       "Do not automate another person’s credentials or MFA.",
     ],
+    note: "Existing underwriter channels remain in SoftPro. This app records preparation and human-reported outcomes; it does not issue jackets or CPLs through a provider.",
     url: "https://www.softprocorp.com/real-estate-software-solutions/softpro-360-data-integration/",
-  },
-  {
-    name: "Document intelligence",
-    initials: "AI",
-    color: "amber",
-    description: "Extract candidate fields with page-level evidence.",
-    requirements: [
-      "Evaluate owner-authorized NC and SC originals in the private workspace.",
-      "Measure exact-match accuracy by field and exception type.",
-      "Choose an approved data-processing and retention arrangement.",
-      "Keep source excerpts immutable and require professional review.",
-    ],
-    url: "https://www.alta.org/business-tools/best-practices",
   },
 ];
 export function PartnerPortal() {
@@ -359,24 +383,24 @@ export function Settings() {
       {tab === "Connections" && (
         <>
           <div className="settings-intro">
-            <h2>{sharedConnection ? "Integration plans" : "Explore the systems behind your work"}</h2>
+            <h2>Tools & integrations</h2>
             <p>
-              {sharedConnection ? "Missive connection checks and reviewed imports are available above to workspace administrators. The services below are planned integrations; account access and implementation must be confirmed before use." : "These connection plans describe future integrations. Local sample mode does not connect to vendor accounts."}
+              {sharedConnection ? "Document reading and reviewed field suggestions are available now. Missive's actual connection status is shown above to workspace administrators. Each card explains what you can use today and what still needs work." : "Document reading and reviewed field suggestions work with local sample files. Vendor accounts connect through the shared workspace; each card explains what is available and what still needs work."}
             </p>
           </div>
           <div className="integration-grid">
             {integrations.filter((i) => !sharedConnection || i.name !== "Missive").map((i) => (
-              <section className="panel integration-card" key={i.name}>
+              <section className="panel integration-card" key={i.name} aria-label={i.name}>
                 <div>
                   <span className={`integration-logo ${i.color}`}>
                     {i.initials}
                   </span>
-                  <Status value="Planned" />
+                  <span className={`status ${i.statusColor}`}>{i.status}</span>
                 </div>
                 <h3>{i.name}</h3>
                 <p>{i.description}</p>
                 <Button variant="outline" onClick={() => setConnection(i)}>
-                  View connection plan
+                  {i.action}
                   <ArrowUpRight />
                 </Button>
               </section>
@@ -660,9 +684,9 @@ export function Settings() {
       >
         <DialogContent className="modal">
           <DialogHeader>
-            <DialogTitle>{connection?.name} connection plan</DialogTitle>
+            <DialogTitle>{connection?.name}</DialogTitle>
             <DialogDescription>
-              Setup requirements for this planned integration.
+              {connection?.description}
             </DialogDescription>
           </DialogHeader>
           <ol className="connection-checklist">
@@ -676,15 +700,14 @@ export function Settings() {
             ))}
           </ol>
           <p className="form-note">
-            This is a connection plan. It does not verify account access or
-            activate the integration.
+            {connection?.note}
           </p>
-          <Button asChild variant="outline">
+          {connection?.url && <Button asChild variant="outline">
             <a href={connection?.url} target="_blank" rel="noreferrer">
               Read official documentation
               <ExternalLink />
             </a>
-          </Button>
+          </Button>}
         </DialogContent>
       </Dialog>
       <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
