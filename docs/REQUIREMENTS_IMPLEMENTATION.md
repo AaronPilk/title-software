@@ -31,7 +31,7 @@ The existing per-user staff assistant persists separate conversations and can re
 
 ### September 23 reviewed extraction and recovery
 
-See [pilot readiness evidence](testing/pilot-readiness-2026-09-23.md) for current code, release readback, automated checks and remaining hosted acceptance. The new source proposals require human review and preserve source/correction evidence. Independent archives recover original bytes separately from hosted metadata recovery points. SoftPro is deferred.
+Code `47debec` is pushed and deployed: frontend `5c0478db-1d5b-4dee-82fa-5e623d24231a` and API version 16. The final checks passed 977 application tests, 1,317 SQL assertions, 18 concurrency scenarios and 16 hosted perimeter checks; strict lint, typecheck and builds pass. See [pilot readiness evidence](testing/pilot-readiness-2026-09-23.md) for scope, release readback and remaining hosted acceptance. The new source proposals require human review and preserve source/correction evidence. Independent archives recover original bytes separately from hosted metadata recovery points. SoftPro is deferred.
 
 ### Previous deployed frontend — September 22 workflow follow-up
 

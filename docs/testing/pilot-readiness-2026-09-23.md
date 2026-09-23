@@ -50,7 +50,14 @@ Repeat extraction with `npm run test:extraction`. Build first with `npm run buil
 
 ## Release readback
 
-Deployment identifiers, production smoke and hosted perimeter results will be recorded after release verification. No database migration is required for this change.
+Code commit `47debec` is on GitHub `main`. No database migration was needed.
+
+- Frontend Worker `5c0478db-1d5b-4dee-82fa-5e623d24231a`, 100% traffic. The final built artifact passed all five production response-policy and desktop/mobile sign-in checks after the mobile fix.
+- `title-api` version **16**, JWT verification enabled. Downloaded deployed source exactly matches the tested 380,923-byte bundle: SHA-256 `4580b8d764a19a6e6c545ee1ad90d9a8c7f526db7593a57f96fc6e313eeb6842`.
+- The private assistant and event receiver were not changed. Cloudflare Access still covers the pilot hostname and Worker destination, with the same seven-email allow list and eight-hour app session. Preview URLs are disabled. Query strings remain redacted and automatic invocation logs disabled.
+- All **16 hosted unauthenticated perimeter checks** returned the expected denied/protected responses after deployment, including current client assets, API paths and fake-token/hostile-origin requests. These are not a substitute for authenticated staff isolation checks.
+- The fresh Supabase security advisor has no warning/error findings and 13 informational [RLS-without-policy notices](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) for the intentionally server-only tables. No browser table policy was opened.
+- The staged source scan found no secrets. The final compiled-client scan's sole finding exactly matched the configured public Supabase publishable key; no privileged credential was identified.
 
 ## Remaining acceptance
 
