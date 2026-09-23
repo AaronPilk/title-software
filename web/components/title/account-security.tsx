@@ -106,6 +106,7 @@ export function AccountSecuritySetup({ security, recovering, onComplete, onSignO
         {step === "challenge" && !loadingFactors && !factorId && <Button type="button" variant="outline" disabled={pending} onClick={() => setFactorAttempt(attempt => attempt + 1)}>Retry authenticator</Button>}
         {step === "enroll" && !enrollment && <Button type="button" disabled={pending} onClick={() => void beginEnrollment()}>Set up authenticator</Button>}
         {enrollment && <>
+          {/* eslint-disable-next-line @next/next/no-img-element -- The secret-bearing enrollment QR must stay in the browser, outside image optimization. */}
           <img src={enrollment.qr} alt="Scan this QR code with your authenticator app" width={220} height={220} style={{ background: "white", margin: "0 auto", borderRadius: 12 }} />
           <details><summary>Enter a setup key instead</summary><code style={{ overflowWrap: "anywhere" }}>{enrollment.secret}</code></details>
         </>}

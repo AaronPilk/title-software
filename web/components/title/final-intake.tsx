@@ -36,15 +36,17 @@ import {
   missingDocumentDraft,
   type SourceRole,
   type TitleFile,
+  type SourceCaptureContext,
 } from "@/lib/title/production";
-import { FieldLabel, Picker, Status, Empty } from "./shared";
+import { FieldLabel, Picker, Empty } from "./shared";
+import { SourceFieldAssistant } from "./source-field-assistant";
 import { UploadDocument, DocumentPreview } from "./documents";
 import { AttorneyFollowups } from "./followups";
 import { createFollowup } from "@/lib/title/followups";
 import { businessDay } from "@/lib/title/business-date";
 
 export function FinalSources({ order }: { order: Order }) {
-  const { s, update } = useWorkspace();
+  const { s, update, connection } = useWorkspace();
   const [upload, setUpload] = useState(false);
   const [preview, setPreview] = useState("");
   const [capture, setCapture] = useState("");
@@ -192,7 +194,7 @@ export function FinalSources({ order }: { order: Order }) {
       {doc && <DocumentPreview doc={doc} onClose={() => setPreview("")} />}
       {captureDoc && (
         <CaptureFields
-          key={captureDoc.id}
+          key={`${connection?.workspaceId || "local"}:${connection?.access.userId || "local"}:${captureDoc.id}:${captureDoc.version}:${captureDoc.assetId || ""}:${captureDoc.sourceRole}`}
           order={order}
           doc={captureDoc}
           onClose={() => setCapture("")}
@@ -383,12 +385,19 @@ function CaptureFields({
 }) {
   const { update } = useWorkspace();
   const defs = neededFields(order).filter((f) => f.role === doc.sourceRole);
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(defs.map(f => [f.id, order.fields.find(x => x.id === f.id && x.documentId === doc.id)?.sourceValue || ""])));
+  const [pageReference, setPageReference] = useState("");
+  const [evidence, setEvidence] = useState<SourceCaptureContext["fields"]>({});
+  const [verified, setVerified] = useState(false), [preview, setPreview] = useState(false);
+  const [orderVersion] = useState(() => titleFile(order).version);
+  const assisted = Object.keys(evidence).length > 0;
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const data = new FormData(e.currentTarget);
-    const values = Object.fromEntries(
-      defs.map((f) => [f.id, String(data.get(f.id))]),
-    );
+    if (assisted && !verified) return;
+    const capture: SourceCaptureContext = {
+      documentVersion: doc.version, assetId: doc.assetId || "", sourceRole: doc.sourceRole!, orderVersion,
+      fields: Object.fromEntries(Object.entries(evidence).map(([id, value]) => [id, value.method === "source-text" ? { ...value, page: pageReference } : value])),
+    };
     if (
       await update(
         (s) =>
@@ -397,7 +406,8 @@ function CaptureFields({
             order.id,
             doc.id,
             values,
-            String(data.get("page")),
+            pageReference,
+            capture,
           ),
         "Source values captured",
         `${order.id} · ${doc.name}`,
@@ -416,10 +426,21 @@ function CaptureFields({
           </DialogDescription>
         </DialogHeader>
         <form className="form-stack" onSubmit={submit}>
+          <Button type="button" variant="outline" onClick={() => setPreview(true)}>Open original for comparison</Button>
+          <SourceFieldAssistant doc={doc} defs={defs} onFill={items => {
+            setValues(prior => ({ ...prior, ...Object.fromEntries(items.map(item => [item.id, item.value])) }));
+            setEvidence(prior => ({ ...prior, ...Object.fromEntries(items.map(item => [item.id, item.evidence])) }));
+            setVerified(false);
+            if (!pageReference && items.every(item => item.evidence.method !== "source-text"))
+              setPageReference([...new Set(items.map(item => item.evidence.page))].join("; "));
+          }} />
           <FieldLabel label="Page or section reference">
             <Input
               name="page"
               required
+              value={pageReference}
+              onChange={event => { setPageReference(event.target.value); setVerified(false); }}
+              maxLength={300}
               placeholder="e.g. page 2, recording stamp"
             />
           </FieldLabel>
@@ -429,9 +450,8 @@ function CaptureFields({
                 <Input
                   name={f.id}
                   required
-                  defaultValue={
-                    order.fields.find((x) => x.id === f.id && x.documentId === doc.id)?.sourceValue || ""
-                  }
+                  value={values[f.id] || ""}
+                  onChange={event => { setValues(prior => ({ ...prior, [f.id]: event.target.value })); setVerified(false); }}
                   maxLength={500}
                 />
               </FieldLabel>
@@ -441,11 +461,13 @@ function CaptureFields({
             Saving preserves these source values separately from proposed
             corrections and reopens the affected field reviews.
           </p>
-          <Button type="submit">
+          {assisted && <label className="form-note" style={{ display: "flex", alignItems: "flex-start", gap: 8 }}><input type="checkbox" checked={verified} onChange={event => setVerified(event.target.checked)} />I compared every captured value with the original, including any unread pages.</label>}
+          <Button type="submit" disabled={assisted && !verified}>
             Save for field review
             <ArrowRight />
           </Button>
         </form>
+        {preview && <DocumentPreview doc={doc} onClose={() => setPreview(false)} />}
       </DialogContent>
     </Dialog>
   );

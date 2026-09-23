@@ -58,6 +58,14 @@ export type Company = {
   members: { name: string; share: number; email?: string; phone?: string }[];
 };
 export type Field = {
+  captureEvidence?: {
+    documentVersion: number;
+    method: "pdf-text" | "ocr" | "source-text";
+    quote: string;
+    suggestedValue: string;
+    corrected: boolean;
+    engineConfidence?: number;
+  };
   documentId?: string;
   sourcePage?: string;
   id: string;

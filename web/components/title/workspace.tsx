@@ -10,19 +10,12 @@ import { toast } from "sonner";
 import {
   Activity,
   ArrowUpRight,
-  Building2,
   Check,
-  ChevronRight,
   Download,
   ExternalLink,
-  FileText,
-  KeyRound,
-  Link2,
   LockKeyhole,
   MapPin,
   Plus,
-  Settings2,
-  ShieldCheck,
   Upload,
   UsersRound,
 } from "lucide-react";
@@ -55,7 +48,6 @@ import {
   type WorkspaceBackup,
 } from "@/lib/title/store";
 import { MAX_BACKUP_FILE_BYTES } from "@/lib/title/backup-assets";
-import { money, type VaultDoc } from "@/lib/title/model";
 import {
   Heading,
   Segments,
@@ -148,7 +140,7 @@ export const integrations = [
     url: "https://www.alta.org/business-tools/best-practices",
   },
 ];
-export function PartnerPortal({ onDoc }: { onDoc: (d: VaultDoc) => void }) {
+export function PartnerPortal() {
   const { s, connection } = useWorkspace();
   const isPartner = connection?.access.role === "partner";
   const [company, setCompany] = useState(s.companies[0]?.id || "");

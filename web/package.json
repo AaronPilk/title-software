@@ -13,7 +13,7 @@
     "deploy:pilot": "node scripts/cloudflare-pilot.mjs deploy",
     "check:pilot": "node scripts/cloudflare-pilot.mjs dry-run",
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --max-warnings 0",
     "db:generate": "drizzle-kit generate",
     "test": "node scripts/test-domain.mjs",
     "typecheck": "tsc --noEmit",
@@ -42,7 +42,9 @@
     "test:documents:ui": "node --test tests/document-storage-ui.test.mjs",
     "test:backup:ui": "node --test tests/backup-restore-ui.test.mjs tests/pdf-preview-ui.test.mjs",
     "test:review:ui": "node --test tests/final-source-capture-ui.test.mjs tests/document-text-review-ui.test.mjs tests/financial-review-ui.test.mjs",
-    "test:pilot:security": "node --test tests/pilot-security-smoke.test.mjs"
+    "test:pilot:security": "node --test tests/pilot-security-smoke.test.mjs",
+    "test:extraction": "node --test tests/field-extraction.test.mjs tests/source-field-reader.test.mjs tests/source-capture-evidence.test.mjs tests/source-field-assistant-ui.test.mjs",
+    "test:originals:ui": "node --test tests/original-file-recovery-ui.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -130,7 +130,7 @@ export async function checkMissiveConnection(config: MissiveConfig, workspaceId:
         id: text(row.id, 100), name: text(row.name, 500),
         organizationId: text(row.organization, 100), enabled: row.team_inbox_enabled,
       };
-    }).filter(row => row.enabled).map(({ enabled: _enabled, ...row }) => row),
+    }).filter(row => row.enabled).map(({ id, name, organizationId }) => ({ id, name, organizationId })),
     // This is bounded discovery, not a complete mailbox directory or sync.
     moreOrganizations: organizations.length === LIMIT,
     moreTeams: teams.length === LIMIT,

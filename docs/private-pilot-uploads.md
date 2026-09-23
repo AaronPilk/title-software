@@ -17,11 +17,21 @@ The minimum existing company-onboarding role is onboarding with all-company scop
 
 Connected uploads preserve original bytes in private hosted storage, store hashes and use versioned asset records. Download access checks the current company and document permissions. Browser-local sample mode has different persistence and must not be presented as the connected workspace.
 
-PDF text review and supported OCR run in the browser and leave originals unchanged. They help compare a real source with the team's reviewed expected outcome. Automatic document-to-field proposals are not yet implemented. Preserve the input set, source-to-field/page references, revision sequence and actual final outcome when evaluating a representative case.
+PDF text review and supported OCR run in the browser and leave originals unchanged. They help compare a real source with the team's reviewed expected outcome. The final-source capture form now suggests explicitly labelled deed and security-instrument fields, retains quotes/pages and corrections, and requires original-source review before saving. See [document field review](document-field-review.md) for its supported fields, scan limits and acceptance workflow. Preserve the input set, source-to-field/page references, revision sequence and actual final outcome when evaluating a representative case.
 
 An upload does not automatically provide document bytes or OCR text to the in-app assistant. Assistant questions, conversation history and permitted structured workspace context do use the hosted AI service. Avoid promising that no information leaves the browser.
 
-Keep the company's existing originals during the pilot: hosted recovery points currently depend on the source storage objects and are not independent document-byte backups. No live vendor execution or archival replacement is implied by this upload workflow.
+Keep the company's existing originals during the pilot. Hosted metadata recovery points depend on the source storage objects; the separate **Settings → Recovery → Independent original files** archive includes original bytes and checksums. No live vendor execution or archival replacement is implied by either workflow.
+
+## Independent original-file recovery drill
+
+1. After a fictional or authorized representative upload, confirm its company/file/version and download the original. Keep the input as the comparison copy.
+2. As an organization-wide administrator, open **Settings → Recovery → Independent original files**. Select that document or all originals available to the account, then choose **Export original files archive**. Store the resulting archive in the approved independent backup location.
+3. Check the result for missing originals. A partial archive is explicitly incomplete; resolve every required missing item before bulk import.
+4. Select the downloaded archive in the recovery panel. Verification checks its manifest, bounds, file signatures and SHA-256 checksums. Select an original and choose **Download recovered original**. Open it and compare its bytes/hash with the upload. Recovery reads the archive's bytes without requiring the original hosted storage object; do not delete production objects to test this.
+5. Record the tested company/file/version, successful comparison and where the independent copy is retained. Repeat for representative file types and retain the originals until the team's recovery and retention procedure is accepted.
+
+Archives are limited to 2,000 references, 64 MiB decoded originals in total, 50 MiB per original and 96 MiB serialized JSON. Larger collections need separate exports. These archives recover original-file downloads; they do not overwrite hosted metadata, repair document links, authenticate the archive's author or scan for malware. Local demo full-backup restore is a different operation and remains disabled for connected workspaces.
 
 ## Engineering evidence
 

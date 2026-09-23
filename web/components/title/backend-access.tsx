@@ -188,6 +188,7 @@ export function BackendAccess({
   return (
     <main className="backend-entry">
       <section className="backend-login panel">
+        {/* eslint-disable-next-line @next/next/no-img-element -- Serve the bundled sign-in logo directly without an image-optimization request. */}
         <img
           src="/brand/ballantyne-title-logo.png"
           alt="Ballantyne Title"

@@ -375,7 +375,7 @@ function Workspace() {
       content = canManageFinance(connection) ? <Financials /> : <section className="panel"><h1>Financials access required</h1><p>Your account does not have financial access. Ask the workspace owner to review your role.</p></section>;
       break;
     case "Partner portal":
-      content = <PartnerPortal onDoc={openDoc} />;
+      content = <PartnerPortal />;
       break;
     case "Handoffs":
       content = <Handoffs />;
@@ -408,6 +408,7 @@ function Workspace() {
             onClick={() => navigate("Overview")}
             aria-label="Ballantyne Title overview"
           >
+            {/* eslint-disable-next-line @next/next/no-img-element -- This small bundled logo is served directly from the same origin. */}
             <img
               className="brand-logo"
               src="/brand/ballantyne-title-logo.png"

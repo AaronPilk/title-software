@@ -232,7 +232,9 @@ const reclassify = (s, documentId, sourceRole) => executeCommands(s, [command("e
   table: "documents", id: documentId, value: { sourceRole },
 }])], scoped());
 function uploadSecondVersion(s, sourceRole) {
-  const { id, version, ...source } = s.documents.find(d => d.id === "DOC-A");
+  const source = { ...s.documents.find(d => d.id === "DOC-A") };
+  delete source.id;
+  delete source.version;
   return executeCommands(s, [command("editDraft", [{
     table: "documents", id: "DOC-A-V2", insert: true, value: { ...source, sourceRole },
   }])], scoped());

@@ -392,6 +392,7 @@ export function validateReferencedSourcesMutation(before: Workspace, after: Work
     const current = after.orders.find(n => n.id === o.id);
     for (const old of titleFile(o).referencedSources || []) {
       const next = current && titleFile(current).referencedSources?.find(r => r.id === old.id);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Reviews are compared separately below; omit them from the immutable source capture.
       const capture = ({ reviews: _reviews, ...rest }: ReferencedSource) => rest;
       if (!next || JSON.stringify(capture(old)) !== JSON.stringify(capture(next)) ||
         JSON.stringify(next.reviews.slice(0, old.reviews.length)) !== JSON.stringify(old.reviews))
@@ -516,17 +517,31 @@ export function finalReadiness(s: Workspace, order: Order) {
       !order.exception,
   };
 }
+export type SourceCaptureContext = {
+  documentVersion: number;
+  assetId: string;
+  sourceRole: SourceRole;
+  orderVersion: number;
+  fields: Record<string, {
+    page: string;
+    method: "pdf-text" | "ocr" | "source-text";
+    quote: string;
+    suggestedValue: string;
+    engineConfidence?: number;
+  }>;
+};
 export function replaceSourceFields(
   s: Workspace,
   orderId: string,
   docId: string,
   values: Record<string, string>,
   page: string,
+  context?: SourceCaptureContext,
 ) {
   return traceMutation(
     s,
     "replaceSourceFields",
-    [orderId, docId, values, page],
+    context ? [orderId, docId, values, page, context] : [orderId, docId, values, page],
     () => {
       const o = s.orders.find((x) => x.id === orderId);
       const doc = s.documents.find((d) => d.id === docId);
@@ -536,26 +551,57 @@ export function replaceSourceFields(
         );
       if (o.status === "Issued")
         throw new Error("Issued files require a separate correction workflow.");
+      if (!currentOrderDocument(s, doc))
+        throw new Error("This source has been superseded. Open the current original before capturing fields.");
       const defs = neededFields(o).filter((f) => f.role === doc.sourceRole);
       if (
         !defs.length ||
-        defs.some((f) => !values[f.id]?.trim()) ||
-        !page.trim()
+        !values || typeof values !== "object" ||
+        defs.some((f) => typeof values[f.id] !== "string" || !values[f.id].trim() || values[f.id].length > 500) ||
+        typeof page !== "string" || !page.trim() || page.length > 1000
       )
         throw new Error("Capture every source value and a page reference.");
+      if (context) {
+        if (context.documentVersion !== doc.version || context.assetId !== (doc.assetId || "") ||
+            context.sourceRole !== doc.sourceRole || context.orderVersion !== titleFile(o).version)
+          throw new Error("This document or file changed after capture began. Reopen the current source and review again.");
+        if (!context.fields || typeof context.fields !== "object" || Array.isArray(context.fields) ||
+            Object.keys(context.fields).some(id => !defs.some(f => f.id === id)))
+          throw new Error("Field evidence must belong to this source type.");
+        for (const evidence of Object.values(context.fields)) {
+          if (!evidence || typeof evidence !== "object" ||
+              !["pdf-text", "ocr", "source-text"].includes(evidence.method) ||
+              typeof evidence.page !== "string" || !evidence.page.trim() || evidence.page.length > 300 ||
+              typeof evidence.quote !== "string" || !evidence.quote.trim() || evidence.quote.length > 2000 ||
+              typeof evidence.suggestedValue !== "string" || !evidence.suggestedValue.trim() || evidence.suggestedValue.length > 500 ||
+              !evidence.quote.includes(evidence.suggestedValue) ||
+              (evidence.engineConfidence !== undefined && (evidence.method !== "ocr" || !Number.isFinite(evidence.engineConfidence) || evidence.engineConfidence < 0 || evidence.engineConfidence > 100)))
+            throw new Error("Keep the exact suggested wording, source quotation and page reference.");
+        }
+      }
       for (const def of defs) {
         const prior = o.fields.find((f) => f.id === def.id);
+        const evidence = context?.fields[def.id];
+        const reference = evidence?.page.trim() || page.trim();
         const field: Field = {
           id: def.id,
           label: def.label,
           current: prior?.current || "Not captured",
           proposed: values[def.id].trim(),
           sourceValue: values[def.id].trim(),
-          source: `${doc.name} · ${page.trim()}`,
+          source: `${doc.name} · version ${doc.version} · ${reference}`,
           documentId: doc.id,
-          sourcePage: page.trim(),
+          sourcePage: reference,
           reviewed: false,
-          confidence: "Human captured",
+          confidence: evidence ? "Assisted capture · review required" : "Human captured",
+          ...(evidence ? { captureEvidence: {
+            documentVersion: doc.version,
+            method: evidence.method,
+            quote: evidence.quote,
+            suggestedValue: evidence.suggestedValue,
+            corrected: values[def.id].trim() !== evidence.suggestedValue,
+            ...(evidence.engineConfidence === undefined ? {} : { engineConfidence: evidence.engineConfidence }),
+          } } : {}),
         };
         o.fields = o.fields.filter((f) => f.id !== def.id);
         o.fields.push(field);

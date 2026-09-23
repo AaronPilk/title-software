@@ -7,12 +7,9 @@ import {
   Building2,
   Plus,
   ChevronRight,
-  Check,
   ArrowRight,
-  Mail,
   MapPin,
   FolderClosed,
-  UsersRound,
   AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -384,7 +381,7 @@ export function CompanyDetail({
   onDoc: (doc: VaultDoc) => void;
   onUpload: (id: string) => void;
 }) {
-  const { s, update } = useWorkspace();
+  const { s } = useWorkspace();
   const [tab, setTab] = useState("Overview");
   const c = s.companies.find((x) => x.id === id);
   if (!c) return null;

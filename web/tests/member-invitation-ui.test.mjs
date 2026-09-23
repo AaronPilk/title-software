@@ -29,6 +29,8 @@ before(async () => {
         if (path === "client") return { contents: `
           export const activeWorkspace=()=> window.workspaceId;
           export const supabase={auth:{signOut:async()=>{}}};
+          // Recovery is outside this fixture's scope. Fail closed if it is invoked.
+          export async function downloadRemoteAsset(){throw Error('Unexpected original download in invitation fixture');}
           export async function backendRequest(path,input) {
             window.invitationRequests.push({path,input});
             if(path==='/members') {
@@ -57,6 +59,7 @@ before(async () => {
         return { loader: "tsx", resolveDir: web, contents: `
           import React,{createContext,useContext,useState} from 'react';
           const Context=createContext(null); export const useWorkspace=()=>useContext(Context);
+          export function download(){throw Error('Unexpected file export in invitation fixture');}
           export function FixtureProvider({children}) {
             const query=new URLSearchParams(location.search), [role,setRole]=useState(query.get('role')||'owner'), [identity,setIdentity]=useState('owner-fixture');
             window.setInvitationRole=setRole; window.setInvitationIdentity=setIdentity;

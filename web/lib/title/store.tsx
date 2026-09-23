@@ -1,6 +1,7 @@
 "use client";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -99,6 +100,7 @@ type Store = {
   reset: () => void;
   restore: (w: Workspace, assets?: WorkspaceBackup["assets"]) => Promise<void>;
   connection?: {
+    workspaceId: string;
     access: RemoteState["access"];
     revision: number;
     saving: boolean;
@@ -159,13 +161,13 @@ function ConnectedWorkspaceProvider({
     [failure, setFailure] = useState<{ kind: "read" | "write"; message: string } | null>(null);
   const latest = useRef(initial),
     busy = useRef(false);
-  function accept(next: RemoteState) {
+  const accept = useCallback((next: RemoteState) => {
     if (next.revision < latest.current.revision) return;
     latest.current = next;
     setRemote(next);
     setFailure(null);
-  }
-  async function refresh() {
+  }, []);
+  const refresh = useCallback(async () => {
     try {
       accept(await backendRequest<RemoteState>("/state"));
       return true;
@@ -176,7 +178,7 @@ function ConnectedWorkspaceProvider({
         await supabase?.auth.signOut().catch(() => undefined);
       return false;
     }
-  }
+  }, [accept]);
   useEffect(() => {
     const focus = () => {
       if (!busy.current) void refresh();
@@ -187,11 +189,11 @@ function ConnectedWorkspaceProvider({
       window.removeEventListener("focus", focus);
       clearInterval(interval);
     };
-  }, []);
+  }, [refresh]);
   async function update(
     fn: (draft: Workspace) => void,
     title?: string,
-    detail = "",
+    detail?: string,
     expectedRevision?: number,
   ) {
     if (busy.current) {
@@ -269,6 +271,7 @@ function ConnectedWorkspaceProvider({
           );
         },
         connection: {
+          workspaceId: remote.workspaceId,
           access: remote.access,
           revision: remote.revision,
           saving,
@@ -492,9 +495,8 @@ export async function getAsset(id: string, namespace?: string): Promise<Blob> {
     const r = db.transaction("files").objectStore("files").get(key);
     r.onsuccess = () => {
       db.close();
-      r.result
-        ? resolve(r.result)
-        : reject(new Error("File is no longer available in this browser."));
+      if (r.result) resolve(r.result);
+      else reject(new Error("File is no longer available in this browser."));
     };
     r.onerror = () => {
       db.close();

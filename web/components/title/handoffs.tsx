@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Download, CheckCheck, ArrowRight, Clock3 } from "lucide-react";
+import { Download, CheckCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";

@@ -786,7 +786,9 @@ function applyEdit(
       for (const field of v.fields) {
         const old = current.fields.find((f) => f.id === field.id);
         if (!old) fail("Unknown source field.");
-        for (const k of Object.keys(field))
+        // Omitted source properties are changes too: a draft edit cannot erase
+        // capture provenance by leaving it out of the submitted field object.
+        for (const k of new Set([...Object.keys(old), ...Object.keys(field)]))
           if (
             !["proposed", "reviewed", "current"].includes(k) &&
             !eq(old[k as keyof typeof old], field[k])

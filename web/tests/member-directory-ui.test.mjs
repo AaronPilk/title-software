@@ -38,10 +38,13 @@ before(async () => {
         if (path === "workspace") return { contents: `
           const value={s:{companies:[{id:'A',name:'Company A',members:[]}]},connection:{access:{userId:'owner-fixture',email:'owner@example.test',role:new URLSearchParams(location.search).get('role')||'owner',allCompanies:true},revision:1,refresh:async()=>true}};
           export const useWorkspace=()=>value;
+          // Recovery is outside this fixture's scope. Fail closed if it is invoked.
+          export function download(){throw Error('Unexpected file export in member directory fixture');}
         ` };
         return { contents: `
           export const activeWorkspace=()=> '11111111-1111-4111-8111-111111111111';
           export const supabase={auth:{signOut:async()=>{}}};
+          export async function downloadRemoteAsset(){throw Error('Unexpected original download in member directory fixture');}
           export async function backendRequest(path,input) {
             window.memberDirectoryRequests.push({path,input});
             if(path==='/members') return {members:structuredClone(window.memberDirectoryRows),invitations:[]};

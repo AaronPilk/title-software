@@ -6,7 +6,6 @@ import {
   outputRoles,
   sameDocumentFamily,
   neededFields,
-  fieldDefinitions,
   titleFile,
   type SourceRole,
 } from "@/lib/title/production";
@@ -24,7 +23,6 @@ import {
   Eye,
   FolderClosed,
   LockKeyhole,
-  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -624,6 +622,8 @@ export function DocumentPreview({
           <pre className="text-preview">{text}</pre>
         ) : current?.pdf ? <PdfPreview file={current.pdf} name={doc.name} /> : url ? (
           doc.mime?.startsWith("image/") ? (
+            // Private browser blob URLs must not be sent through an image optimizer.
+            // eslint-disable-next-line @next/next/no-img-element
             <img className="image-preview" alt={doc.name} src={url} />
           ) : <Empty title="Download to view this document" text="Use your approved document viewer for this file type." />
         ) : (

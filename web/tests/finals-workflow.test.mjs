@@ -8,7 +8,7 @@ const bundle = await build({
   bundle: true, write: false, format: "esm", platform: "node", target: "es2022",
 });
 const api = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString("base64")}`);
-const { createSeed, finalsQueue, filterFinalsQueue, nextReadyFinal, titleFile,
+const { createSeed, finalsQueue, filterFinalsQueue, nextReadyFinal,
   finalReadiness, reviewCommitment, addReferencedSource, reviewReferencedSource,
   referencedSourceStatus, commitmentProblems, commitmentFingerprint,
   referencedSourcesShapeValid,

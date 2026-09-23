@@ -24,8 +24,10 @@ before(async()=>{
         let snapshot={s:state,error:''};const listeners=new Set();const emit=()=>listeners.forEach(fn=>fn());window.captureFixture=()=>structuredClone(snapshot.s);window.captureDefs=defs;window.captureSaves=[];
         window.removeSource=id=>{snapshot={...snapshot,s:{...snapshot.s,documents:snapshot.s.documents.filter(d=>d.id!==id)}};emit()};
         export function useWorkspace(){const value=useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>snapshot);return {...value,update:async(fn,title)=>{try{const next=structuredClone(snapshot.s);fn(next);snapshot={s:next,error:''};window.captureSaves.push(title);emit();return true}catch(e){snapshot={...snapshot,error:e.message};window.captureError=e.message;emit();return false}}};}
-        export const download=()=>{};
+        export const download=()=>{};export async function getAsset(){throw new Error("No original asset in this manual capture fixture")};
       `}));
+      b.onResolve({filter:/pdf\.worker\.min\.mjs\?url$/},()=>({path:"worker",namespace:"worker"}));
+      b.onLoad({filter:/.*/,namespace:"worker"},()=>({contents:'export default "/unused-worker.mjs";'}));
       b.onResolve({filter:/^\.\/documents$/},()=>({path:"documents",namespace:"child"}));
       b.onResolve({filter:/^\.\/followups$/},()=>({path:"followups",namespace:"child"}));
       b.onLoad({filter:/.*/,namespace:"child"},()=>({contents:"export const UploadDocument=()=>null,DocumentPreview=()=>null,AttorneyFollowups=()=>null;"}));

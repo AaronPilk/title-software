@@ -7,7 +7,6 @@ import {
 } from "../.local-test/business.js";
 import {
   materials,
-  enrichMaterials,
   setupMaterials,
   createMaterial,
   updateMaterial,

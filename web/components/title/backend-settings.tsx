@@ -13,6 +13,7 @@ import {
 import { Picker } from "./shared";
 import { MissiveSettings } from "./missive-settings";
 import { TeamAccess } from "./team-access";
+import { OriginalFileRecovery } from "./original-file-recovery";
 
 export type BackendSettingsSection = "Account" | "Connections" | "Team & access" | "Recovery";
 type RecoveryPoint = { id: string; revision: number; created_at: string };
@@ -104,8 +105,9 @@ function BackendSettingsContent({ section }: { section: BackendSettingsSection }
             </h3>
             <p>
               Snapshots preserve shared records and references to immutable
-              uploaded files. A restore preserves the audit trail and first
-              saves the current version.
+              uploaded files; they do not make independent copies of those
+              bytes. A restore requires the originals to remain in storage,
+              preserves the audit trail, and first saves the current version.
             </p>
             <Button
               disabled={busy}
@@ -166,6 +168,7 @@ function BackendSettingsContent({ section }: { section: BackendSettingsSection }
                 )}
               </>
             )}
+            <OriginalFileRecovery workspaceId={workspaceId} />
           </div>}
         </>
       )}
