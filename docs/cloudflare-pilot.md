@@ -2,7 +2,11 @@
 
 Deployed September 13, 2026 at **https://title-software-pilot.aaron-9c3.workers.dev**. This is the existing Ballantyne Title application with its shared Supabase backend, not a separate copy of business records.
 
-## Deployment
+## Current access update — September 23
+
+The [developer feedback release](testing/developer-feedback-2026-09-23.md) records the latest frontend/API versions and hosted owner walkthrough. Custom SMTP and explicit setup-email sending are active. The private Access policy now contains eight individually approved email addresses after the owner invited an existing staff member at an alternate address; the eight-hour session, existing identities and hostname/Worker protection remain in place. An invitation alone does not update this separate allowlist. The September 19 deployment details below are historical.
+
+## September 19 deployment snapshot
 
 Updated September 19 with the [staff lifecycle and daily-use release](testing/staff-lifecycle-2026-09-19.md). The earlier [hosted owner/company acceptance pass](testing/hosted-acceptance-2026-09-15.md) remains the last signed-in hosted walkthrough. The [PDF requirements implementation](REQUIREMENTS_IMPLEMENTATION.md) records the wider feature scope and earlier verification; the latest report distinguishes live checks from synthetic tests.
 
