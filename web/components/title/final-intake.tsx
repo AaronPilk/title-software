@@ -45,12 +45,14 @@ import { UploadDocument, DocumentPreview } from "./documents";
 import { AttorneyFollowups } from "./followups";
 import { createFollowup } from "@/lib/title/followups";
 import { businessDay } from "@/lib/title/business-date";
+import { PackageReviewButton, type PackageCaptureValue } from "./package-review";
 
 export function FinalSources({ order }: { order: Order }) {
   const { s, update, connection } = useWorkspace();
   const [upload, setUpload] = useState(false);
   const [preview, setPreview] = useState("");
   const [capture, setCapture] = useState("");
+  const [packageCapture, setPackageCapture] = useState<{ identity: string; values: PackageCaptureValue[] } | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [addSample, setAddSample] = useState(false);
   const docs = orderSources(s, order.id);
@@ -165,6 +167,12 @@ export function FinalSources({ order }: { order: Order }) {
         />
       )}
       <div className="source-actions">
+        <PackageReviewButton
+          documents={docs}
+          onOpenOriginal={source => setPreview(source.id)}
+          captureFields={Object.fromEntries(docs.map(source => [source.id, neededFields(order).filter(field => field.role === source.sourceRole).map(field => field.id)]))}
+          onCapture={productionLocked(s, order) ? undefined : (source, values) => { setPackageCapture({ identity: documentScanIdentity(source, connection), values }); setCapture(source.id); }}
+        />
         <Button variant="outline" onClick={() => setAddSample(true)}>
           <Plus />
           Add source / section reference
@@ -198,7 +206,8 @@ export function FinalSources({ order }: { order: Order }) {
           key={documentScanIdentity(captureDoc, connection)}
           order={order}
           doc={captureDoc}
-          onClose={() => setCapture("")}
+          initialValues={packageCapture?.identity === documentScanIdentity(captureDoc, connection) ? packageCapture.values : []}
+          onClose={() => { setCapture(""); setPackageCapture(null); }}
         />
       )}
       {addSample && (
@@ -379,16 +388,18 @@ function CaptureFields({
   order,
   doc,
   onClose,
+  initialValues = [],
 }: {
   order: Order;
   doc: VaultDoc;
   onClose: () => void;
+  initialValues?: PackageCaptureValue[];
 }) {
   const { update } = useWorkspace();
   const defs = neededFields(order).filter((f) => f.role === doc.sourceRole);
-  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(defs.map(f => [f.id, order.fields.find(x => x.id === f.id && x.documentId === doc.id)?.sourceValue || ""])));
-  const [pageReference, setPageReference] = useState("");
-  const [evidence, setEvidence] = useState<SourceCaptureContext["fields"]>({});
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(defs.map(f => [f.id, initialValues.find(item => item.id === f.id)?.value ?? order.fields.find(x => x.id === f.id && x.documentId === doc.id)?.sourceValue ?? ""])));
+  const [pageReference, setPageReference] = useState(() => [...new Set(initialValues.map(item => item.evidence.page))].join("; "));
+  const [evidence, setEvidence] = useState<SourceCaptureContext["fields"]>(() => Object.fromEntries(initialValues.filter(item => defs.some(def => def.id === item.id)).map(item => [item.id, item.evidence])));
   const [verified, setVerified] = useState(false), [preview, setPreview] = useState(false);
   const [reading, setReading] = useState(false);
   const [orderVersion] = useState(() => titleFile(order).version);

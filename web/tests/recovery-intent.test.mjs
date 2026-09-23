@@ -112,7 +112,7 @@ test("sign-out clears recovery even if an event includes the previous token", ()
 test("client initialization captures recovery before the UI subscribes", async () => {
   const storage = storageFixture();
   const originalWindow = globalThis.window;
-  globalThis.window = { sessionStorage: storage };
+  globalThis.window = { sessionStorage: storage, location: { href: "https://title.example.test/" } };
   try {
     const client = await loadBundle({
       stdin: {

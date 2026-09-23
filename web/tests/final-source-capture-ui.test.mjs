@@ -21,9 +21,10 @@ before(async()=>{
         const docs=['A','B'].map(id=>({id,companyId:o.companyId,orderId:o.id,sourceRole:'Deed',name:'Fictional source '+id+'.txt',text:'Fictional source',version:1,category:'Policy documents',visibility:'Internal',date:'2026-09-22',size:'1 KB'}));
         state.documents=docs;const defs=neededFields(o).filter(f=>f.role==='Deed');
         o.fields=defs.map(f=>({id:f.id,label:f.label,current:'Recorded current',proposed:'Prior '+f.id,sourceValue:'Prior '+f.id,source:'Fictional source A',documentId:'A',sourcePage:'1',reviewed:true,confidence:'Human captured'}));
-        let snapshot={s:state,error:''};const listeners=new Set();const emit=()=>listeners.forEach(fn=>fn());window.captureFixture=()=>structuredClone(snapshot.s);window.captureDefs=defs;window.captureSaves=[];
+        let snapshot={s:state,error:'',connection:{workspaceId:'fictional-workspace',access:{role:'owner',allCompanies:true,userId:'fictional-owner',email:'owner@example.test',version:1}}};const listeners=new Set();const emit=()=>listeners.forEach(fn=>fn());window.captureFixture=()=>structuredClone(snapshot.s);window.captureDefs=defs;window.captureSaves=[];
         window.removeSource=id=>{snapshot={...snapshot,s:{...snapshot.s,documents:snapshot.s.documents.filter(d=>d.id!==id)}};emit()};
-        export function useWorkspace(){const value=useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>snapshot);return {...value,update:async(fn,title)=>{try{const next=structuredClone(snapshot.s);fn(next);snapshot={s:next,error:''};window.captureSaves.push(title);emit();return true}catch(e){snapshot={...snapshot,error:e.message};window.captureError=e.message;emit();return false}}};}
+        window.changeCapturedSource=(kind)=>{const next=structuredClone(snapshot.s);if(kind==='access')snapshot={...snapshot,connection:{...snapshot.connection,access:{...snapshot.connection.access,version:2}}};else{const d=next.documents.find(d=>d.id==='B');if(kind==='version')d.version=2;else if(kind==='asset')d.assetId='new-asset';else d.visibility='Restricted';snapshot={...snapshot,s:next}}emit()};
+        export function useWorkspace(){const value=useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>snapshot);return {...value,update:async(fn,title)=>{try{const next=structuredClone(snapshot.s);fn(next);snapshot={...snapshot,s:next,error:''};window.captureSaves.push(title);emit();return true}catch(e){snapshot={...snapshot,error:e.message};window.captureError=e.message;emit();return false}}};}
         export const download=()=>{};export async function getAsset(){throw new Error("No original asset in this manual capture fixture")};
       `}));
       b.onResolve({filter:/pdf\.worker\.min\.mjs\?url$/},()=>({path:"worker",namespace:"worker"}));
@@ -31,6 +32,8 @@ before(async()=>{
       b.onResolve({filter:/^\.\/documents$/},()=>({path:"documents",namespace:"child"}));
       b.onResolve({filter:/^\.\/followups$/},()=>({path:"followups",namespace:"child"}));
       b.onLoad({filter:/.*/,namespace:"child"},()=>({contents:"export const UploadDocument=()=>null,DocumentPreview=()=>null,AttorneyFollowups=()=>null;"}));
+      b.onResolve({filter:/^\.\/package-review$/},()=>({path:"package",namespace:"package-fixture"}));
+      b.onLoad({filter:/.*/,namespace:"package-fixture"},()=>({loader:'tsx',resolveDir:root,contents:"import React from 'react';export function PackageReviewButton({documents,onCapture,captureFields}){return <button onClick={()=>{const d=documents.find(d=>d.id==='B');onCapture(d,captureFields[d.id].map(id=>({id,value:'Package '+id,evidence:{page:'Text page 1',method:'source-text',quote:'Exact source Package '+id,suggestedValue:'Package '+id}})));}}>Fixture reviewed package capture</button>}"}));
     }}]});
   server=createServer((req,res)=>{res.setHeader("content-type",req.url==="/app.mjs"?"text/javascript":"text/html");res.end(req.url==="/app.mjs"?result.outputFiles[0].text:'<!doctype html><div id="root"></div><script type="module" src="/app.mjs"></script>')});
   await new Promise(r=>server.listen(0,"127.0.0.1",r));origin="http://127.0.0.1:"+server.address().port;
@@ -64,4 +67,11 @@ test("a removed parent cannot silently turn a source reference into a standalone
 test("source references use the business date across midnight UTC",async()=>{
   await open();await sourceForm();await page.getByRole("button",{name:"Save source reference",exact:true}).click();await page.getByRole("dialog").waitFor({state:"detached"});
   assert.equal(await page.evaluate(()=>window.captureFixture().documents[0].date),"2027-01-01");
+});
+for(const kind of ['version','asset','visibility','access'])test(`package-prefilled values cannot be rebound after source ${kind} changes`,async()=>{
+  await open();await page.getByRole('button',{name:'Fixture reviewed package capture'}).click();
+  for(const f of await page.evaluate(()=>window.captureDefs))assert.equal(await page.locator(`input[name="${f.id}"]`).inputValue(),'Package '+f.id);
+  await page.evaluate(kind=>window.changeCapturedSource(kind),kind);
+  for(const f of await page.evaluate(()=>window.captureDefs))assert.equal(await page.locator(`input[name="${f.id}"]`).inputValue(),'');
+  assert.equal(await page.getByLabel('Page or section reference',{exact:true}).inputValue(),'');assert.deepEqual(await page.evaluate(()=>window.captureSaves),[]);
 });

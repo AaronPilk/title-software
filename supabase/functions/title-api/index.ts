@@ -1,5 +1,6 @@
 import { invitationEmailRedirect, sendInvitationEmail, invitationDeliveryMessage } from "../../../web/lib/backend/invitation-email.ts";
 import { vendorRequest } from "../../../web/lib/backend/vendor-integrations.ts";
+import { documentPackageRequest } from "../../../web/lib/backend/document-packages.ts";
 import { feedbackSubmission, feedbackUpdate, feedbackList } from "../../../web/lib/backend/feedback-validation.ts";
 import { readRequestFormData, readRequestText, RequestBodyError } from "../../../web/lib/shared/request-body.ts";
 import { documentByteProblem } from "../../../web/lib/shared/document-bytes.ts";
@@ -452,6 +453,26 @@ Deno.serve(async (req) => {
       error("Invalid connection request.");
     const wid = uuid(input.workspaceId),
       a = await access(wid, user);
+    if (pathname.startsWith("/document-packages/") && req.method === "POST") {
+      if (!["owner", "admin", "operations", "onboarding"].includes(a.role)) error("Your account cannot read document packages.", 403);
+      const w = await workspace(wid);
+      let documentIds = input.documentIds;
+      if (pathname !== "/document-packages/open") {
+        const saved = checked(await service.from("title_document_packages").select("sources").eq("workspace_id", wid)
+          .eq("actor_id", user.id).eq("access_version", a.version).eq("id", uuid(input.id)).maybeSingle());
+        if (!saved) error("Document review is unavailable.", 404);
+        documentIds = saved.sources.map((source: any) => source.documentId);
+      }
+      if (!Array.isArray(documentIds) || !documentIds.length || documentIds.length > 100 || documentIds.some((id: unknown) => typeof id !== "string" || id.length > 300)) error("Choose 1–100 uploaded originals.");
+      // Query only this package so the REST row limit cannot hide later assets
+      // when the workspace contains thousands of uploaded files.
+      const assetIds = w.state.documents.filter((doc: any) => documentIds.includes(doc.id) && doc.assetId).map((doc: any) => doc.assetId);
+      const assets = assetIds.length ? checked(await service.from("title_assets").select("id,company_id,document_id,sha256,byte_size,mime").eq("workspace_id", wid).in("id", assetIds)) : [];
+      return response(await documentPackageRequest(pathname.slice("/document-packages/".length), input, {
+        workspaceId: wid, access: a, state: w.state, revision: w.revision, assets,
+        rpc: async args => checked(await service.rpc("title_document_package", args)),
+      }));
+    }
     if (pathname.startsWith("/integrations/vendors")) {
       return response(await vendorRequest(pathname, req.method, input, {
         workspaceId: wid, access: a, env: name => Deno.env.get(name),
@@ -735,6 +756,14 @@ Deno.serve(async (req) => {
       if (pathname === "/integrations/missive" && req.method === "GET") return response({ ...setup, routing, mapping: routing.mappings.length === 1 ? routing.mappings[0] : null,
         attachmentDownloadEnabled: setup.importEnabled && missiveAttachmentsEnabled({ attachmentOrigins }) });
       if (pathname === "/integrations/missive/check" && req.method === "POST") return response(await checkMissiveConnection(await providerConfig(), wid, a));
+      if (pathname === "/integrations/missive/company-candidates" && req.method === "GET") {
+        const directory = await checkMissiveConnection(await providerConfig(), wid, a);
+        return response({ candidates: directory.teamInboxes.flatMap(team => {
+          const organization = directory.organizations.find(org => org.id === team.organizationId);
+          return organization ? [{ organizationId: organization.id, organizationName: organization.name,
+            teamId: team.id, teamName: team.name }] : [];
+        }), fetchedAt: directory.checkedAt, truncated: directory.moreOrganizations || directory.moreTeams });
+      }
       if (pathname === "/integrations/missive/mapping" && req.method === "POST") {
         requireRoutingRevision(routing, routingRevision);
         if (input.enabled !== undefined && typeof input.enabled !== "boolean") error("Invalid route status.");

@@ -140,7 +140,7 @@ export function Revisions({
           onChange={setTab}
           items={["Requests", "Reply drafts"]}
         />
-        <span className="subtle-pill">SoftPro & Missive disconnected</span>
+        <span className="subtle-pill">Replies stay here for review · Sending is off</span>
       </div>
       {tab === "Requests" &&
         (requests.length ? (
@@ -833,7 +833,7 @@ function FieldRevisionDetail({
         </div>
       )}
       <p className="form-note">
-        Applying changes only the demo title file and prepares a reply draft.
+        Applying updates this title file and prepares a reply draft in this workspace.
         Captured deed and deed-of-trust field reviews are kept; the file&apos;s
         commitment version advances so earlier outputs and drafts go stale. No
         external record or message is changed.

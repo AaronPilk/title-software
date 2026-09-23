@@ -2,7 +2,9 @@ import { OCR_LIMITS, OcrError, type OcrResult, type OcrProgress, type OcrRotatio
 import { prepareOcrRaster } from "./ocr-raster";
 export { OCR_LIMITS, OcrError, ocrCitation } from "./local-ocr-shared";
 export type { OcrResult, OcrProgress, OcrRotation } from "./local-ocr-shared";
-type Options = { signal?: AbortSignal; onProgress?: (progress: OcrProgress) => void; timeoutMs?: number; rotation?: OcrRotation };
+type Options = { signal?: AbortSignal; onProgress?: (progress: OcrProgress) => void; timeoutMs?: number; rotation?: OcrRotation;
+  /** Package reader only: permit a selected physical page in a PDF of at most 1,000 pages. */
+  packageMode?: boolean };
 
 export async function recognizeDocumentPage(file: Blob, page: number, options: Options = {}): Promise<OcrResult> {
   if (options.signal?.aborted) throw new OcrError("cancelled", "OCR was cancelled.");
@@ -16,7 +18,7 @@ export async function recognizeDocumentPage(file: Blob, page: number, options: O
     options.signal?.addEventListener("abort", cancel, { once: true });
     const run = async (): Promise<OcrResult> => {
       options.onProgress?.({ phase: "Opening document", progress: 0 });
-      const raster = await prepareOcrRaster(file, page, abort.signal, () => options.onProgress?.({ phase: "Rendering page", progress: 1 }), options.rotation);
+      const raster = await prepareOcrRaster(file, page, abort.signal, () => options.onProgress?.({ phase: "Rendering page", progress: 1 }), options.rotation, options.packageMode === true);
       if (abort.signal.aborted) throw new OcrError("cancelled", "OCR was cancelled.");
       const image = new Uint8Array(await raster.image.arrayBuffer());
       if (abort.signal.aborted) throw new OcrError("cancelled", "OCR was cancelled.");

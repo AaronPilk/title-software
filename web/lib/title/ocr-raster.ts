@@ -7,11 +7,12 @@ function png(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new OcrError("unreadable", "The image could not be prepared for OCR.")), "image/png"));
 }
 /** Render exactly one selected physical page; all bytes remain in this browser. */
-export async function prepareOcrRaster(file: Blob, pageNumber: number, signal: AbortSignal, onRendering?: () => void, rotation: OcrRotation = 0): Promise<OcrRaster> {
+export async function prepareOcrRaster(file: Blob, pageNumber: number, signal: AbortSignal, onRendering?: () => void, rotation: OcrRotation = 0, packageMode = false): Promise<OcrRaster> {
   check(signal);
   if (!file.size || file.size > OCR_LIMITS.bytes) throw new OcrError("size", "Choose a nonempty PDF, PNG or JPEG up to 25 MB.");
   if (!["application/pdf", "image/png", "image/jpeg"].includes(file.type)) throw new OcrError("unsupported", "Local OCR supports PDF, PNG and JPEG files.");
-  if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > OCR_LIMITS.pages || (file.type !== "application/pdf" && pageNumber !== 1))
+  const pageLimit = packageMode === true ? 1_000 : OCR_LIMITS.pages;
+  if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > pageLimit || (file.type !== "application/pdf" && pageNumber !== 1))
     throw new OcrError("page", "Choose a valid physical page for OCR.");
   if (![0, 90, 180, 270].includes(rotation)) throw new OcrError("page", "Choose one of the available page orientations.");
   const bytes = new Uint8Array(await file.arrayBuffer()); check(signal);
@@ -30,7 +31,8 @@ export async function prepareOcrRaster(file: Blob, pageNumber: number, signal: A
         useSystemFonts: false, stopAtErrors: true, enableXfa: false, isOffscreenCanvasSupported: false,
         isImageDecoderSupported: false, maxImageSize: OCR_LIMITS.sourcePixels, BinaryDataFactory: NoExternalData, verbosity: 0 });
       const pdf = await task.promise; check(signal);
-      if (pdf.numPages > OCR_LIMITS.pages || pageNumber > pdf.numPages) throw new OcrError("page", "Local OCR supports PDFs up to 120 pages. Choose an existing physical page.");
+      if (!Number.isSafeInteger(pdf.numPages) || pdf.numPages < 1 || pdf.numPages > pageLimit || pageNumber > pdf.numPages)
+        throw new OcrError("page", `Local ${packageMode ? "package " : ""}OCR supports PDFs up to ${pageLimit.toLocaleString("en-US")} pages. Choose an existing physical page.`);
       totalPages = pdf.numPages;
       const page = await pdf.getPage(pageNumber); check(signal);
       const size = page.getViewport({ scale: 1 });

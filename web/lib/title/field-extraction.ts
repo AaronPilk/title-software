@@ -1,4 +1,4 @@
-/** Bounded, label-based suggestions only. This module never changes or approves a field. */
+/** Bounded, source-grounded label and narrative suggestions. Never changes or approves a field. */
 export type SourceFieldPage = {
   page: number;
   text: string;
@@ -22,13 +22,13 @@ export type SourceFieldSuggestion = {
   warnings: string[];
 };
 export const FIELD_EXTRACTION_LIMITS = {
-  fields: 32, pages: 120, pageCharacters: 50_000, characters: 500_000,
+  fields: 32, pages: 1000, pageCharacters: 50_000, characters: 500_000,
   lines: 12_000, valueCharacters: 500, valueLines: 4, candidates: 16,
 } as const;
 
 type Scope = "deed" | "security";
-type Kind = "name" | "date" | "time" | "amount" | "reference" | "instrument";
-type Alias = { field: string; kind: Kind } | { generic: "dated" | "date" | "time" | "reference" | "instrument"; kind: Kind };
+export type SourceValueKind = "name" | "date" | "time" | "amount" | "reference" | "instrument";
+type Alias = { field: string; kind: SourceValueKind } | { generic: "dated" | "date" | "time" | "reference" | "instrument"; kind: SourceValueKind };
 type Line = { text: string; start: number; end: number };
 type Parsed = { alias: Alias; value: string; valueOffset: number };
 const knownFields = new Set(["name", "deedDated", "date", "time", "reference", "loanAmount", "dotDated", "dotDate", "dotTime", "dotReference", "trustee"]);
@@ -121,13 +121,15 @@ function checkDate(raw: string): { valid: boolean; ambiguous?: string } {
     const monthFirst = validDay(year, a, b), dayFirst = validDay(year, b, a);
     return { valid: monthFirst || dayFirst, ambiguous: monthFirst && dayFirst && a !== b ? "Numeric date order is ambiguous. Confirm month and day against the original; no interpretation was selected." : undefined };
   }
+  const prose = /^(?:this\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+day\s+of\s+([A-Za-z]+),?\s+(\d{4})$/i.exec(raw);
+  if (prose) return checkDate(`${prose[2]} ${prose[1]}, ${prose[3]}`);
   const named = /^(January|February|March|April|May|June|July|August|September|October|November|December|Jan\.?|Feb\.?|Mar\.?|Apr\.?|Jun\.?|Jul\.?|Aug\.?|Sep\.?|Sept\.?|Oct\.?|Nov\.?|Dec\.?)\s+(\d{1,2}),?\s+(\d{4})$/i.exec(raw);
   if (!named) return { valid: false };
   const month = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(named[1].slice(0, 3).toLowerCase()) + 1;
   return { valid: validDay(+named[3], month, +named[2]) };
 }
-function checkValue(kind: Kind, value: string): { valid: boolean; ambiguous?: string } {
-  if (!value || value.length > FIELD_EXTRACTION_LIMITS.valueCharacters || /^(?:n\/?a|none|unknown|tbd|see attached|not provided|not available|blank|[-_]+)$/i.test(value)) return { valid: false };
+export function checkSourceValue(kind: SourceValueKind, value: string): { valid: boolean; ambiguous?: string } {
+  if (!value || value.length > FIELD_EXTRACTION_LIMITS.valueCharacters || /^(?:grantee|grantor|borrower|lender|trustee|n\/?a|none|unknown|tbd|see attached|not provided|not available|blank|[-_]+)$/i.test(value)) return { valid: false };
   if (kind === "date") return checkDate(value);
   if (kind === "amount") return { valid: /^(?:(?:USD|US\$)\s*|\$\s*)?(?:\d{1,12}|\d{1,3}(?:,\d{3}){1,3})(?:\.\d{2})?$/.test(value) };
   if (kind === "time") {
@@ -137,8 +139,8 @@ function checkValue(kind: Kind, value: string): { valid: boolean; ambiguous?: st
     return { valid: meridiem ? hour >= 1 && hour <= 12 : hour <= 23, ambiguous: !meridiem && hour >= 1 && hour <= 12 ? "No AM/PM is shown. Confirm whether the source uses a 24-hour clock." : undefined };
   }
   if (kind === "instrument") return { valid: /^(?=[A-Za-z0-9-]*\d)[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/.test(value) };
-  if (kind === "reference") return { valid: /^(?:(?:Book|Bk)\.?\s*)?\d{1,12}[A-Za-z]?\s*(?:\/|,|\s+(?:Page|Pg)\.?\s+)\s*\d{1,12}(?:-\d{1,12})?$/i.test(value) };
-  return { valid: /\p{L}/u.test(value) && !/[<>:]/.test(value) };
+  if (kind === "reference") return { valid: /^(?:(?:Book|Bk)\.?\s*)?\d{1,12}[A-Za-z]?\s*(?:\/|,(?!\s*(?:at\s+)?(?:Page|Pg))|\s*[,;]?\s*(?:at\s+)?(?:Page|Pg)\.?\s+)\s*\d{1,12}(?:-\d{1,12})?$/i.test(value) };
+  return { valid: /\p{L}/u.test(value) && !/[<>:]/.test(value) && !/\.\s+(?:The|This|Lender|Borrower|Grantor|Grantee|Trustee|It|He|She)\b/.test(value) };
 }
 function validateInput(defs: Array<{ id: string; label: string }>, pages: SourceFieldPage[]) {
   if (!Array.isArray(defs) || defs.length > FIELD_EXTRACTION_LIMITS.fields || !Array.isArray(pages) || pages.length > FIELD_EXTRACTION_LIMITS.pages) throw new Error("Too many or invalid fields/pages for source suggestions.");
@@ -156,6 +158,68 @@ function validateInput(defs: Array<{ id: string; label: string }>, pages: Source
     if (pageIds.has(key)) throw new Error("Duplicate source page and reading method.");
     pageIds.add(key);
   }
+}
+
+// Whitespace may wrap in PDF/OCR text; captured values remain untouched. A statement
+// must identify the instrument and relationship, not merely contain a name/date/$.
+const narrativeDate = String.raw`(?:\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan\.?|Feb\.?|Mar\.?|Apr\.?|Jun\.?|Jul\.?|Aug\.?|Sep\.?|Sept\.?|Oct\.?|Nov\.?|Dec\.?)\s+\d{1,2},?\s+\d{4}|(?:this\s+)?\d{1,2}(?:st|nd|rd|th)?\s+day\s+of\s+[A-Za-z]+,?\s+\d{4})`;
+const instructionText = /\b(?:ignore\s+(?:all\s+)?(?:previous|prior|the)\s+instructions|system\s*prompt|developer\s*message|set\s+\w+\s*=|approve\s+(?:all|the)\s+(?:polic|field)|instructions?\s+to\s+(?:the\s+)?(?:ai|assistant))\b/i;
+
+type NarrativeHit = { fieldId: string; rawValue: string; quote: string; kind: SourceValueKind };
+function narrativeHits(page: SourceFieldPage): NarrativeHit[] {
+  const hits: NarrativeHit[] = [];
+  const lines = pageLines(page.text);
+  const inferred = new Set<Scope>();
+  for (const line of lines) {
+    const role = heading(line.text) ?? (/\bthis\s+(?:deed\s+of\s+trust|mortgage|security\s+instrument)\b/i.test(line.text) ? "security" : /\bthis\s+(?:(?:general|special)\s+warranty\s+|warranty\s+|quitclaim\s+)?deed\b(?!\s+of\s+trust)/i.test(line.text) ? "deed" : undefined);
+    if (role) inferred.add(role);
+  }
+  let scope: Scope | undefined = inferred.size === 1 ? [...inferred][0] : undefined;
+  let start = 0;
+  const sections: Array<{ scope?: Scope; text: string }> = [];
+  for (const line of lines) {
+    const role = heading(line.text);
+    const unrelated = /^(?:assignment|release|satisfaction|substitution|modification|amendment)(?:\s|:|$)/i.test(line.text.trim());
+    if (role || unrelated) {
+      if (line.start > start) sections.push({ scope, text: page.text.slice(start, line.start) });
+      scope = unrelated ? undefined : role;
+      start = line.start;
+    }
+  }
+  sections.push({ scope, text: page.text.slice(start) });
+  for (const section of sections) {
+    if (!section.scope) continue;
+    const fields = scopeFields[section.scope];
+    const match = (pattern: RegExp, fieldId: string, kind: SourceValueKind) => {
+      for (const found of section.text.matchAll(pattern)) {
+        if (instructionText.test(found[0])) continue;
+        // Do not extract a token from an instruction line, even when its tail
+        // happens to look like an otherwise valid legal phrase.
+        const lineStart = section.text.lastIndexOf("\n", found.index) + 1;
+        if (instructionText.test(section.text.slice(lineStart, found.index)) || /\b(?:prior|previous|earlier|formerly|historical)\b/i.test(section.text.slice(lineStart, found.index))) continue;
+        const rawValue = found[1]?.trim();
+        if (rawValue) hits.push({ fieldId, kind, rawValue, quote: found[0] });
+        if (hits.length >= FIELD_EXTRACTION_LIMITS.fields * FIELD_EXTRACTION_LIMITS.candidates) break;
+      }
+    };
+    const instrument = section.scope === "deed" ? String.raw`(?:(?:general|special)\s+warranty\s+|warranty\s+|quitclaim\s+)?deed(?!\s+of\s+trust)` : String.raw`(?:deed\s+of\s+trust|mortgage|security\s+instrument)`;
+    match(new RegExp(String.raw`\b(?:this\s+)?${instrument}\s+(?:is\s+|was\s+)?(?:made(?:\s+and\s+entered\s+into)?(?:\s+(?:as\s+of|on))?|dated|executed\s+on)\s+(${narrativeDate})(?![\d/-])`, "gi"), fields.dated, "date");
+    match(new RegExp(String.raw`\b(?:recorded|filed\s+for\s+registration|filed\s+and\s+recorded)(?:\s+(?:on|this))?\s+(${narrativeDate})(?![\d/-])`, "gi"), fields.date, "date");
+    match(new RegExp(String.raw`\b(?:recorded|filed\s+for\s+registration|filed\s+and\s+recorded)(?:\s+(?:on|this))?\s+${narrativeDate}\s+(?:at\s+)?(\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:AM|PM|A\.M\.|P\.M\.))?)(?![\d:])`, "gi"), fields.time, "time");
+    match(/\b(?:recorded|recording|filed)(?:[^\r\n]{0,120}?\s+in)?\s+((?:Book|Bk)\.?\s+\d{1,12}[A-Za-z]?\s*[,;]?\s*(?:at\s+)?(?:Page|Pg)\.?\s+\d{1,12}(?:-\d{1,12})?)(?![\dA-Za-z])/gi, fields.reference, "reference");
+    match(/\b(?:recorded|filed)(?:\s+as|\s+under)?\s+(?:instrument|document)\s*(?:number|no\.?|#)\s*([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)(?![\w-])/gi, fields.instrument, "instrument");
+    if (section.scope === "deed") {
+      match(/(?:["“]Grantor["”]\s*\)|\bGrantor)\s*,?\s+and\s+([\s\S]{1,500}?)\s*(?=,?\s*(?:\(\s*)?(?:hereinafter\s+(?:called|designated|referred\s+to\s+as)\s+)?["“]?Grantees?["”]?(?:\s*[,);.]|$))/gi, "name", "name");
+      match(/\b(?:title\s+is\s+vested\s+in|the\s+grantees?\s+(?:is|are))\s+([^;\n]{1,500})(?=;|\n|$)/gi, "name", "name");
+      match(/\b(?:grant(?:s|ed)?(?:\s+and\s+convey(?:s|ed)?)?|convey(?:s|ed)?)\s+(?:unto|to)\s+([\s\S]{1,500}?)\s*(?=,?\s*(?:\(\s*["“]?Grantees?["”]?\s*\)|,\s*(?:hereinafter\s+(?:called|designated|referred\s+to\s+as)\s+)?(?:the\s+)?["“]?Grantees?\b|,\s*(?:and\s+)?(?:their|his|her|its)\s+(?:heirs|successors)))/gi, "name", "name");
+    } else {
+      match(/\b(?:(?:the\s+)?trustee\s+is|appoints?\s+as\s+trustee)\s+([^;\n]{1,500})(?=;|\n|$)/gi, "trustee", "name");
+      match(/\b(?:conveys?\s+to|grants?\s+to)\s+([\s\S]{1,500}?)\s*,\s*(?:as\s+)?Trustee\b/gi, "trustee", "name");
+      match(/\b(?:principal\s+(?:sum|amount)(?:\s+of)?|borrower\s+owes\s+lender(?:\s+the\s+principal\s+sum\s+of)?)\s+((?:(?:USD|US\$)\s*|\$\s*)?[\dOolI,]+(?:\.\d{1,3})?)(?![\w.,])/gi, "loanAmount", "amount");
+      match(/\bprincipal\s+(?:sum|amount)\s+of\s+[A-Za-z\s-]{3,180}\s*\(\s*((?:(?:USD|US\$)\s*|\$\s*)[\dOolI,]+(?:\.\d{1,3})?)\s*\)/gi, "loanAmount", "amount");
+    }
+  }
+  return hits;
 }
 
 export function suggestSourceFields(defs: Array<{ id: string; label: string }>, pages: SourceFieldPage[]): SourceFieldSuggestion[] {
@@ -214,7 +278,7 @@ export function suggestSourceFields(defs: Array<{ id: string; label: string }>, 
         }
       }
       const rawValue = page.text.slice(start, lines[last].end).trimEnd();
-      const checked = checkValue(alias.kind, rawValue);
+      const checked = checkSourceValue(alias.kind, rawValue);
       if (!checked.valid) {
         addWarning(row.warnings, "A labeled value is incomplete, oversized or not a supported exact format. Check the original; no value was guessed.");
         ambiguous.add(fieldId);
@@ -238,6 +302,27 @@ export function suggestSourceFields(defs: Array<{ id: string; label: string }>, 
         addWarning(row.warnings, "There are more labeled candidates than can be displayed. Review the complete source; no value was selected.");
       } else row.candidates.push(candidate);
     }
+    for (const hit of narrativeHits(page)) {
+      const row = byId.get(hit.fieldId);
+      if (!row) continue;
+      const checked = checkSourceValue(hit.kind, hit.rawValue);
+      if (!checked.valid || /[\r\n]/.test(hit.rawValue) && hit.rawValue.split(/\r\n|\r|\n/).length > FIELD_EXTRACTION_LIMITS.valueLines) {
+        ambiguous.add(hit.fieldId);
+        addWarning(row.warnings, "An explicit narrative value is incomplete or contains uncertain characters. Check the original; no repair was guessed.");
+        continue;
+      }
+      const warnings = ["Narrative suggestion only. Verify the stated relationship and every character in the original; this does not approve the field."];
+      if (checked.ambiguous) { warnings.push(checked.ambiguous); ambiguous.add(hit.fieldId); }
+      if (/[\r\n]/.test(hit.rawValue)) warnings.push("Multiline wording is preserved. Confirm that all lines belong to this field.");
+      if (page.method === "ocr") {
+        warnings.push("OCR engine confidence is an estimate, not field accuracy. Verify every character against the original image.");
+        if (page.confidence === undefined || page.confidence < 80) { ambiguous.add(hit.fieldId); warnings.push("Missing or low OCR confidence requires deliberate source comparison; not eligible for automatic filling."); }
+      }
+      const candidate: SourceFieldCandidate = { rawValue: hit.rawValue, quote: hit.quote, page: page.page, method: page.method, warnings, ...(page.confidence !== undefined ? { confidence: page.confidence } : {}) };
+      if (row.candidates.some(prior => prior.rawValue === candidate.rawValue && prior.quote === candidate.quote && prior.page === candidate.page && prior.method === candidate.method)) continue;
+      if (row.candidates.length >= FIELD_EXTRACTION_LIMITS.candidates) { ambiguous.add(hit.fieldId); addWarning(row.warnings, "There are more candidates than can be displayed. Review the complete source; no value was selected."); }
+      else row.candidates.push(candidate);
+    }
   }
   for (const row of result) {
     if (new Set(row.candidates.map(candidate => candidate.rawValue)).size > 1) {
@@ -245,7 +330,7 @@ export function suggestSourceFields(defs: Array<{ id: string; label: string }>, 
       addWarning(row.warnings, "Different source values were found. Resolve the conflict manually; no value was selected.");
     }
     row.status = row.candidates.length ? ambiguous.has(row.fieldId) ? "ambiguous" : "suggested" : "missing";
-    if (!row.candidates.length && !row.warnings.length) row.warnings.push("No supported, explicitly labeled value found. Capture it from the original manually.");
+    if (!row.candidates.length && !row.warnings.length) row.warnings.push("No supported explicit label or narrative relationship found. Capture it from the original manually.");
   }
   return result;
 }

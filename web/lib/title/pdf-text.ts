@@ -1,6 +1,8 @@
 import type { PDFDocumentLoadingTask, PDFPageProxy } from "pdfjs-dist";
 
 export const PDF_TEXT_LIMITS = { bytes: 26_214_400, pages: 120, characters: 500_000, pageCharacters: 50_000, milliseconds: 20_000 } as const;
+/** Package mode opens only this bounded window, never all 1,000 pages. */
+export const PDF_PACKAGE_LIMITS = { pages: 1_000, windowPages: 20 } as const;
 export type PdfTextPage = { page: number; text: string; status: "text" | "empty"; requiresOcr?: boolean };
 export type PdfTextReview = {
   status: "ready" | "partial" | "needs_review";
@@ -8,7 +10,9 @@ export type PdfTextReview = {
   pages: PdfTextPage[]; totalPages: number; message: string; failedPages?: number[];
 };
 type Engine = { getDocument: (options: Record<string, unknown>) => PDFDocumentLoadingTask; imagePaintOps?: ReadonlySet<number> };
-type Options = { signal?: AbortSignal; onProgress?: (completed: number, total: number) => void; engine?: Engine; timeoutMs?: number; continueOnPageError?: boolean; detectRasterContent?: boolean };
+type Options = { signal?: AbortSignal; onProgress?: (completed: number, total: number) => void; engine?: Engine; timeoutMs?: number; continueOnPageError?: boolean; detectRasterContent?: boolean;
+  /** count=0 reads the page count without loading page content. Other windows contain at most 20 pages. */
+  pageWindow?: { start: number; count: number } };
 class ReviewStop extends Error {
   constructor(public readonly reason: NonNullable<PdfTextReview["reason"]>, message: string) { super(message); }
 }
@@ -31,6 +35,11 @@ async function engine(): Promise<Engine> {
 }
 /** Read selectable text only. Page numbers always refer to physical PDF pages (starting at one). */
 export async function extractPdfText(file: Blob, options: Options = {}): Promise<PdfTextReview> {
+  const pageWindow = options.pageWindow ? { ...options.pageWindow } : undefined;
+  if (pageWindow && (!Number.isSafeInteger(pageWindow.start) || pageWindow.start < 1 || pageWindow.start > PDF_PACKAGE_LIMITS.pages ||
+    !Number.isSafeInteger(pageWindow.count) || pageWindow.count < 0 || pageWindow.count > PDF_PACKAGE_LIMITS.windowPages ||
+    pageWindow.start + Math.max(0, pageWindow.count - 1) > PDF_PACKAGE_LIMITS.pages))
+    return { status: "needs_review", reason: "page_limit", pages: [], totalPages: 0, message: "Choose a package window of at most 20 physical pages between 1 and 1,000." };
   if (!file.size || file.size > PDF_TEXT_LIMITS.bytes)
     return { status: "needs_review", reason: "too_large", pages: [], totalPages: 0, message: "Choose a nonempty PDF up to 25 MB for local text review." };
   let task: PDFDocumentLoadingTask | undefined;
@@ -59,10 +68,15 @@ export async function extractPdfText(file: Blob, options: Options = {}): Promise
         isImageDecoderSupported: false, BinaryDataFactory: LocalOnlyBinaryData, verbosity: 0 });
       const pdf = await task.promise;
       totalPages = pdf.numPages;
-      if (!Number.isSafeInteger(totalPages) || totalPages < 1 || totalPages > PDF_TEXT_LIMITS.pages)
-        throw new ReviewStop("page_limit", "Local text review supports up to 120 pages. Split a copy into a smaller document or review the original.");
+      const limit = pageWindow ? PDF_PACKAGE_LIMITS.pages : PDF_TEXT_LIMITS.pages;
+      if (!Number.isSafeInteger(totalPages) || totalPages < 1 || totalPages > limit)
+        throw new ReviewStop("page_limit", pageWindow ? "Package review supports up to 1,000 physical pages across all originals." : "Local text review supports up to 120 pages. Split a copy into a smaller document or review the original.");
+      if (pageWindow?.count === 0) return { status: "ready", pages: [], totalPages, message: "Package page count is ready. No page content has been read yet." };
+      const first = pageWindow?.start || 1;
+      if (first > totalPages) throw new ReviewStop("page_limit", "Choose physical pages that exist in this PDF.");
+      const last = pageWindow ? Math.min(totalPages, first + pageWindow.count - 1) : totalPages;
       const pages: PdfTextPage[] = [], failedPages: number[] = []; let characters = 0;
-      for (let pageNumber = 1; pageNumber <= totalPages; pageNumber++) {
+      for (let pageNumber = first; pageNumber <= last; pageNumber++) {
         if (stopped || options.signal?.aborted) throw new ReviewStop("cancelled", "Document text review was cancelled.");
         let page: PDFPageProxy | undefined;
         try {
@@ -101,7 +115,7 @@ export async function extractPdfText(file: Blob, options: Options = {}): Promise
       }
       const empty = pages.filter(p => p.status === "empty").length;
       const failures = failedPages.length ? { failedPages } : {};
-      if (empty === totalPages) return { status: "needs_review", reason: "empty", pages, totalPages, ...failures,
+      if (empty === pages.length) return { status: "needs_review", reason: "empty", pages, totalPages, ...failures,
         message: "No selectable text was found. This PDF may be scanned; review the original or use OCR before capturing evidence." };
       const hybrid = pages.filter(page => page.requiresOcr).length;
       if (hybrid) return { status: "partial", pages, totalPages, ...failures,

@@ -117,6 +117,23 @@ async function request(path,body,workspaceId=wid) {
 }
 const importInput = () => ({ expectedRoutingRevision: 1, mappingId: route.id, expectedRevision: 1, requestId: crypto.randomUUID(), messageId: 'message', orderId: 'order-A', kind: 'Revision', fingerprint: 'unreviewed-fixture' });
 const noProvider = () => { assert.equal(state.providerCalls.length,0); assert(!state.rpcs.some(r => r.name === 'title_read_missive_credential')); };
+test('company directory reads only verified organization and inbox metadata without mailbox writes',async()=>{
+  const original=structuredClone(state.workspaceState), result=await request('/company-candidates');
+  assert.equal(result.status,200);
+  assert.deepEqual(result.body.candidates,[{organizationId:'org',organizationName:'Fixture org',teamId:'team',teamName:'Synthetic inbox'}]);
+  assert.equal(result.body.truncated,false);assert.ok(Date.parse(result.body.fetchedAt));
+  assert.equal(state.providerCalls.length,2);assert(state.providerCalls.every(call=>call.options.method==='GET' && /\/v1\/(organizations|teams)\?/.test(call.url)));
+  assert(!JSON.stringify(result.body).includes(token));assert(!state.rpcs.some(r=>/save|import/.test(r.name)));assert.deepEqual(state.workspaceState,original);
+});
+test('company discovery rejects staff and company-scoped administrators before decrypting the credential',async()=>{
+  for(const membership of [{role:'operations'},{role:'onboarding'},{role:'admin',all_companies:false}]){
+    state.membership=membership;assert.equal((await request('/company-candidates')).status,403);noProvider();
+  }
+});
+test('failed directory verification returns no partial company identities or credential bytes',async()=>{
+  state.providerStatus=401;const result=await request('/company-candidates');
+  assert.equal(result.status,502);assert.equal(result.body.candidates,undefined);assert(!JSON.stringify(result.body).includes(token));
+});
 test("settings metadata remains readable when the saved credential cannot decrypt", async () => {
   state.credentialReadFails = true;
   const result = await request(""); assert.equal(result.status, 200); assert.equal(result.body.status, "ready");

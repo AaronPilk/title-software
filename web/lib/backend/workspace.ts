@@ -1,4 +1,5 @@
 import { projectPartnerSummary } from "./partner-summary";
+import { validateCompanyIntake, companyProfileMissing, companyCandidateKey } from "../title/company-intake";
 import { normalizeMemberContacts } from "../title/member-directory";
 import type { Workspace, Company, Order, VaultDoc } from "../title/model";
 import { createSeed } from "../title/model";
@@ -584,9 +585,18 @@ function applyEdit(
           403,
         );
       nonempty(v.name, "company name");
-      nonempty(v.contact, "contact");
-      if (!B.emailValid(String(v.email))) fail("Enter a valid company email.");
-      if (!/^[A-Z]{2}$/.test(String(v.jurisdiction)))
+      const intake = v.intake ? validateCompanyIntake(v.intake, a.email) : undefined;
+      if (intake) {
+        permitWorkspaceAdmin(a);
+        if (intake.profileStatus !== "incomplete" || !intake.nameUnverified || v.contact !== "" || v.email !== "" || v.location !== "" || v.jurisdiction !== "")
+          fail("Import an incomplete company profile first, then review its details.");
+        if (s.companies.some(c => c.intake && companyCandidateKey(c.intake) === companyCandidateKey(intake)))
+          fail("This Missive inbox already has a company profile.", 409);
+      } else {
+        nonempty(v.contact, "contact");
+        if (!B.emailValid(String(v.email))) fail("Enter a valid company email.");
+      }
+      if (!intake && !/^[A-Z]{2}$/.test(String(v.jurisdiction)))
         fail("Choose an operating state.");
       list.unshift({
         id: edit.id,
@@ -602,6 +612,7 @@ function applyEdit(
         stage: "Onboarding",
         steps: Array(7).fill(false),
         members: [],
+        ...(intake ? { intake, operatingStates: [] } : {}),
       });
     } else {
       keys(v, [
@@ -612,12 +623,28 @@ function applyEdit(
         "contact",
         "email",
         "location",
+        "intake",
+        "jurisdiction",
       ]);
+      const previous = current as Company;
+      if (has(v, "intake")) {
+        if (!previous.intake) fail("Company intake provenance cannot be added to an existing profile.");
+        const next = validateCompanyIntake(v.intake);
+        const fixed = (value: typeof next) => Object.entries(value).filter(([key]) => !["nameUnverified", "profileStatus"].includes(key)).sort(([a], [b]) => a.localeCompare(b));
+        if (!eq(fixed(next), fixed(previous.intake))) fail("Company intake provenance cannot be changed.");
+        if (next.profileStatus === "complete" && companyProfileMissing({ ...previous, ...v } as Company).length)
+          fail("Complete and confirm the company basics first.");
+      }
+      const pending = ((v.intake || previous.intake) as Company["intake"])?.profileStatus === "incomplete";
+      if (has(v, "name") && !eq(v.name, previous.name) && previous.intake && !has(v, "intake"))
+        fail("Review the company name after changing it.");
+      if (has(v, "jurisdiction") && (previous.jurisdiction || !previous.intake || !/^[A-Z]{2}$/.test(String(v.jurisdiction))) && v.jurisdiction !== previous.jurisdiction)
+        fail("The primary operating state cannot be changed here.");
       if (has(v, "members")) validateMembers(v.members);
       if (
         v.operatingStates &&
         (!Array.isArray(v.operatingStates) ||
-          !v.operatingStates.length ||
+          (!v.operatingStates.length && !pending) ||
           v.operatingStates.some(
             (x: unknown) => typeof x !== "string" || !/^[A-Z]{2}$/.test(x),
           ) ||
@@ -628,7 +655,7 @@ function applyEdit(
           ))
       )
         fail("Keep operating states used by existing files.");
-      if (has(v, "email") && !B.emailValid(String(v.email)))
+      if (has(v, "email") && !(pending && v.email === "") && !B.emailValid(String(v.email)))
         fail("Enter a valid email.");
       Object.assign(current!, v);
     }

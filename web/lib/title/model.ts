@@ -1,4 +1,5 @@
 import { commandUuid } from "./command-log";
+import type { CompanyIntakeSource } from "./company-intake";
 import {
   enrichWorkspace,
   type TitleFile,
@@ -42,6 +43,7 @@ export type AuthorityRecord = {
   reviewer: string;
 };
 export type Company = {
+  intake?: CompanyIntakeSource;
   id: string;
   name: string;
   initials: string;

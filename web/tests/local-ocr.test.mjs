@@ -72,6 +72,28 @@ test("real scanned PDF OCR reads only the selected physical page", {timeout:1000
   const { text, result }=await page.evaluate(async () => {const file=await window.makeScannedPdf();return {text:await window.ocrApi.extractPdfText(file),result:await window.ocrApi.recognizeDocumentPage(file,2)};});
   assert.equal(text.reason,"empty"); assert.equal(result.page,2); assert.match(result.text,/LOAN AMOUNT 250000/); assert.doesNotMatch(result.text,/IGNORE FIRST PAGE/);
 });
+test("package OCR renders physical page 500 with the same raster bounds while ordinary review keeps its cap", {timeout:100000}, async () => {
+  const result = await page.evaluate(async () => {
+    const jpeg = new Uint8Array(await (await window.makeScan("LATE PAGE LOAN 876543", "image/jpeg")).arrayBuffer());
+    const count = 500, objects = [["<< /Type /Catalog /Pages 2 0 R >>"],
+      [`<< /Type /Pages /Kids [${Array.from({ length: count }, (_, i) => `${4 + i * 2} 0 R`).join(" ")}] /Count ${count} >>`],
+      [`<< /Type /XObject /Subtype /Image /Width 1200 /Height 260 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`, jpeg, "\nendstream"]];
+    for (let i = 0; i < count; i++) {
+      const id = 4 + i * 2, content = "q 600 0 0 130 0 0 cm /Im0 Do Q";
+      objects.push([`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 130] /Resources << /XObject << /Im0 3 0 R >> >> /Contents ${id + 1} 0 R >>`], [`<< /Length ${content.length} >>\nstream\n${content}\nendstream`]);
+    }
+    const encoder = new TextEncoder(), chunks = [], offsets = [0]; let length = 0;
+    const append = value => { const bytes = typeof value === "string" ? encoder.encode(value) : value; chunks.push(bytes); length += bytes.length; };
+    append("%PDF-1.7\n"); objects.forEach((parts, i) => { offsets.push(length); append(`${i + 1} 0 obj\n`); parts.forEach(append); append("\nendobj\n"); });
+    const xref = length; append(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`); offsets.slice(1).forEach(n => append(`${String(n).padStart(10, "0")} 00000 n \n`));
+    append(`trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+    const file = new Blob(chunks, { type: "application/pdf" }); let ordinaryCode;
+    try { await window.ocrApi.recognizeDocumentPage(file, 500); } catch (error) { ordinaryCode = error.code; }
+    return { ordinaryCode, ocr: await window.ocrApi.recognizeDocumentPage(file, 500, { packageMode: true }) };
+  });
+  assert.equal(result.ordinaryCode, "page"); assert.equal(result.ocr.page, 500); assert.match(result.ocr.text, /LATE PAGE LOAN 876543/);
+  assert.ok(result.ocr.width * result.ocr.height <= OCR_LIMITS.rasterPixels);
+});
 test("ordinary generated PDF text can also be rendered and recognized locally",{timeout:100000},async()=>{
   const result=await page.evaluate(async()=>window.ocrApi.recognizeDocumentPage(window.makeSelectablePdf(),1));
   assert.match(result.text,/LOAN AMOUNT 250000/);

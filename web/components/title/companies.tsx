@@ -2,6 +2,9 @@
 import { OwnershipHistoryPanel } from "./ownership";
 import { OnboardingCasePanel, CredentialCenter } from "./onboarding-suite";
 import { CompanyMaterials } from "./materials";
+import { CompanyIntakeProfile, CompanyIntakeProfileEditor, MissiveCompanyIntakeButton } from "./company-intake";
+import { PackageReviewButton, type CompanyProfileCapture } from "./package-review";
+import { documentScanIdentity } from "./use-document-scan";
 import { useState } from "react";
 import {
   Building2,
@@ -79,6 +82,7 @@ export function Companies({
         title="Companies"
         description="A home for every company in your portfolio."
       >
+        <MissiveCompanyIntakeButton />
         {canAddCompany && <Button onClick={onNew}>
           <Plus />
           Add company
@@ -106,7 +110,7 @@ export function Companies({
             <h2>{c.name}</h2>
             <p>
               <MapPin size={13} />
-              {c.location} · {c.jurisdiction}
+              {[c.location, c.jurisdiction].filter(Boolean).join(" · ") || "Location and state needed"}
             </p>
             <div className="company-card-metrics">
               <div>
@@ -133,7 +137,7 @@ export function Companies({
               </div>
             </div>
             <div className="company-card-footer">
-              <span>{c.contact}</span>
+              <span>{c.intake?.profileStatus === "incomplete" ? "Complete company profile" : c.contact || "Primary contact needed"}</span>
               <ChevronRight size={16} />
             </div>
           </button>
@@ -381,11 +385,17 @@ export function CompanyDetail({
   onDoc: (doc: VaultDoc) => void;
   onUpload: (id: string) => void;
 }) {
-  const { s } = useWorkspace();
+  const { s, connection } = useWorkspace();
   const [tab, setTab] = useState("Overview");
+  const [profileCapture, setProfileCapture] = useState<(CompanyProfileCapture & { companySnapshot: string }) | null>(null);
   const c = s.companies.find((x) => x.id === id);
   if (!c) return null;
   const docs = s.documents.filter((d) => d.companyId === id);
+  const canEditProfile = !connection || (["owner", "admin", "onboarding"].includes(connection.access.role) && (connection.access.allCompanies || connection.access.companyIds.includes(c.id)));
+  const profileCaptureCurrent = !!profileCapture && profileCapture.companySnapshot === JSON.stringify(c) && profileCapture.sourceIdentities.every(source => {
+    const current = s.documents.find(doc => doc.id === source.documentId && doc.companyId === c.id);
+    return current && source.identity === documentScanIdentity(current, connection);
+  });
   return (
     <Sheet open={!!id} onOpenChange={(v) => !v && onClose()}>
       <SheetContent className="detail-sheet company-detail">
@@ -393,7 +403,7 @@ export function CompanyDetail({
           <CompanyAvatar company={c} large />
           <SheetTitle>{c.name}</SheetTitle>
           <SheetDescription>
-            {c.location} · {c.jurisdiction}
+            {[c.location, c.jurisdiction].filter(Boolean).join(" · ") || "Location and operating state not yet confirmed"}
           </SheetDescription>
         </SheetHeader>
         <div className="sheet-body">
@@ -411,19 +421,20 @@ export function CompanyDetail({
           />
           {tab === "Overview" && (
             <>
+              <CompanyIntakeProfile company={c} />
               <div className="detail-grid">
                 <div>
                   <small>Primary contact</small>
-                  <strong>{c.contact}</strong>
+                  <strong>{c.contact || "Not yet confirmed"}</strong>
                 </div>
                 <div>
                   <small>Contact email</small>
-                  <strong>{c.email}</strong>
+                  <strong>{c.email || "Not yet confirmed"}</strong>
                 </div>
                 <div>
                   <small>Operating states</small>
                   <strong>
-                    {(c.operatingStates || [c.jurisdiction]).join(" · ")}
+                    {(c.operatingStates || [c.jurisdiction]).filter(Boolean).join(" · ") || "Not yet confirmed"}
                   </strong>
                 </div>
                 <div>
@@ -463,7 +474,7 @@ export function CompanyDetail({
               <div className="notice">
                 <Building2 size={17} />
                 <p>
-                  {c.jurisdiction} checklist is a planning template. State
+                  {c.jurisdiction || "The company"} checklist is a planning template. State
                   licensing, attorney review, and underwriter evidence need
                   confirmation before launch.
                 </p>
@@ -474,6 +485,7 @@ export function CompanyDetail({
             <>
               <div className="section-heading">
                 <h3>Company documents</h3>
+                <PackageReviewButton documents={docs.filter(source => !source.orderId)} onOpenOriginal={onDoc} onCompanyCapture={c.intake && canEditProfile ? capture => setProfileCapture({ ...capture, companySnapshot: JSON.stringify(c) }) : undefined} />
                 <Button size="sm" onClick={() => onUpload(id)}>
                   <Plus />
                   Upload
@@ -510,6 +522,7 @@ export function CompanyDetail({
           )}
           {tab === "Jurisdictions" && <CompanyJurisdictions id={id} />}{" "}
           {tab === "Members" && <CompanyMembers key={c.id} company={c} />}
+          {profileCapture && canEditProfile && (profileCaptureCurrent ? <CompanyIntakeProfileEditor key={`${profileCapture.packageId}:${profileCapture.packageVersion}`} company={c} initialValues={profileCapture.values} sourceReference={`reviewed document package ${profileCapture.packageId}, version ${profileCapture.packageVersion}`} onClose={() => setProfileCapture(null)} /> : <div role="alert" className="notice warning"><p>The company, original documents or your access changed. Reopen the package before using its suggestions.</p><Button variant="outline" onClick={() => setProfileCapture(null)}>Dismiss</Button></div>)}
         </div>
       </SheetContent>
     </Sheet>

@@ -147,3 +147,34 @@ test("image-inspection errors become unread page placeholders instead of trustin
   const result = await extractPdfText(file, { engine, detectRasterContent: true, continueOnPageError: true });
   assert.deepEqual(result.failedPages, [1]);assert.deepEqual(result.pages, [{ page: 1, text: "", status: "empty" }]);assert.equal(result.status, "needs_review");assert.ok(!JSON.stringify(result).includes("private"));
 });
+
+test("package preflight counts 1,000 physical pages without loading any page content", async () => {
+  const engine = fakeEngine({ count: 1_000, onPage: () => assert.fail("preflight loaded a page") });
+  const result = await extractPdfText(file, { engine, pageWindow: { start: 1, count: 0 } });
+  assert.equal(result.status, "ready"); assert.equal(result.totalPages, 1_000); assert.deepEqual(result.pages, []); assert.equal(engine.task.destroyed, true);
+});
+
+test("package text windows read only the requested late physical pages and release the parser", async () => {
+  const read = [], cleaned = [], pages = Array.from({ length: 500 }, (_, i) => [{ str: `Physical ${i + 1}` }]);
+  const engine = fakeEngine({ pages, onPage: number => read.push(number), onCleanup: number => cleaned.push(number) });
+  const result = await extractPdfText(file, { engine, pageWindow: { start: 499, count: 2 } });
+  assert.equal(result.status, "ready"); assert.equal(result.totalPages, 500); assert.deepEqual(read, [499, 500]); assert.deepEqual(cleaned, [499, 500]);
+  assert.deepEqual(result.pages.map(page => [page.page, page.text]), [[499, "Physical 499"], [500, "Physical 500"]]); assert.equal(engine.task.destroyed, true);
+});
+
+test("package windows cannot increase page, text, or time limits and ordinary review stays capped at 120", async () => {
+  for (const pageWindow of [{ start: 0, count: 1 }, { start: 1, count: 21 }, { start: 1, count: -1 }, { start: 1.5, count: 1 }, { start: 999, count: 3 }, { start: 1001, count: 0 }]) {
+    const result = await extractPdfText(file, { engine: { getDocument: () => assert.fail("invalid window loaded parser") }, pageWindow });
+    assert.equal(result.reason, "page_limit");
+  }
+  assert.equal((await extractPdfText(file, { engine: fakeEngine({ count: 1_001 }), pageWindow: { start: 1, count: 0 } })).reason, "page_limit");
+  assert.equal((await extractPdfText(file, { engine: fakeEngine({ count: 500 }) })).reason, "page_limit");
+  assert.equal((await extractPdfText(file, { engine: fakeEngine({ pages: [[{ str: "x".repeat(50_001) }]] }), pageWindow: { start: 1, count: 1 } })).reason, "text_limit");
+  assert.equal((await extractPdfText(file, { engine: fakeEngine({ stall: true }), pageWindow: { start: 1, count: 0 }, timeoutMs: 1 })).reason, "timeout");
+});
+
+test("mutating a page window after parsing starts cannot widen the checked read", async () => {
+  const read = [], pageWindow = { start: 1, count: 1 }, engine = fakeEngine({ pages: [[{ str: "First" }], [{ str: "Second" }]], onOptions: () => { pageWindow.count = 1_000; }, onPage: number => read.push(number) });
+  const result = await extractPdfText(file, { engine, pageWindow });
+  assert.equal(result.status, "ready"); assert.deepEqual(read, [1]);
+});
