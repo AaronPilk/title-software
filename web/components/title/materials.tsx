@@ -41,9 +41,11 @@ import { FieldLabel, Picker, Status, Empty } from "./shared";
 export function CompanyMaterials({
   companyId,
   onDoc,
+  embedded = false,
 }: {
   companyId: string;
   onDoc: (doc: VaultDoc) => void;
+  embedded?: boolean;
 }) {
   const { s, update } = useWorkspace();
   const [selected, setSelected] = useState(""),
@@ -54,17 +56,19 @@ export function CompanyMaterials({
   const approved = items.filter((i) => materialCurrent(s, i)).length;
   return (
     <div className="company-materials">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">COMPANY MATERIALS</p>
-          <h3>Ready for the next request</h3>
+      {!embedded && <>
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">COMPANY MATERIALS</p>
+            <h3>Ready for the next request</h3>
+          </div>
+          <Palette size={22} />
         </div>
-        <Palette size={22} />
-      </div>
-      <p className="subtle">
-        Keep the requested wording, owner, approved file and publication history
-        together.
-      </p>
+        <p className="subtle">
+          Keep the requested wording, owner, approved file and publication history
+          together.
+        </p>
+      </>}
       <div className="materials-summary">
         <span>
           <strong>{items.length}</strong> materials
@@ -88,10 +92,10 @@ export function CompanyMaterials({
           <Plus />
           Request material
         </Button>
-        <Button variant="outline" onClick={() => setUploading(true)}>
+        {!embedded && <Button variant="outline" onClick={() => setUploading(true)}>
           <Upload />
           Upload company file
-        </Button>
+        </Button>}
         <Button
           variant="ghost"
           onClick={async () =>
@@ -136,7 +140,7 @@ export function CompanyMaterials({
           onCreated={setSelected}
         />
       )}
-      {uploading && (
+      {!embedded && uploading && (
         <UploadDocument
           companyId={companyId}
           onClose={() => setUploading(false)}

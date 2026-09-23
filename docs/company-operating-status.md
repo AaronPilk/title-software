@@ -9,3 +9,7 @@ The server stamps the authenticated actor and time. The confirmation requires a 
 Partner views receive the business status without the confirmation note or administrator identity. Assistant context distinguishes business status from workspace setup stage.
 
 Regression checks: `npm run test:company-status`, `npm run test:backend`, and `npm run test:workspace:views` from `web`.
+
+## Company documents
+
+Each company has one Documents tab. Files, uploads and package scanning appear first. The expandable Requests and approvals section keeps material requests, linked document versions, approvals and publication history in that same place. Moving the interface does not approve files, change their visibility or publish them to partners.

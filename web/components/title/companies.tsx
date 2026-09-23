@@ -418,7 +418,6 @@ export function CompanyDetail({
             items={[
               "Overview",
               "Onboarding",
-              "Materials",
               "Documents",
               "Members",
               "Jurisdictions",
@@ -490,7 +489,7 @@ export function CompanyDetail({
           {tab === "Documents" && (
             <>
               <div className="section-heading">
-                <h3>Company documents</h3>
+                <h3>Files</h3>
                 <PackageReviewButton documents={docs.filter(source => !source.orderId)} onOpenOriginal={onDoc} onCompanyCapture={c.intake && canEditProfile ? capture => setProfileCapture({ ...capture, companySnapshot: JSON.stringify(c) }) : undefined} />
                 <Button size="sm" onClick={() => onUpload(id)}>
                   <Plus />
@@ -520,12 +519,21 @@ export function CompanyDetail({
                   text="Upload the first company document to get started."
                 />
               )}
+              <details className="mt-6 border-t pt-5">
+                <summary className="cursor-pointer text-sm font-semibold">
+                  Requests and approvals
+                </summary>
+                <p className="subtle my-4">
+                  Request logos, disclosure templates, title preference forms
+                  and other company materials. Attach files from this company,
+                  then record their review, approval and sharing history.
+                  Upload new files above.
+                </p>
+                <CompanyMaterials key={c.id} companyId={c.id} onDoc={onDoc} embedded />
+              </details>
             </>
           )}
           {tab === "Onboarding" && <OnboardingCasePanel company={c} />}
-          {tab === "Materials" && (
-            <CompanyMaterials companyId={c.id} onDoc={onDoc} />
-          )}
           {tab === "Jurisdictions" && <CompanyJurisdictions id={id} />}{" "}
           {tab === "Members" && <CompanyMembers key={c.id} company={c} />}
           {profileCapture && canEditProfile && (profileCaptureCurrent ? <CompanyIntakeProfileEditor key={`${profileCapture.packageId}:${profileCapture.packageVersion}`} company={c} initialValues={profileCapture.values} sourceReference={`reviewed document package ${profileCapture.packageId}, version ${profileCapture.packageVersion}`} onClose={() => setProfileCapture(null)} /> : <div role="alert" className="notice warning"><p>The company, original documents or your access changed. Reopen the package before using its suggestions.</p><Button variant="outline" onClick={() => setProfileCapture(null)}>Dismiss</Button></div>)}
