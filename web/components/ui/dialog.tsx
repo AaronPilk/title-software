@@ -6,6 +6,8 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { ContextHelpButton } from "./context-help-button"
+import { guardProductHelpDismissal } from "@/lib/assistant/help-ui-context"
 
 function Dialog({
   ...props
@@ -51,6 +53,9 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  onEscapeKeyDown,
+  onPointerDownOutside,
+  onInteractOutside,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -65,6 +70,9 @@ function DialogContent({
           className
         )}
         {...props}
+        onEscapeKeyDown={guardProductHelpDismissal(onEscapeKeyDown)}
+        onPointerDownOutside={guardProductHelpDismissal(onPointerDownOutside)}
+        onInteractOutside={guardProductHelpDismissal(onInteractOutside)}
       >
         {children}
         {showCloseButton && (
@@ -81,13 +89,16 @@ function DialogContent({
   )
 }
 
-function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
+function DialogHeader({ className, children, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
       className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
       {...props}
-    />
+    >
+      {children}
+      {!className?.split(/\s+/).includes("sr-only") && <ContextHelpButton />}
+    </div>
   )
 }
 

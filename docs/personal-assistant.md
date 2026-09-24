@@ -8,6 +8,16 @@ The assistant returns concise findings with links to the supplied source records
 
 The automatic context contains bounded, permission-projected company/file fields, finals waiting/ready checks, current document metadata, task titles, and finance-permitted close totals. It does not read PDFs, perform OCR, ingest email bodies or application forms, browse websites, send messages, operate SoftPro, issue policies or move money. A source citation identifies an app record; it is not proof that an AI conclusion is correct. Staff review remains necessary.
 
+## In-app product help
+
+**Ask for help** is available from each workspace page and from form/dialog headers. Users can ask natural-language questions about using the current screen, read quick guides, follow links to the relevant area, and return to their work. Opening or closing help preserves the underlying form; a link to a different page asks the user to finish the open form first. The panel supports narrow mobile screens and keyboard focus restoration.
+
+Product help uses a separate conversation purpose and the Product guide specialist. The server supplies a maintained, role-filtered guide catalog plus a validated page/view/surface hint. It does not attach company records, file contents, email bodies, or form values. It works for authenticated users with no companies assigned. Partners receive only portal/account guides; this does not grant access to the staff record assistant. Browser navigation uses known local guide destinations rather than model-supplied URLs.
+
+Help conversations persist privately for the verified account and workspace, separate from company/file reviews. Every call rechecks current access; the client rejects responses after an account, workspace, or permission-version change. The existing daily and storage limits are shared across help and record reviews. Questions are user-supplied, so the UI asks users to leave out passwords and personal client details.
+
+Quick guides remain available in sample mode and when the model is unavailable. They are labeled as guides; failed model calls remain visible failures. Answers cite the supplied guides and cannot operate the app, change records, send messages, or approve title work. Updating product behavior should include updating `web/lib/assistant/help-guides.ts` and its regression tests.
+
 ## Request path and isolation
 
 1. The existing private Cloudflare Access application protects the pilot and `/api/assistant`.
@@ -15,7 +25,7 @@ The automatic context contains bounded, permission-projected company/file fields
 3. A service binding calls `title-personal-assistant`. That Worker has no public route or workers.dev/preview URL.
 4. The service calls `title-api/assistant/context`, which verifies the current user, required password setup, MFA, session validity, membership and company/file permissions.
 5. Only that verified context determines the user's Durable Object name. The browser cannot select another user or instance.
-6. Every history read and run repeats that verification. Changes to membership version or source visibility hide the earlier context. Partners use their portal rather than this staff assistant.
+6. Every history read and run repeats that verification. Changes to membership version or source visibility hide the earlier context. Partners can use portal product help but cannot use company/file reviews.
 
 The service exposes no generic Agent/WebSocket routes or external tools. It uses the Workers AI binding and the supported `@cf/meta/llama-3.3-70b-instruct-fp8-fast` model. A JSON schema restricts output shape and source IDs; local validation still rejects malformed or unsubstantiated structures. It accepts both the documented text response and the decoded JSON response actually returned by JSON mode. Provider failures stay visibly failed; no replacement answer is fabricated.
 
@@ -32,6 +42,7 @@ npm ci --prefix services/title-assistant
 npm run types --prefix services/title-assistant
 npm run typecheck --prefix services/title-assistant
 npm test --prefix services/title-assistant
+npm run test:help --prefix web
 npm run deploy --prefix services/title-assistant
 npm run typecheck --prefix web
 npm run build:pilot --prefix web

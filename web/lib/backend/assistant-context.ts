@@ -4,11 +4,27 @@ import type { AssistantContext, AssistantSource } from "../assistant/protocol";
 import { finalsQueue } from "../title/finals-queue";
 import { orderSources, referencedSourceProblems } from "../title/production";
 import { companyDisplayStage } from "../title/company-operating-status";
+import { helpGuides, parseHelpScreen, type HelpScreen } from "../assistant/help-guides";
 
 // Only reviewed app records and document metadata enter the assistant. File bytes,
 // mail bodies, onboarding applications, credentials and contact details are omitted.
 export function assistantContext(state: Workspace, access: Access, workspaceId: string, revision: number,
-  companyId = "", orderId = ""): AssistantContext {
+  companyId = "", orderId = "", helpScreen?: HelpScreen): AssistantContext {
+  if (helpScreen !== undefined) {
+    if (companyId || orderId) throw new ApiError("Product help does not use company or file records.", 400);
+    let screen: HelpScreen;
+    try { screen = parseHelpScreen(helpScreen); }
+    catch { throw new ApiError("Choose a valid workspace screen for help.", 400); }
+    if (access.role === "partner" && (screen.view !== "partner" || !["Partner portal", "Settings"].includes(screen.page)))
+      throw new ApiError("Open help from your partner portal.", 403);
+    const sources = helpGuides(access.role).map(guide => ({
+      id: guide.id, label: guide.title, page: guide.page,
+      facts: { summary: guide.summary, steps: guide.steps, note: guide.note || "" },
+    }));
+    return { userId: access.userId, workspaceId, companyId: "", orderId: "", accessVersion: access.version,
+      revision, companyName: "Using Title Software", role: access.role, purpose: "help", screen,
+      sources, readableSourceIds: sources.map(source => source.id), truncated: false };
+  }
   if (access.role === "partner") throw new ApiError("The staff assistant is not available in the partner portal.", 403);
   const s = projectWorkspace(state, access);
   const company = s.companies.find(c => c.id === companyId);

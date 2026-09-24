@@ -5,6 +5,8 @@ import { XIcon } from "lucide-react"
 import { Dialog as SheetPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { ContextHelpButton } from "./context-help-button"
+import { guardProductHelpDismissal } from "@/lib/assistant/help-ui-context"
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
@@ -49,6 +51,9 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  onEscapeKeyDown,
+  onPointerDownOutside,
+  onInteractOutside,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
@@ -72,6 +77,9 @@ function SheetContent({
           className
         )}
         {...props}
+        onEscapeKeyDown={guardProductHelpDismissal(onEscapeKeyDown)}
+        onPointerDownOutside={guardProductHelpDismissal(onPointerDownOutside)}
+        onInteractOutside={guardProductHelpDismissal(onInteractOutside)}
       >
         {children}
         {showCloseButton && (
@@ -85,13 +93,16 @@ function SheetContent({
   )
 }
 
-function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
+function SheetHeader({ className, children, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-header"
       className={cn("flex flex-col gap-1.5 p-4", className)}
       {...props}
-    />
+    >
+      {children}
+      {!className?.split(/\s+/).includes("sr-only") && <ContextHelpButton />}
+    </div>
   )
 }
 

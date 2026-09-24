@@ -1,6 +1,6 @@
 import { Agent, getAgentByName } from "agents";
 import { readRequestText, RequestBodyError } from "../../../web/lib/shared/request-body";
-import { MODEL, modelMessages, responseFormat, parseResult, validateInput, advance, type AssistantState } from "./core";
+import { MODEL, modelMessages, responseFormat, parseResult, validateInput, validateHelpScope, advance, type AssistantState } from "./core";
 import type { AssistantContext, AssistantInput, AssistantResponse, AssistantThread, AssistantTurn } from "../../../web/lib/assistant/protocol";
 type State = AssistantState;
 const json = (value: unknown, status=200) => Response.json(value,{status,headers:{"Cache-Control":"no-store"}});
@@ -29,7 +29,7 @@ export class PersonalAssistant extends Agent<Env, State> {
         responseShape = typeof result === "object" && result ? JSON.stringify(Object.fromEntries(Object.entries(result).map(([k,v])=>[k,typeof v]))) : typeof result;
         if (typeof result!=="object" || result===null || !("response" in result)) throw Error("No response");
         finished={...fork,status:"Complete",result:parseResult(result.response,context)};
-      } catch (e) { console.warn("assistant_run_failed", {stage,responseShape,errorType:e instanceof Error?e.name:"unknown", code: typeof e === "object" && e && "code" in e ? String(e.code).slice(0,80) : "none"}); finished={...fork,status:"Failed",error:"The specialist could not finish a sourced answer. Try a shorter question or select one file."}; }
+      } catch (e) { console.warn("assistant_run_failed", {stage,responseShape,errorType:e instanceof Error?e.name:"unknown", code: typeof e === "object" && e && "code" in e ? String(e.code).slice(0,80) : "none"}); finished={...fork,status:"Failed",error:context.purpose === "help" ? "The guide could not finish an answer. You can use the help articles or ask a shorter question about this screen." : "The specialist could not finish a sourced answer. Try a shorter question or select one file."}; }
       const next=structuredClone(this.state);
       const target=next.threads.find(t=>t.id===threadId)?.turns.find(t=>t.id===turn.id);
       const index=target?.forks.findIndex(f=>f.id===fork.id) ?? -1;
@@ -48,8 +48,9 @@ export default {
       const raw=await readRequestText(request, {maxBytes:12000,tooLargeMessage:"Request is too large."});
       const body=JSON.parse(raw);
       validateInput(body);
+      validateHelpScope(body, body.companyId, body.orderId);
       const verification=await fetch(`${env.TITLE_API_URL}/assistant/context`,{method:"POST",headers:{Authorization:authorization,apikey,"Content-Type":"application/json"},
-        body:JSON.stringify({workspaceId:body.workspaceId,companyId:body.companyId,orderId:body.orderId}),signal:AbortSignal.timeout(15000)});
+        body:JSON.stringify({workspaceId:body.workspaceId,companyId:body.companyId,orderId:body.orderId,purpose:body.purpose,screen:body.screen}),signal:AbortSignal.timeout(15000)});
       if(!verification.ok) return json({error:(await verification.json() as {error?:string}).error || "Access could not be verified."},verification.status);
       const context=await verification.json() as AssistantContext;
       // Identity never comes from a browser-provided name, URL or user id.

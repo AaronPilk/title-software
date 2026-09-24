@@ -91,6 +91,8 @@ import { ProductionSuite } from "@/components/title/production-suite";
 import { PartnerPortal, Settings } from "@/components/title/workspace";
 import { Assistant } from "@/components/title/assistant";
 import { DeveloperFeedback } from "@/components/title/developer-feedback";
+import { HelpAgent } from "@/components/title/help-agent";
+import { HelpUIContext } from "@/lib/assistant/help-ui-context";
 import { VendorOAuthReturn } from "@/components/title/vendor-oauth-return";
 import { activeWorkspace, hostedPilot } from "@/lib/backend/client";
 import { documentScanIdentity } from "@/components/title/use-document-scan";
@@ -146,6 +148,9 @@ function Workspace() {
   const [newCompany, setNewCompany] = useState(false);
   const [uploadCompany, setUploadCompany] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpDestination, setHelpDestination] = useState<Page | null>(null);
+  const [helpFromDialog, setHelpFromDialog] = useState(false);
   const storeRef = useRef(s);
   useEffect(() => {
     const closeDrawer = () => setOpenMobile(false);
@@ -287,6 +292,14 @@ function Workspace() {
     setUploadOpen(true);
   }
   const doc = s.documents.find((d) => d.id === docId);
+  const helpPage = connection?.access.role === "partner" ? page : doc ? "Documents" : companyId ? "Companies" : orderId ? "Orders" : page;
+  const hasOpenForm = !!(companyId || orderId || doc || uploadOpen || newCompany || newOrder || search || notifications);
+  function navigateFromHelp(destination: Page) {
+    setHelpOpen(false);
+    if (destination === helpPage) return;
+    if (hasOpenForm || helpFromDialog) { setHelpDestination(destination); return; }
+    navigate(destination);
+  }
   const openDoc = (d: VaultDoc, physicalPage?: number) => {
     setDocTarget(physicalPage ? { identity: documentScanIdentity(d, connection), page: physicalPage } : null);
     setDocId(d.id);
@@ -399,7 +412,7 @@ function Workspace() {
       content = <Settings />;
   }
   return (
-    <>
+    <HelpUIContext.Provider value={() => { setHelpFromDialog(true); setHelpOpen(true); }}>
       <a
         href="#main-content"
         className="skip-link"
@@ -562,6 +575,21 @@ function Workspace() {
         page={page}
         view={connection.access.role === "partner" ? "partner" : view}
       />}
+      <HelpAgent open={helpOpen} onOpenChange={open => { setHelpOpen(open); if (open) setHelpFromDialog(false); }} navigate={navigateFromHelp}
+        hideLauncher={hasOpenForm}
+        screen={{ page: helpPage,
+          view: connection?.access.role === "partner" ? "partner" : view,
+          surface: doc ? "document" : companyId ? "company" : orderId ? "order" : "page" }} />
+      <HelpUIContext.Provider value={null}>
+        <Dialog open={!!helpDestination} onOpenChange={open => { if (!open) setHelpDestination(null); }}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Finish this form first</DialogTitle>
+              <DialogDescription>Your current form is still open. Save or close it, then use the help link to open {helpDestination}.</DialogDescription>
+            </DialogHeader>
+            <div className="form-actions"><Button onClick={() => setHelpDestination(null)}>Back to my work</Button></div>
+          </DialogContent>
+        </Dialog>
+      </HelpUIContext.Provider>
       <Dialog open={search} onOpenChange={setSearch}>
         <DialogContent className="command-modal" showCloseButton={false}>
           <DialogHeader className="sr-only">
@@ -696,7 +724,7 @@ function Workspace() {
           onClose={() => setUploadOpen(false)}
         />
       )}
-    </>
+    </HelpUIContext.Provider>
   );
 }
 function FileTextIcon() {

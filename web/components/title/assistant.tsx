@@ -99,12 +99,12 @@ function ConversationScope({ companyId, orderId, navigate }: { companyId: string
     const controller = new AbortController();
     controllers.current.add(controller);
     try {
-      const result = await assistantRequest(input, { companyId, orderId }, controller.signal);
+      const result = await assistantRequest(input, { companyId, orderId, userId: connection?.access.userId, workspaceId: connection?.workspaceId, accessVersion: connection?.access.version }, controller.signal);
       controller.signal.throwIfAborted();
       return result;
     }
     finally { controllers.current.delete(controller); }
-  }, [companyId, orderId]);
+  }, [companyId, orderId, connection?.access.userId, connection?.access.version, connection?.workspaceId]);
   const fail = useCallback((reason: unknown) => {
     if (!alive.current || isAbort(reason)) return;
     setError(errorMessage(reason));

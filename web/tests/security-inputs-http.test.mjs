@@ -11,7 +11,7 @@ globalThis.Deno={env:{get:name=>({SUPABASE_URL:"https://synthetic.example.test",
 globalThis.__inputClient={
  auth:{getUser:async()=>fixture.auth?ok({user:{id:actor,email,email_confirmed_at:"2026-01-01"}}):{data:{user:null},error:{}},getClaims:async()=>ok({claims:{sub:actor,session_id:wid,aal:"aal2"}})},
  rpc:async name=>{assert.equal(name,"title_security_state");return ok({session_valid:true,password_change_required:false,has_totp:true,session_totp:true})},
- from(table){let inserted;const q={select(){return this},eq(){return this},async maybeSingle(){if(table==="title_memberships")return ok({role:"owner",all_companies:true,company_ids:[],restricted_access:true,partner_members:[],version:1});if(table==="title_assets")return ok(null);throw Error(table)},async single(){assert.equal(table,"title_workspaces");return ok({id:wid,revision:1,state:fixture.state})},insert(value){inserted=value;return this},then(resolve,reject){if(inserted)fixture.inserts.push(inserted);return Promise.resolve(ok(null)).then(resolve,reject)}};return q},
+ from(table){let inserted;const q={select(){return this},eq(){return this},async maybeSingle(){if(table==="title_memberships")return ok({role:fixture.role || "owner",all_companies:true,company_ids:[],restricted_access:true,partner_members:[],version:1});if(table==="title_assets")return ok(null);throw Error(table)},async single(){assert.equal(table,"title_workspaces");return ok({id:wid,revision:1,state:fixture.state})},insert(value){inserted=value;return this},then(resolve,reject){if(inserted)fixture.inserts.push(inserted);return Promise.resolve(ok(null)).then(resolve,reject)}};return q},
  storage:{from(){return {async upload(path,bytes,options){fixture.uploads.push({bytes:bytes.byteLength,options});return ok({})},async remove(){return ok({})}}}},
 };
 globalThis.__inputEnv={TITLE_ASSISTANT:{async fetch(url,init){fixture.proxyCalls.push({url,init});return Response.json({accepted:true})}}};
@@ -52,3 +52,27 @@ test("malformed HTML and whitespace perform bounded work at the provider maximum
 test("exact assistant and API JSON byte allowances remain accepted",async()=>{for(const endpoint of endpoints.slice(0,3)){const value=JSON.stringify({action:"list",workspaceId:wid,companyId:"A"});const r=await endpoint.run(new Request(endpoint.url,{method:"POST",headers:{Authorization:"Bearer synthetic",apikey:"synthetic"},body:value.padEnd(endpoint.limit," ")}));assert.equal(r.status,200,await r.text())}});
 test("multipart rejects a file one byte over its own limit even inside envelope allowance",async()=>{const bytes=new Uint8Array(52_428_801);bytes.set(new TextEncoder().encode("%PDF-1.7"));const r=await handler(uploadRequest(bytes));assert.equal(r.status,413);assert.equal(fixture.uploads.length,0)});
 test("cancellation does not wait on an underlying producer that refuses to finish",async()=>{let canceled=false;const stream=new ReadableStream({start(c){c.enqueue(new Uint8Array(6))},cancel(){canceled=true;return new Promise(()=>{})}});await assert.rejects(readRequestBytes(new Request("https://input.test",{method:"POST",body:stream,duplex:"half"}),{maxBytes:5}),e=>e.status===413);assert.equal(canceled,true)});
+
+const helpInput={workspaceId:wid,purpose:'help',screen:{page:'Companies',view:'agency',surface:'company'},companyId:'',orderId:''};
+const contextRequest=input=>new Request(endpoints[2].url,{method:'POST',headers:{Authorization:'Bearer synthetic',apikey:'synthetic','Content-Type':'application/json'},body:JSON.stringify(input)});
+test('authenticated help context uses static guides, ignores forged role, and carries no record data',async()=>{
+ fixture.role='viewer';const response=await handler(contextRequest({...helpInput,role:'owner',userId:'spoofed'}));
+ assert.equal(response.status,200);const data=await response.json();
+ assert.equal(data.userId,actor);assert.equal(data.role,'viewer');assert.equal(data.purpose,'help');
+ assert(data.sources.length>0);assert(data.sources.every(source=>source.id.startsWith('help:')));
+ assert.doesNotMatch(JSON.stringify(data),/Fictional|spoofed|Person/);
+ assert.equal(fixture.inserts.length+fixture.uploads.length,0);
+});
+test('help context denies malformed purpose, page and mixed record requests before agent use',async()=>{
+ for(const input of [{...helpInput,purpose:'admin'},{...helpInput,screen:{}},{...helpInput,screen:{...helpInput.screen,page:'arbitrary'}},{...helpInput,companyId:'A'},{...helpInput,orderId:'O-A'},{...helpInput,purpose:undefined},...[null,false,0].flatMap(value=>[{...helpInput,companyId:value},{...helpInput,orderId:value}])]){
+  const response=await handler(contextRequest(input));assert.equal(response.status,400,await response.text());
+ }
+ assert.equal(fixture.agentCalls.length+fixture.inserts.length+fixture.uploads.length,0);
+});
+test('partner can ask portal help while staff record access stays denied',async()=>{
+ fixture.role='partner';let response=await handler(contextRequest({...helpInput,screen:{page:'Partner portal',view:'partner'}}));
+ assert.equal(response.status,200);const data=await response.json();assert(data.sources.every(source=>['Partner portal','Settings'].includes(source.page)));
+ response=await handler(contextRequest({workspaceId:wid}));assert.equal(response.status,403);
+ response=await handler(contextRequest(helpInput));assert.equal(response.status,403);
+ fixture.auth=false;response=await handler(contextRequest({...helpInput,screen:{page:'Partner portal',view:'partner'}}));assert.equal(response.status,401);
+});

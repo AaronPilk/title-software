@@ -10,10 +10,12 @@ export class AssistantClientError extends Error {
 
 export async function assistantRequest(
   input: AssistantInput,
-  scope: { companyId: string; orderId: string },
+  scope: { companyId: string; orderId: string; userId?: string; workspaceId?: string; accessVersion?: number },
   signal?: AbortSignal,
 ): Promise<AssistantResponse> {
   const workspaceId = activeWorkspace();
+  if (scope.workspaceId && scope.workspaceId !== workspaceId)
+    throw new DOMException("Workspace changed.", "AbortError");
   const apiKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
   if (!supabase || !workspaceId || !apiKey)
     throw new AssistantClientError("Open your signed-in shared workspace to use the assistant.", 401);
@@ -22,6 +24,8 @@ export async function assistantRequest(
   signal?.throwIfAborted();
   if (error || !data.session)
     throw new AssistantClientError("Sign in again to continue with the assistant.", 401);
+  if (scope.userId && data.session.user.id !== scope.userId)
+    throw new AssistantClientError("Your signed-in account changed. Reopen the assistant before continuing.", 403);
   if (activeWorkspace() !== workspaceId)
     throw new DOMException("Workspace changed.", "AbortError");
 
@@ -54,12 +58,21 @@ export async function assistantRequest(
       throw new AssistantClientError(typeof result?.error === "string" ? result.error : "The assistant request failed.", response.status);
     if (activeWorkspace() !== workspaceId)
       throw new DOMException("Workspace changed.", "AbortError");
+    const current = await supabase.auth.getSession();
+    controller.signal.throwIfAborted();
+    if (current.error || current.data.session?.user.id !== data.session.user.id)
+      throw new AssistantClientError("Your signed-in account changed. Reopen the assistant before continuing.", 403);
+    if (activeWorkspace() !== workspaceId)
+      throw new DOMException("Workspace changed.", "AbortError");
     if (!result || !Array.isArray(result.threads) || !result.context ||
         result.context.userId !== data.session.user.id ||
         result.context.workspaceId !== workspaceId ||
         result.context.companyId !== scope.companyId ||
         result.context.orderId !== scope.orderId ||
-        result.threads.some((thread) => thread.companyId !== scope.companyId || thread.orderId !== scope.orderId || thread.accessVersion !== result.context.accessVersion))
+        (scope.accessVersion !== undefined && result.context.accessVersion !== scope.accessVersion) ||
+        result.context.purpose !== input.purpose ||
+        (input.purpose === "help" && (!result.context.screen || result.context.screen.page !== input.screen?.page || result.context.screen.view !== input.screen?.view || (result.context.screen.surface || "page") !== (input.screen?.surface || "page"))) ||
+        result.threads.some((thread) => thread.purpose !== input.purpose || thread.companyId !== scope.companyId || thread.orderId !== scope.orderId || thread.accessVersion !== result.context.accessVersion))
       throw new AssistantClientError("The assistant context changed. Refresh this company before continuing.", 409);
     return result;
   } finally {

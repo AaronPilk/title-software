@@ -19,7 +19,7 @@ Existing research: [full company operations](research/full-company-operations.md
 
 ## Local workflow
 
-1. Open **Companies → a company → Materials**. Set up the standard checklist or request a material. Repeating setup does not duplicate records or tasks.
+1. Open **Companies → a company → Documents → Requests and approvals**. Set up the standard checklist or request a material. Repeating setup does not duplicate records or tasks.
 2. Record the owner and requested content. Upload a company file, choose the current document, and save **Awaiting review**.
 3. Enter a material review note and confirm the saved material/file. Approval records the exact revision, source identity, reviewer and note. The assigned preparation task completes.
 4. Prepare a publication draft with a title and either all company partners or selected members. Review that exact version and audience, then publish to the local partner preview.

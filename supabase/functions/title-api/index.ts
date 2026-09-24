@@ -5,6 +5,7 @@ import { feedbackSubmission, feedbackUpdate, feedbackList } from "../../../web/l
 import { readRequestFormData, readRequestText, RequestBodyError } from "../../../web/lib/shared/request-body.ts";
 import { documentByteProblem } from "../../../web/lib/shared/document-bytes.ts";
 import { assistantContext } from "../../../web/lib/backend/assistant-context.ts";
+import { parseHelpScreen } from "../../../web/lib/assistant/help-guides.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { accountSecurity, requireAccountReady } from "../../../web/lib/backend/account-security.ts";
 import { checkMissiveConnection } from "../../../web/lib/backend/missive.ts";
@@ -490,9 +491,17 @@ Deno.serve(async (req) => {
       }));
     }
     if (pathname === "/assistant/context" && req.method === "POST") {
+      if (input.purpose !== undefined && input.purpose !== "help") error("Unknown assistant purpose.");
+      if (input.purpose !== "help" && input.screen !== undefined) error("Screen context is only available for product help.");
+      let screen;
+      if (input.purpose === "help") {
+        try { screen = parseHelpScreen(input.screen); }
+        catch { error("Choose a valid workspace screen for help."); }
+        if ((input.companyId !== undefined && input.companyId !== "") || (input.orderId !== undefined && input.orderId !== "")) error("Product help does not use company or file records.");
+      }
       const w = await workspace(wid);
       return response(assistantContext(w.state, a, wid, w.revision,
-        input.companyId ? ident(input.companyId) : "", input.orderId ? ident(input.orderId) : ""));
+        input.companyId ? ident(input.companyId) : "", input.orderId ? ident(input.orderId) : "", screen));
     }
     if (pathname === "/state" && req.method === "GET")
       return response(await stateResponse(wid, a));

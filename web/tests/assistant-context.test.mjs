@@ -22,3 +22,36 @@ test('assistant distinguishes confirmed business status from incomplete workspac
  const legacy=assistantContext(fixture(),a,'w',1,'A').sources.find(source=>source.id==='company:A').facts;
  assert.equal(legacy.businessStatus,'Onboarding');assert.equal(legacy.workspaceSetupStage,'Onboarding');
 });
+
+const helpScreen={page:'Documents',view:'production',surface:'document'};
+test('product help before company setup includes only server guides, never workspace records',()=>{
+ for(const role of ['owner','admin','operations','onboarding','finance','viewer']){
+  const access={...a,role,companyIds:[]};
+  const context=assistantContext(fixture(),access,'workspace',9,'','',helpScreen);
+  assert.equal(context.purpose,'help');assert.deepEqual(context.screen,helpScreen);
+  assert.equal(context.companyId,'');assert.equal(context.orderId,'');assert.equal(context.role,role);
+  assert(context.sources.length>0);assert(context.sources.every(source=>source.id.startsWith('help:')));
+  assert.doesNotMatch(JSON.stringify(context),/PRIVATE|Company A|Company B|secret@example|Synthetic address/);
+  assert.deepEqual(context.readableSourceIds,context.sources.map(source=>source.id));
+  assert.deepEqual(context.sources,assistantContext(emptyWorkspace(a.email),access,'workspace',9,'','',helpScreen).sources);
+ }
+});
+test('partner product help contains portal guidance and cannot turn into record review',()=>{
+ const partner={...a,role:'partner',companyIds:[]};
+ const context=assistantContext(fixture(),partner,'w',4,'','',{page:'Partner portal',view:'partner'});
+ assert.equal(context.purpose,'help');assert(context.sources.length>0);
+ assert(context.sources.every(source=>['Partner portal','Settings'].includes(source.page)));
+ assert.doesNotMatch(JSON.stringify(context),/PRIVATE|Company A|Company B/);
+ assert.throws(()=>assistantContext(fixture(),partner,'w',4),error=>error.status===403);
+ assert.throws(()=>assistantContext(fixture(),partner,'w',4,'','',helpScreen),error=>error.status===403);
+});
+test('help rejects record scope and malformed screen input with validation errors',()=>{
+ for(const [companyId,orderId] of [['A',''],['','O-A'],['B','O-B']])assert.throws(()=>assistantContext(fixture(),a,'w',1,companyId,orderId,helpScreen),error=>error.status===400);
+ for(const screen of [null,{},[],{...helpScreen,page:'https://unsafe.invalid/'},{...helpScreen,view:'owner'},{...helpScreen,source:'PRIVATE'}])assert.throws(()=>assistantContext(fixture(),a,'w',1,'','',screen),error=>error.status===400);
+});
+test('changing help screens preserves the permitted guide set for private history',()=>{
+ const first=assistantContext(fixture(),a,'w',1,'','',helpScreen);
+ const next=assistantContext(fixture(),a,'w',2,'','',{page:'Companies',view:'agency',surface:'company'});
+ assert.deepEqual(first.readableSourceIds,next.readableSourceIds);
+ assert.notDeepEqual(first.screen,next.screen);
+});

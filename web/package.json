@@ -30,6 +30,7 @@
     "test:pdf": "node scripts/test-pdf-text.mjs",
     "test:workflows": "node --experimental-strip-types --test tests/finals-workflow.test.mjs tests/member-directory.test.mjs tests/overview.test.mjs tests/partner-summary.test.mjs",
     "test:assistant": "npm --prefix ../services/title-assistant test",
+    "test:help": "node --test tests/help-guides.test.mjs tests/help-client.test.mjs tests/help-agent-ui.test.mjs",
     "ocr:prepare": "node scripts/prepare-ocr-assets.mjs",
     "predev": "npm run ocr:prepare",
     "prebuild": "npm run ocr:prepare",
