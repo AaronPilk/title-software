@@ -1969,7 +1969,7 @@ body {
   overflow-y: hidden;
   justify-content: flex-start;
 }
-.company-detail .sheet-body > [data-slot="tabs"] .segment-list [data-slot="tabs-trigger"] { min-height: 36px; flex: 1 0 auto; }
+.company-detail .sheet-body > [data-slot="tabs"] .segment-list [data-slot="tabs-trigger"] { height: 36px; min-height: 36px; flex: 1 0 auto; }
 .company-documents { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .company-documents-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .company-documents-heading h3 { color: var(--brand-primary); font-size: 18px; font-weight: 650; letter-spacing: -.025em; }
@@ -2004,6 +2004,7 @@ body {
   .company-detail [data-slot="sheet-header"] { padding: 24px 20px 20px; }
   .company-detail .sheet-body { padding: 20px; }
   .company-detail .sheet-body > [data-slot="tabs"] .segment-list { flex-wrap: wrap; overflow: visible; gap: 4px; }
+  .company-detail .sheet-body > [data-slot="tabs"] .segment-list [data-slot="tabs-trigger"] { flex-basis: calc(33.333% - 4px); }
   .company-documents-heading { gap: 10px; }
   .company-documents-heading h3 { font-size: 17px; }
   .company-documents .doc-list-row { grid-template-columns: 20px minmax(0, 1fr) 15px; }
