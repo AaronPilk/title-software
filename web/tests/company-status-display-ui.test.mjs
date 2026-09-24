@@ -11,7 +11,7 @@ let server, browser, context, page, origin;
 let errors = [];
 before(async () => {
   const bundle = await build({ absWorkingDir: web, outfile: "company-status-fixture.mjs", write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent",
-    define: { "process.env.NODE_ENV": '"production"' },
+    define: { "process.env.NODE_ENV": '"production"', "process.env": "{}" },
     stdin: { resolveDir: web, loader: "tsx", contents: `
       import React from 'react';import {createRoot} from 'react-dom/client';
       import {Overview} from './components/title/overview';import {OnboardingHub} from './components/title/onboarding-suite';import {PartnerPortal} from './components/title/workspace';
@@ -19,6 +19,10 @@ before(async () => {
       createRoot(document.getElementById('root')).render(view==='setup'?<OnboardingHub onOpen={(id,tab)=>window.statusOpens.push({id,tab})} onNew={()=>{}}/>:view==='partner'?<PartnerPortal/>:<Overview navigate={()=>{}} newOrder={()=>{}} openOrder={()=>{}} openCompany={()=>{}}/>);
     ` },
     plugins: [{ name: "company-status-fixture", setup(builder) {
+      builder.onResolve({ filter: /^@\/lib\/backend\/jv-intake-client$/ }, () => ({ path: "intake-client", namespace: "fixture-intake" }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture-intake" }, () => ({ loader: "ts", resolveDir: web, contents: `import {newJVApplication} from './lib/title/jv-application';export async function jvIntakeClientRequest(context,action){if(action!=='load')throw Error('Unexpected private application write');window.privateLoads=(window.privateLoads||[]).concat(context.companyId);return {companyId:context.companyId,version:0,payload:newJVApplication(),status:'Draft',reviewNote:'',updatedAt:null,updatedBy:null,reviewedAt:null,reviewedBy:null};}` }));
+      builder.onResolve({ filter: /^@\/lib\/backend\/jv-portal-client$/ }, () => ({ path: "portal-client", namespace: "fixture-portal" }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture-portal" }, () => ({ contents: "export const jvPortalClientRequest=async()=>{throw Error('Unexpected portal request');};export const jvPortalDownload=async()=>{throw Error('Unexpected private download');};" }));
       builder.onResolve({ filter: /^@\/lib\/backend\/client$/ }, () => ({ path: "private-client", namespace: "fixture" }));
       builder.onLoad({ filter: /^private-client$/, namespace: "fixture" }, () => ({ contents: "export const activeWorkspace=()=>'';export const backendRequest=async()=>{throw Error('Unexpected private application request');};" }));
       builder.onResolve({ filter: /^@\/lib\/title\/store$/ }, () => ({ path: "store", namespace: "fixture" }));
@@ -70,39 +74,50 @@ test("Production counts confirmed and legacy active businesses while keeping new
   assert.doesNotMatch(await page.locator("body").innerText(), /PRIVATE owner confirmation note/);
   assert.deepEqual(await page.evaluate(() => window.statusWrites), []);
 });
-test("setup starts with the selected company documents while keeping missing approval evidence reviewable", async () => {
-  await open("view=setup"); await page.getByRole("heading", { name: "Company setup and reviews", exact: true }).waitFor();
-  assert.equal(await metric("New companies").locator("strong").innerText(), "1");
-  assert.equal(await metric("Incomplete workspace evidence").locator("strong").innerText(), "3");
-  const queue = page.locator(".business-queue"); assert.equal(await queue.getByRole("button").filter({ hasText: "Existing Title" }).locator(".status").innerText(), "Active");
-  assert.match(await queue.locator("button.selected").innerText(), /Existing Title/);
+test("existing companies start in their own application lane while missing launch evidence stays reviewable", async () => {
+  await open("view=setup"); await page.getByRole("heading", { name: "Applications", exact: true }).waitFor();
+  await page.getByText("2 active companies · 1 in setup", { exact: true }).waitFor();
+  const queue = page.getByRole("complementary", { name: "Choose a company" });
+  assert.equal(await queue.getByRole("button").count(), 2);
+  assert.match(await queue.locator('button[aria-pressed="true"]').innerText(), /Existing Title/);
+  assert.match(await queue.getByRole("button").filter({ hasText: "Existing Title" }).innerText(), /Already operating/);
+  assert.equal(await queue.getByRole("button").filter({ hasText: "New Title" }).count(), 0);
   const before = await page.evaluate(() => window.statusState());
   assert.equal(await page.getByLabel("Legal company name", { exact: true }).isVisible(), false);
-  await page.getByRole("button", { name: "Open company documents", exact: true }).click();
+  await page.getByRole("button", { name: "Other company documents", exact: true }).click();
   await page.getByRole("button", { name: "Company details", exact: true }).click();
   assert.deepEqual(await page.evaluate(() => window.statusOpens), [{ id: "existing", tab: "Documents" }, { id: "existing", tab: "Overview" }]);
   assert.deepEqual(await page.evaluate(() => window.statusState()), before);
-  assert.deepEqual(await page.evaluate(() => window.statusWrites), []);
-  await page.getByText("Company authority and launch review", { exact: true }).click();
-  await page.getByText("Workspace evidence checks still open", { exact: true }).waitFor();
-  assert.match(await page.locator("body").innerText(), /0 \/ 7 reviewed|Evidence required/);
-  const state = await page.evaluate(() => window.statusState()); assert.equal(state.companies[0].stage, "Onboarding"); assert.ok(state.companies[0].steps.every(step => step === false)); assert.deepEqual(state.business.onboarding, []);
-  assert.deepEqual(await page.evaluate(() => window.statusWrites), []);
-  await queue.getByRole("button").filter({ hasText: "New Title" }).click();
+  const authority = page.locator("details").filter({ has: page.getByText("Licensing, records & approval history", { exact: true }) });
+  assert.equal(await authority.evaluate(node => node.open), false);
+  await authority.locator("summary").first().click();
+  assert.match(await authority.innerText(), /0 \/ 7 reviewed|Evidence required/);
+  const state = await page.evaluate(() => window.statusState());
+  assert.equal(state.companies[0].stage, "Onboarding");
+  assert.ok(state.companies[0].steps.every(step => step === false));
+  assert.deepEqual(state.business.onboarding, []);
+  await page.getByRole("tab", { name: "New joint ventures", exact: true }).click();
+  assert.equal(await queue.getByRole("button").count(), 1);
+  assert.match(await queue.innerText(), /New Title/);
   assert.equal(await page.getByLabel("Legal company name", { exact: true }).isVisible(), false);
-  await queue.getByRole("button").filter({ hasText: "Existing Title" }).click();
+  assert.equal(await page.locator("details").filter({ has: page.getByText("Formation & launch checklist", { exact: true }) }).evaluate(node => node.open), false);
+  await page.getByRole("tab", { name: "Existing companies", exact: true }).click();
   assert.equal(await page.getByLabel("Legal company name", { exact: true }).isVisible(), false);
   assert.deepEqual(await page.evaluate(() => window.statusState()), before);
   assert.deepEqual(await page.evaluate(() => window.statusWrites), []);
 });
-test("withheld setup evidence stays unavailable rather than claiming an active company's records are complete or missing", async () => {
-  await open("view=setup&limited=1"); assert.equal(await metric("Incomplete workspace evidence").locator("strong").innerText(), "Access needed");
-  assert.equal(await metric("New companies").locator("strong").innerText(), "1");
-  assert.equal(await page.locator(".business-queue").getByRole("button").filter({ hasText: "Existing Title" }).locator(".status").innerText(), "Active");
+test("withheld application evidence stays unavailable without implying an active company's records are complete", async () => {
+  await open("view=setup&limited=1");
+  await page.getByText("2 active companies · 1 in setup", { exact: true }).waitFor();
+  const queue = page.getByRole("complementary", { name: "Choose a company" });
+  assert.match(await queue.getByRole("button").filter({ hasText: "Existing Title" }).innerText(), /Already operating/);
+  assert.equal(await page.getByRole("heading", { name: "Application access needed", exact: true }).isVisible(), true);
+  await page.getByText("Licensing, records & approval history", { exact: true }).click();
   assert.doesNotMatch(await page.locator("body").innerText(), /PRIVATE|0 \/ 7 reviewed|Workspace application: Not started/);
-  assert.equal(await page.getByRole("heading", { name: "Application evidence requires additional access", exact: true }).isVisible(), true);
   assert.equal(await page.getByLabel("Legal company name", { exact: true }).count(), 0);
   assert.equal(await page.getByRole("button", { name: "Record reviewed evidence", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Upload completed application", exact: true }).count(), 0);
+  assert.deepEqual(await page.evaluate(() => window.privateLoads || []), []);
   assert.deepEqual(await page.evaluate(() => window.statusWrites), []);
 });
 test("partner company badge reflects operating status without exposing private confirmation metadata", async () => {
@@ -115,14 +130,18 @@ test("malformed confirmation cannot manufacture an active count or company badge
   assert.match(await metric("Active companies").innerText(), /2 new companies in setup/);
 });
 
-test('changing the setup company keeps exactly one private application panel and collapsed authority review',async()=>{
+test('changing application lanes keeps exactly one scoped private application and collapsed authority review',async()=>{
  await open('view=setup&role=owner');
+ await page.getByText('Private application loaded.',{exact:true}).waitFor();
  assert.equal(await page.getByRole('region',{name:'Joint venture application',exact:true}).count(),1);
- await page.locator('.business-queue').getByRole('button').filter({hasText:'New Title'}).click();
+ await page.getByRole('tab',{name:'New joint ventures',exact:true}).click();
+ await page.waitForFunction(()=>window.privateLoads?.at(-1)==='new');
  assert.equal(await page.getByRole('region',{name:'Joint venture application',exact:true}).count(),1);
- const authority=page.locator('details').filter({has:page.getByText('Company authority and launch review',{exact:true})});
+ const authority=page.locator('details').filter({has:page.getByText('Formation & launch checklist',{exact:true})});
  assert.equal(await authority.count(),1);assert.equal(await authority.evaluate(node=>node.open),false);
- await page.locator('.business-queue').getByRole('button').filter({hasText:'Existing Title'}).click();
+ await page.getByRole('tab',{name:'Existing companies',exact:true}).click();
+ await page.waitForFunction(()=>window.privateLoads?.at(-1)==='existing');
  assert.equal(await page.getByRole('region',{name:'Joint venture application',exact:true}).count(),1);
+ assert.deepEqual(await page.evaluate(()=>window.privateLoads),['existing','new','existing']);
  assert.deepEqual(await page.evaluate(()=>window.statusWrites),[]);
 });

@@ -1,6 +1,8 @@
 "use client";
 import { ConfirmActiveCompaniesButton, CompanyOperatingStatusDetails } from "./company-operating-status";
 import { companyDisplayStage, validateOperatingConfirmation } from "@/lib/title/company-operating-status";
+import { canManageOnboardingEvidence } from "@/lib/title/workspace-capabilities";
+import applicationStyles from "./agency-applications.module.css";
 import { OwnershipHistoryPanel } from "./ownership";
 import { OnboardingCasePanel, CredentialCenter } from "./onboarding-suite";
 import { JVApplicationPanel } from "./jv-application";
@@ -17,6 +19,8 @@ import {
   MapPin,
   FolderClosed,
   AlertTriangle,
+  FileUp,
+  Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,7 +87,7 @@ export function Companies({
     <>
       <Heading
         title="Companies"
-        description="A home for every company in your portfolio."
+        description="Choose a company to add its application, documents and details."
       >
         <ConfirmActiveCompaniesButton />
         <MissiveCompanyIntakeButton />
@@ -141,7 +145,7 @@ export function Companies({
               </div>
             </div>
             <div className="company-card-footer">
-              <span>{c.intake?.profileStatus === "incomplete" ? "Complete company profile" : c.contact || "Primary contact needed"}</span>
+              <span>{companyDisplayStage(c) === "Active" && c.intake?.profileStatus === "incomplete" ? "Add existing application" : c.contact || "Open company"}</span>
               <ChevronRight size={16} />
             </div>
           </button>
@@ -378,7 +382,7 @@ export function NewCompany({
     </Dialog>
   );
 }
-export type CompanyDetailTab = "Overview" | "Onboarding" | "Documents" | "Members" | "Jurisdictions";
+export type CompanyDetailTab = "Overview" | "Onboarding" | "Application" | "Documents" | "Members" | "Jurisdictions";
 export function CompanyDetail({
   id,
   initialTab = "Overview",
@@ -393,12 +397,26 @@ export function CompanyDetail({
   onUpload: (id: string) => void;
 }) {
   const { s, connection } = useWorkspace();
-  const [tab, setTab] = useState<string>(initialTab);
+  const [tab, setTab] = useState<string>(initialTab === "Onboarding" ? "Application" : initialTab);
+  const [applicationEntry, setApplicationEntry] = useState<"upload" | "link" | undefined>();
+  const [applicationDirty, setApplicationDirty] = useState(false);
+  const [applicationBusy, setApplicationBusy] = useState(false);
   const [profileCapture, setProfileCapture] = useState<(CompanyProfileCapture & { companySnapshot: string }) | null>(null);
   const c = s.companies.find((x) => x.id === id);
   if (!c) return null;
   let existingOperationsConfirmed = false;
   try { existingOperationsConfirmed = !!validateOperatingConfirmation(c.operatingStatus ?? null); } catch { /* Invalid legacy metadata cannot confirm operations. */ }
+  const isExisting = companyDisplayStage(c) === "Active";
+  const canEditApplication = canManageOnboardingEvidence(connection);
+  const leaveApplication = () => !applicationBusy && (!applicationDirty || window.confirm("Discard unsaved application changes? Save them first to keep your work."));
+  function changeTab(value: string) {
+    if (value === tab || !leaveApplication()) return;
+    setApplicationDirty(false); setApplicationEntry(undefined); setTab(value);
+  }
+  function openApplication(action?: "upload" | "link") {
+    if (!leaveApplication()) return;
+    setApplicationDirty(false); setApplicationEntry(action); setTab("Application");
+  }
   const docs = s.documents.filter((d) => d.companyId === id);
   const companyDocs = docs.filter(d => !d.orderId);
   const titleDocs = docs.filter(d => !!d.orderId);
@@ -408,7 +426,7 @@ export function CompanyDetail({
     return current && source.identity === documentScanIdentity(current, connection);
   });
   return (
-    <Sheet open={!!id} onOpenChange={(v) => !v && onClose()}>
+    <Sheet open={!!id} onOpenChange={(v) => { if (!v && leaveApplication()) onClose(); }}>
       <SheetContent className="detail-sheet company-detail">
         <SheetHeader>
           <CompanyAvatar company={c} large />
@@ -420,10 +438,10 @@ export function CompanyDetail({
         <div className="sheet-body">
           <Segments
             value={tab}
-            onChange={setTab}
+            onChange={changeTab}
             items={[
               "Overview",
-              "Onboarding",
+              "Application",
               "Documents",
               "Members",
               "Jurisdictions",
@@ -431,13 +449,15 @@ export function CompanyDetail({
           />
           {tab === "Overview" && (
             <>
-              <CompanyOperatingStatusDetails company={c} />
-              <CompanyIntakeProfile company={c} />
-              <section className="panel business-panel" aria-label="Company files and logo">
-                <h3>Company files and logo</h3>
-                <p>Add formation records, applications, agreements and your logo in Documents. You can organize several file types in one upload.</p>
-                <Button variant="outline" onClick={() => setTab("Documents")}>Open company documents <ArrowRight /></Button>
-              </section>
+              {canEditApplication && <section className={applicationStyles.startCard} aria-label="Start this company’s application">
+                <div className={applicationStyles.startIcon}>{isExisting ? <FileUp size={23} /> : <Send size={22} />}</div>
+                <h3>{isExisting ? "Already have the application?" : "Collect the application."}</h3>
+                <p>{isExisting ? "Upload the completed form. We’ll read it and fill the application details for you to review and save." : "Prepare a private link for the applicant to fill out. Their answers return to this company for review."}</p>
+                <div className={applicationStyles.startActions}>
+                  <Button onClick={() => openApplication(isExisting ? "upload" : "link")}>{isExisting ? <FileUp /> : <Send />}{isExisting ? "Upload completed application" : "Send application link"}</Button>
+                  <Button variant="outline" onClick={() => openApplication()}>Open application <ArrowRight /></Button>
+                </div>
+              </section>}
               <div className="detail-grid">
                 <div>
                   <small>Primary contact</small>
@@ -458,8 +478,11 @@ export function CompanyDetail({
                   <Status value={companyDisplayStage(c)} />
                 </div>
               </div>
+              <div className={`${applicationStyles.supportLinks} my-5`}><Button variant="outline" onClick={() => changeTab("Documents")}>Company documents & logo <ArrowRight /></Button></div>
+              {c.intake && <details className={applicationStyles.support}><summary>Company details & Missive source</summary><CompanyIntakeProfile company={c} /></details>}
               <details className="mt-5 border-t pt-5">
               <summary className="cursor-pointer text-sm font-semibold">Formation and approval history</summary>
+              <CompanyOperatingStatusDetails company={c} />
               <div className="checklist-title">
                 <h3>{existingOperationsConfirmed ? "Workspace setup checklist" : "Onboarding checklist"}</h3>
                 <span>
@@ -477,7 +500,7 @@ export function CompanyDetail({
                 Track confirmations from the responsible person. These steps do
                 not perform external filings or approvals.
               </p>
-              <Button variant="outline" onClick={() => setTab("Onboarding")}>
+              <Button variant="outline" onClick={() => openApplication()}>
                 Open evidence review
               </Button>
               <div className="checklist">
@@ -562,7 +585,7 @@ export function CompanyDetail({
               </details>
             </section>
           )}
-          {tab === "Onboarding" && <><JVApplicationPanel key={c.id} company={c} onDocuments={() => setTab("Documents")} /><details className="panel business-panel"><summary className="cursor-pointer font-semibold">Company authority and launch review</summary><OnboardingCasePanel company={c} /></details></>}
+          {tab === "Application" && <><JVApplicationPanel key={c.id} navigationScope="company-detail" company={c} existingCompany={isExisting} initiallyOpen entryAction={applicationEntry} onDirtyChange={setApplicationDirty} onBusyChange={setApplicationBusy} onDocuments={() => { setApplicationDirty(false); setApplicationEntry(undefined); setTab("Documents"); }} />{!canEditApplication && <section className={applicationStyles.empty}><h3>Application access needed</h3><p className="form-note">An administrator can give you access to this company’s private applications. Permitted company records remain available in the other tabs.</p></section>}<details className={applicationStyles.support}><summary>{isExisting ? "Licensing, records & approval history" : "Formation & launch checklist"}</summary><OnboardingCasePanel company={c} /></details></>}
           {tab === "Jurisdictions" && <CompanyJurisdictions id={id} />}{" "}
           {tab === "Members" && <CompanyMembers key={c.id} company={c} />}
           {profileCapture && canEditProfile && (profileCaptureCurrent ? <CompanyIntakeProfileEditor key={`${profileCapture.packageId}:${profileCapture.packageVersion}`} company={c} initialValues={profileCapture.values} sourceReference={`reviewed document package ${profileCapture.packageId}, version ${profileCapture.packageVersion}`} onClose={() => setProfileCapture(null)} /> : <div role="alert" className="notice warning"><p>The company, original documents or your access changed. Reopen the package before using its suggestions.</p><Button variant="outline" onClick={() => setProfileCapture(null)}>Dismiss</Button></div>)}

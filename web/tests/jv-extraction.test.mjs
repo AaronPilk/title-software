@@ -110,3 +110,78 @@ test('history continuation pages retain their applicant and field bounds reject 
  const rows=Array.from({length:41},(_,i)=>`Fictional address ${i+1} | 2020-01-01 | Present`).join('\n');
  const capped=extractJVApplication([source(`Name: Avery Example\nResidence History\nAddress | From | To\n${rows}`)]);assert.equal(capped.candidates.filter(x=>x.field==='residenceHistory').length,40);assert.ok(capped.issues.some(x=>/exceeds 40/.test(x.message)));
 });
+
+// Synthetic responses in the supplied Canva form's real label layout. No private original or applicant data.
+const returnedTemplate = (name='Avery Fictional', email='avery@example.test', ownership='[x] Individual [ ] Business') => `JOINT VENTURE
+APPLI CATI ON
+Ballantyne
+TITLE COMPANY
+PLEASE COMPLETE THE FOLLOWING. THE INFORMATION IS NEEDED TO APPLY FOR
+LICENSES WITH NIPR AND UNDERWRITERS.
+NAME:
+${name}
+EMAIL:
+${email}
+PHONE NUMBER:
+(555) 010-2345
+DATE OF BIRTH:
+1988-02-20
+SOCIAL SECURITY #
+123-45-6789
+DRIVERS LICENSE #:
+EX123456
+CURRENT ADDRESS:
+100 Fictional Lane, Example NC 28000
+WILL OWNERSHIP BE INDIVIDUAL OR BUSINESS?
+${ownership}
+(IF YOU WANT TO SET UP A NEW LLC FOR YOUR OWNERSHIP INTEREST, WE CAN ASSIST WITH THIS. PLEASE NOTE THIS WILL
+NEED TO BE DONE PRIOR TO SETTING UP THE NEW VENTURE)
+RESIDENCE LAST 5 YEARS:
+Address | From | To
+100 Fictional Lane | 2020-01-01 | Present
+EMPLOYMENT HISTORY
+LAST 5YEARS:
+Employer | From | To
+Fictional Employer | 2020-01-01 | Present
+LOGO: PLEASE LET US KNOW IF YOU HAVE A PREFERENCE OR SUGGESTOINS FOR LOGO.
+COLORS, DESIGN ETC. IF YOU HAVE A CURRENT LOGO YOU WOULD LIKE US TO RECREATE,
+PLEASE LET US KNOW.
+Navy and silver, use a simple wordmark.
+ANY OTHER INFORMATION YOU THINK WE SHOULD KNOW OR SUGGESTIONS?
+Call after 3 pm.
+WWW.BALLANTYNETITLE.COM`;
+test('supplied application labels and adjacent printed answers fill the complete private intake with source evidence',()=>{
+ const text=returnedTemplate();const found=extractJVApplication([source(text)],'2026-09-24');
+ assert.deepEqual(found.issues,[]);assert.deepEqual(found.missing,[]);assert.equal(found.applicants.length,1);
+ const patch=jvApplicationCandidatePatch(found,found.candidates.map(item=>item.id));const person=patch.applicants[0].patch;
+ assert.equal(person.name,'Avery Fictional');assert.equal(person.email,'avery@example.test');assert.equal(person.ssn,'123456789');assert.equal(person.ownershipType,'individual');assert.equal(person.residenceHistory.length,1);assert.equal(person.employmentHistory.length,1);
+ assert.equal(patch.logoPreferences,'Navy and silver, use a simple wordmark.');assert.equal(patch.notes,'Call after 3 pm.');
+ for(const candidate of found.candidates){assert.equal(candidate.page,2);assert.ok(text.includes(candidate.quote),candidate.field);}
+ assert.equal(patch.companyName,undefined);assert.equal(person.businessName,undefined);
+});
+test('blank supplied application creates no applicant facts, prompt text, logo or footer values',()=>{
+ const text=returnedTemplate().split('\n').filter(line=>!['Avery Fictional','avery@example.test','(555) 010-2345','1988-02-20','123-45-6789','EX123456','100 Fictional Lane, Example NC 28000','[x] Individual [ ] Business','Address | From | To','100 Fictional Lane | 2020-01-01 | Present','Employer | From | To','Fictional Employer | 2020-01-01 | Present','Navy and silver, use a simple wordmark.','Call after 3 pm.'].includes(line)).join('\n');
+ const found=extractJVApplication([source(text)]);assert.deepEqual(found.candidates,[]);
+});
+test('separate completed application pages and explicit applicant headings retain person boundaries',()=>{
+ const found=extractJVApplication([source(returnedTemplate(),2),source(returnedTemplate('Jordan Fictional','jordan@example.test'),3)]);
+ assert.equal(found.applicants.length,2);const patch=jvApplicationCandidatePatch(found,found.candidates.filter(item=>item.applicantKey).map(item=>item.id));
+ assert.deepEqual(patch.applicants.map(item=>item.patch.name),['Avery Fictional','Jordan Fictional']);assert.deepEqual(patch.applicants.map(item=>item.patch.email),['avery@example.test','jordan@example.test']);
+ const headed=extractJVApplication([source('Applicant 1\nNAME:\nAvery Fictional\nEMAIL:\nApplicant 2\nNAME:\nJordan Fictional\nEMAIL:\njordan@example.test')]);
+ assert.deepEqual(headed.candidates.map(item=>[item.field,item.applicantKey]),[['name','applicant-1'],['name','applicant-2'],['email','applicant-2']]);
+});
+test('adjacent answer capture stays on its page and does not invent ownership from blank or double selections',()=>{
+ for(const ownership of ['[x] Individual [x] Business','[ ] Individual [ ] Business','Individual / Business']){
+  const found=extractJVApplication([source(returnedTemplate('Avery Fictional','avery@example.test',ownership))]);assert.equal(found.candidates.some(item=>item.field==='ownershipType'),false);assert.ok(found.issues.some(item=>/Ownership choice/.test(item.message)));
+ }
+ const split=extractJVApplication([source('NAME:',2),source('Jordan Fictional\nEMAIL:\njordan@example.test',3)]);assert.equal(split.candidates.some(item=>item.field==='name'),false);
+ const blank=extractJVApplication([source('NAME:\nEMAIL:\nPHONE NUMBER:\nWWW.BALLANTYNETITLE.COM')]);assert.deepEqual(blank.candidates,[]);
+ const spaced=extractJVApplication([source('NAME:\n\nAvery  Fictional\nANY OTHER INFORMATION YOU THINK WE SHOULD KNOW OR SUGGESTIONS?\nPreferred callback: after 3 pm.')]);assert.equal(spaced.candidates.find(item=>item.field==='name').value,'Avery  Fictional');assert.equal(spaced.candidates.find(item=>item.field==='notes').value,'Preferred callback: after 3 pm.');
+});
+test('a repeated form cannot reuse a numbered applicant or manufacture a person from the next field',()=>{
+ const found=extractJVApplication([source('Applicant 2\nName: Avery Fictional\nEmail: avery@example.test',2),source('JOINT VENTURE APPLI CATI ON\nNAME:\nJordan Fictional\nEMAIL:\njordan@example.test',3)]);
+ assert.equal(new Set(found.applicants.map(item=>item.key)).size,2);
+ const patch=jvApplicationCandidatePatch(found,found.candidates.map(item=>item.id));assert.deepEqual(patch.applicants.map(item=>item.patch.name),['Avery Fictional','Jordan Fictional']);assert.deepEqual(patch.applicants.map(item=>item.patch.email),['avery@example.test','jordan@example.test']);
+ const continuation=extractJVApplication([source('Joint Venture Application\nName: Avery Fictional',2),source('Joint Venture Application\nNAME:\nEmail: avery@example.test',3)]);
+ assert.equal(continuation.applicants.length,1);assert.equal(continuation.candidates.find(item=>item.field==='email').applicantKey,'applicant-1');
+});

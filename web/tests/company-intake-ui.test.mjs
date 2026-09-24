@@ -10,8 +10,8 @@ let server, browser, context, page, origin;
 let errors = [];
 before(async () => {
   const bundle = await build({
-    absWorkingDir: web, write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent", loader: { ".css": "empty" },
-    define: { "process.env.NODE_ENV": '"production"' },
+    absWorkingDir: web, write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent", loader: { ".css": "empty", ".module.css": "empty" },
+    define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_SUPABASE_URL": '""', "process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": '""', "process.env.NEXT_PUBLIC_TITLE_HOSTED_PILOT": '""' },
     stdin: { resolveDir: web, loader: "tsx", contents: `
       import React from 'react'; import {createRoot} from 'react-dom/client';
       import {MissiveCompanyIntakeButton,CompanyIntakeProfile} from './components/title/company-intake';

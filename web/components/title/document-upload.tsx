@@ -9,7 +9,7 @@ import { uid, type VaultDoc, type Workspace } from "@/lib/title/model";
 import { getCommitment } from "@/lib/title/business";
 import { sourceRoles, outputRoles, sameDocumentFamily, neededFields, titleFile, type SourceRole } from "@/lib/title/production";
 
-type Props = { initialDestination?: "company" | "title"; companyId: string | null; orderId?: string; initialRole?: SourceRole; policyId?: string; commitmentVersion?: number; cplId?: string; cplVersion?: number; correctionId?: string; onClose: () => void };
+type Props = { applicationOnly?: boolean; onUploaded?: (documents: VaultDoc[]) => void; initialDestination?: "company" | "title"; companyId: string | null; orderId?: string; initialRole?: SourceRole; policyId?: string; commitmentVersion?: number; cplId?: string; cplVersion?: number; correctionId?: string; onClose: () => void };
 type Entry = { id: string; file: File; category: string; visibility: "Internal" | "Restricted"; role: SourceRole };
 const categories = ["Company records", "Formation", "Applications", "Policy documents", "Branding", "Disclosures", "Agreements"];
 const categoryNames: Record<string, string> = { "Company records": "General company document / EIN", Formation: "Formation / LLC records", Applications: "Application (restricted)", "Policy documents": "Title / policy document", Branding: "Logo / branding", Disclosures: "Disclosure", Agreements: "Agreement" };
@@ -21,8 +21,8 @@ function fileProblem(entries: Entry[]) {
   return "";
 }
 function binding(props: Props) {
-  const { companyId, orderId, initialRole, policyId, commitmentVersion, cplId, cplVersion, correctionId, initialDestination } = props;
-  return JSON.stringify({ companyId, orderId, initialRole, policyId, commitmentVersion, cplId, cplVersion, correctionId, initialDestination });
+  const { companyId, orderId, initialRole, policyId, commitmentVersion, cplId, cplVersion, correctionId, initialDestination, applicationOnly } = props;
+  return JSON.stringify({ companyId, orderId, initialRole, policyId, commitmentVersion, cplId, cplVersion, correctionId, initialDestination, applicationOnly });
 }
 function outputSnapshot(state: Workspace, props: Props) {
   if (!props.initialRole || !outputRoles.includes(props.initialRole)) return "";
@@ -58,6 +58,7 @@ export function UploadDocument(props: Props) {
   const selectedCompany = s.companies.find(c => c.id === company);
   const selectedOrder = s.orders.find(o => o.id === linkedOrder);
   function destinationProblem(state = s) {
+    if (props.applicationOnly && (!companyId || kind !== "company" || orderId || linkedOrder || initialRole || policyId || cplId || correctionId || commitmentVersion !== undefined || cplVersion !== undefined)) return "Reopen the application upload from its company.";
     if (accessChanged) return "Your account, access, or upload context changed. Close this dialog and reopen Upload documents.";
     if (!state.companies.some(c => c.id === company)) return "Choose the company these documents belong to.";
     if (connection && !connection.access.allCompanies && !connection.access.companyIds.includes(company)) return "You no longer have access to this company. Close this dialog and refresh.";
@@ -114,8 +115,8 @@ export function UploadDocument(props: Props) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (writing.current) return;
-    if (step !== 3) { next(); return; }
-    const problem = destinationProblem() || fileProblem(entries);
+    if (step !== 3 && !props.applicationOnly) { next(); return; }
+    const problem = destinationProblem() || fileProblem(entries) || (props.applicationOnly && (entries.length !== 1 || entries.some(entry => entry.category !== "Applications" || entry.visibility !== "Restricted" || entry.file.type === "text/csv")) ? "Choose one completed application as a PDF, TXT, PNG, or JPG." : "");
     if (problem) { setError(problem); return; }
     if (entries.some(e => !categories.includes(e.category) || (e.category === "Applications" && e.visibility !== "Restricted") || (kind === "title" && !(output ? e.role === initialRole : inputRoles.includes(e.role))))) { setError("Review each document's category, access, and type before saving."); return; }
     if (connection && !connection.access.restricted && entries.some(e => e.visibility === "Restricted")) { setError("Restricted documents require restricted-document access. Ask an administrator to upload these originals."); return; }
@@ -125,7 +126,7 @@ export function UploadDocument(props: Props) {
       const existingEntries = entries.map(entry => ({ entry, saved: before.s.documents.find(doc => doc.id === entry.id) }));
       if (existingEntries.some(item => item.saved)) {
         const complete = existingEntries.every(({ entry, saved: doc }) => doc && doc.assetId === entry.id && doc.companyId === company && doc.orderId === (kind === "title" ? linkedOrder : undefined) && doc.sourceRole === (kind === "title" ? entry.role : undefined) && doc.name === entry.file.name && doc.mime === entry.file.type && doc.category === entry.category && doc.visibility === entry.visibility && doc.policyId === policyId && doc.cplId === cplId && doc.correctionId === correctionId && doc.commitmentVersion === commitmentVersion && doc.cplVersion === cplVersion);
-        if (complete) { onClose(); return; }
+        if (complete) { props.onUploaded?.(existingEntries.map(item => item.saved!)); onClose(); return; }
         throw new Error("Some selected documents were already saved with different details. Close this dialog and review the saved documents before uploading again.");
       }
       const uploaded: VaultDoc[] = [];
@@ -166,7 +167,7 @@ export function UploadDocument(props: Props) {
           if (order.status === "Ready for jacket") order.status = "Needs review";
         }
       }, connection ? "Documents saved to workspace" : "Documents saved locally", `${uploaded.length} files · ${selectedCompany?.name || company}`, before.connection?.revision);
-      if (saved) onClose(); else setError("The save could not be confirmed. Your selected files are still here. Check the save message and saved documents, then try again.");
+      if (saved) { assertCurrent(); props.onUploaded?.(uploaded); onClose(); } else setError("The save could not be confirmed. Your selected files are still here. Check the save message and saved documents, then try again.");
     } catch (failure) {
       const message = failure instanceof Error ? failure.message : "";
       setError(/changed|Choose|Prepare|Review|distinct filename|workflow|access|already saved/.test(message) ? message : connection ? "The upload could not be completed. Check your connection and company access, then try again." : "The file could not be stored in this browser. Try a smaller file.");
@@ -174,16 +175,16 @@ export function UploadDocument(props: Props) {
   }
   return <Dialog open onOpenChange={open => { if (!open && !writing.current) onClose(); }}><DialogContent className="modal allocation-upload" onEscapeKeyDown={event => { if (writing.current) event.preventDefault(); }} onInteractOutside={event => { if (writing.current) event.preventDefault(); }}>
     <style>{css}</style>
-    <DialogHeader><DialogTitle>Upload documents</DialogTitle><DialogDescription>{connection ? "Upload original company and file documents you are authorized to use. Files are stored in your private workspace; company and document permissions apply." : "Use sample or redacted files in this local demo. Files stay in this browser and are not shared with your team."}</DialogDescription></DialogHeader>
-    <ol className="allocation-steps" aria-label="Upload progress">{["Choose destination", "Add documents", "Review & save"].map((label, index) => <li key={label} aria-current={step === index + 1 ? "step" : undefined}><span>{step > index + 1 ? <Check size={13} /> : index + 1}</span>{label}</li>)}</ol>
-    {selectedCompany && <div className="allocation-destination"><Building2 size={19} /><div><small>Saving to</small><strong>{selectedCompany.name}</strong><span>{kind === "title" ? `Title file documents${selectedOrder ? ` · ${selectedOrder.id} · ${selectedOrder.address}` : ""}` : "Company documents"}</span></div></div>}
+    <DialogHeader><DialogTitle>{props.applicationOnly ? "Upload completed application" : "Upload documents"}</DialogTitle><DialogDescription>{connection ? "Upload original company and file documents you are authorized to use. Files are stored in your private workspace; company and document permissions apply." : "Use sample or redacted files in this local demo. Files stay in this browser and are not shared with your team."}</DialogDescription></DialogHeader>
+    {!props.applicationOnly && <ol className="allocation-steps" aria-label="Upload progress">{["Choose destination", "Add documents", "Review & save"].map((label, index) => <li key={label} aria-current={step === index + 1 ? "step" : undefined}><span>{step > index + 1 ? <Check size={13} /> : index + 1}</span>{label}</li>)}</ol>}
+    {selectedCompany && <div className="allocation-destination"><Building2 size={19} /><div><small>Saving to</small><strong>{selectedCompany.name}</strong><span>{kind === "title" ? `Title file documents${selectedOrder ? ` · ${selectedOrder.id} · ${selectedOrder.address}` : ""}` : props.applicationOnly ? "Private company application · Restricted access" : "Company documents"}</span></div></div>}
     <form onSubmit={submit} className="allocation-form"><fieldset disabled={busy || accessChanged} className="allocation-fields">
       {step === 1 && <><h3>Where do these documents belong?</h3><label className="allocation-field">Company<select aria-label="Upload company" value={company} disabled={!!companyId || !!orderId} onChange={event => { setCompany(event.target.value); setLinkedOrder(""); setEntries(current => current.map(entry => ({ ...entry, id: uid("doc") }))); setError(""); }}><option value="">Choose a company…</option>{s.companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
         {!s.companies.length && <p>Add a company or ask an administrator to give you company access before uploading.</p>}
         <div className="allocation-types" role="group" aria-label="Document destination"><button type="button" aria-pressed={kind === "company"} disabled={!!orderId} onClick={() => { setKind("company"); setError(""); }}><strong>Company documents</strong><span>Formation, EIN, applications, logos and agreements for the business.</span></button><button type="button" aria-pressed={kind === "title"} onClick={() => { setKind("title"); setError(""); }}><strong>Title file documents</strong><span>Deeds, searches, opinions and policies for a specific property.</span></button></div>
         {kind === "title" && <label className="allocation-field">Title file<select aria-label="Link upload to order" value={linkedOrder} disabled={!!orderId} onChange={event => { setLinkedOrder(event.target.value); setError(""); }}><option value="">Choose an existing title file…</option>{s.orders.filter(order => order.companyId === company).map(order => <option key={order.id} value={order.id}>{order.id} · {order.address}</option>)}</select>{!s.orders.some(order => order.companyId === company) && <small>Create a title file for this company first, then add its documents.</small>}</label>}
       </>}
-      {step === 2 && <><h3>Add the originals for {selectedCompany?.name || "this company"}</h3><p className="allocation-explanation">You’ll check each document’s category and access before saving.</p><label className="allocation-drop"><Upload size={25} /><strong>{entries.length ? "Add more documents" : "Choose documents"}</strong><span>Up to 10 files · 25 MB each · 100 MB per batch</span><Input aria-label="Select documents" type="file" multiple accept=".pdf,.txt,.csv,.png,.jpg,.jpeg" onChange={event => { const added = Array.from(event.target.files || []).map(file => ({ id: uid("doc"), file, category: kind === "title" ? "Policy documents" : "Company records", visibility: "Internal" as const, role: initialRole || "Other" as SourceRole })); setEntries(current => [...current, ...added]); setError(""); event.target.value = ""; }} /></label></>}
+      {step === 2 && <><h3>Add the originals for {selectedCompany?.name || "this company"}</h3><p className="allocation-explanation">{props.applicationOnly ? "Choose the completed application. We’ll save the original here and read it to suggest application details." : "You’ll check each document’s category and access before saving."}</p><label className="allocation-drop"><Upload size={25} /><strong>{props.applicationOnly ? entries.length ? "Choose a different application" : "Choose completed application" : entries.length ? "Add more documents" : "Choose documents"}</strong><span>{props.applicationOnly ? "One application · Up to 120 pages / 25 MB" : "Up to 10 files · 25 MB each · 100 MB per batch"}</span><Input aria-label={props.applicationOnly ? "Select completed application" : "Select documents"} type="file" multiple={!props.applicationOnly} accept={props.applicationOnly ? ".pdf,.txt,.png,.jpg,.jpeg" : ".pdf,.txt,.csv,.png,.jpg,.jpeg"} onChange={event => { const added = Array.from(event.target.files || []).map(file => ({ id: uid("doc"), file, category: props.applicationOnly ? "Applications" : kind === "title" ? "Policy documents" : "Company records", visibility: props.applicationOnly ? "Restricted" as const : "Internal" as const, role: initialRole || "Other" as SourceRole })); setEntries(current => props.applicationOnly ? added : [...current, ...added]); setError(""); event.target.value = ""; }} /></label></>}
       {step === 3 && <><h3>Check where each document will go</h3><p className="allocation-explanation">Review the destination and details, then choose who may view each original before saving.</p>{kind === "title" && <p className="allocation-explanation">{output ? `This workflow adds ${initialRole} documents to the selected title-file version.` : "Choose the type for each title document. Not sure yet keeps it unclassified; choose its source type before capturing fields."}</p>}</>}
       {step > 1 && entries.length > 0 && <div className="allocation-files"><p className="allocation-count">{entries.length} {entries.length === 1 ? "document" : "documents"} · {(entries.reduce((n, e) => n + e.file.size, 0) / 1024 / 1024).toFixed(1)} MB selected</p>{entries.map((entry, index) => <article className="allocation-file" key={entry.id}><div className="allocation-filename"><FileText size={19} /><strong>{entry.file.name}</strong><span>{Math.max(1, Math.round(entry.file.size / 1024))} KB</span><button type="button" aria-label={`Remove ${entry.file.name}`} onClick={() => { setEntries(current => current.filter(e => e.id !== entry.id)); setError(""); }}><X size={17} /></button></div>{step === 3 && <div className="allocation-metadata" data-title={kind === "title"}><p className="allocation-version">Will save as version {proposedVersion(entry, index)}</p>
         <label className="allocation-field">Category<select aria-label={entries.length === 1 ? "Document category" : `Document category for ${entry.file.name} (${index + 1})`} value={entry.category} onChange={event => patchEntry(entry.id, { category: event.target.value })}>{categories.map(category => <option key={category} value={category}>{categoryNames[category]}</option>)}</select></label>
@@ -194,7 +195,7 @@ export function UploadDocument(props: Props) {
     </fieldset>
     <p className="allocation-explanation">{connection ? "Saving does not email or publish these documents." : "Files stay in this browser; visibility labels do not grant team access."}</p>
     {(error || accessChanged) && <p role="alert" className="allocation-error">{accessChanged ? "Your account, access, or upload context changed. Close this dialog and reopen Upload documents." : error}</p>}
-    <div className="allocation-actions"><Button type="button" variant="outline" disabled={busy} onClick={onClose}>Cancel</Button><div>{step > 1 && <Button type="button" variant="ghost" disabled={busy || accessChanged} onClick={() => { setStep(step - 1); setError(""); }}><ArrowLeft size={15} />Back</Button>}<Button type="submit" disabled={busy || accessChanged || (step === 1 ? !company || (kind === "title" && !linkedOrder) : !entries.length)}>{busy ? "Saving…" : step === 1 ? "Continue" : step === 2 ? "Review documents" : "Save documents"}</Button></div></div>
+    <div className="allocation-actions"><Button type="button" variant="outline" disabled={busy} onClick={onClose}>Cancel</Button><div>{step > 1 && !props.applicationOnly && <Button type="button" variant="ghost" disabled={busy || accessChanged} onClick={() => { setStep(step - 1); setError(""); }}><ArrowLeft size={15} />Back</Button>}<Button type="submit" disabled={busy || accessChanged || (step === 1 ? !company || (kind === "title" && !linkedOrder) : !entries.length)}>{busy ? "Saving…" : props.applicationOnly ? "Upload and read application" : step === 1 ? "Continue" : step === 2 ? "Review documents" : "Save documents"}</Button></div></div>
     </form></DialogContent></Dialog>;
 }
 const css = `

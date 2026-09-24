@@ -11,8 +11,8 @@ let server, browser, context, page, origin;
 let errors = [];
 before(async () => {
   const bundle = await build({
-    absWorkingDir: web, write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent",
-    define: { "process.env.NODE_ENV": '"production"' },
+    absWorkingDir: web, outfile: "company-operating-fixture.mjs", write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent",
+    define: { "process.env.NODE_ENV": '"production"', "process.env": "{}" },
     stdin: { resolveDir: web, loader: "tsx", contents: `
       import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
       import {Companies,CompanyDetail,Onboarding} from './components/title/companies';
@@ -20,6 +20,10 @@ before(async () => {
       createRoot(document.getElementById('root')).render(<App/>);
     ` },
     plugins: [{ name: "fictional-company-operations", setup(builder) {
+      builder.onResolve({ filter: /^@\/lib\/backend\/jv-intake-client$/ }, () => ({ path: "intake", namespace: "fixture-intake" }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture-intake" }, () => ({ loader: "ts", resolveDir: web, contents: `import {newJVApplication} from './lib/title/jv-application';window.privateRequests=[];export async function jvIntakeClientRequest(context,action){window.privateRequests.push({context,action});if(action!=='load')throw Error('Unexpected private write');return {companyId:context.companyId,version:0,payload:newJVApplication(),status:'Draft',reviewNote:'',updatedAt:null,updatedBy:null,reviewedAt:null,reviewedBy:null};}` }));
+      builder.onResolve({ filter: /^@\/lib\/backend\/jv-portal-client$/ }, () => ({ path: "portal", namespace: "fixture-portal" }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture-portal" }, () => ({ contents: `window.portalRequests=[];export async function jvPortalClientRequest(context,action){window.portalRequests.push({context,action});if(action!=='list')throw Error('Unexpected portal write or email');return {requests:[],mailConfigured:false};}export const jvPortalDownload=async()=>{throw Error('Unexpected download')};` }));
       builder.onResolve({ filter: /^@\/lib\/backend\/client$/ }, () => ({ path: "client", namespace: "fixture-client" }));
       builder.onLoad({ filter: /.*/, namespace: "fixture-client" }, () => ({ contents: `export const activeWorkspace=()=>"fictional-workspace";export const backendRequest=async()=>{throw Error("Unexpected provider request")};` }));
       builder.onResolve({ filter: /^@\/lib\/title\/store$/ }, () => ({ path: "store", namespace: "fixture-store" }));
@@ -31,7 +35,7 @@ before(async () => {
         state.tasks=[{id:'task',companyId:'cedar',title:'Complete company profile',owner:'owner@example.test',done:false}];state.documents=[];
         if(query.has('confirmed'))state.companies[0].operatingStatus={status:'Active',confirmedBy:'owner@example.test',confirmedAt:'2026-09-23T21:00:00.000Z',note:'Already operates; setup records are still needed.'};
         if(query.has('malformed'))state.companies[0].operatingStatus={status:'Active',confirmedBy:'',confirmedAt:'bad-date',note:''};
-        const access=(role='owner',allCompanies=true,version=1)=>role==='demo'?undefined:{workspaceId:'fictional-workspace',revision:1,access:{userId:'owner-user',email:'owner@example.test',role,allCompanies,version,companyIds:state.companies.map(c=>c.id)}};
+        const access=(role='owner',allCompanies=true,version=1)=>role==='demo'?undefined:{workspaceId:'fictional-workspace',revision:1,access:{userId:'owner-user',email:'owner@example.test',role,allCompanies,version,restricted:query.has('application'),companyIds:state.companies.map(c=>c.id)}};
         let snapshot={s:state,connection:access(query.get('role')||'owner',query.get('all')!=='false')};const emit=()=>listeners.forEach(fn=>fn());
         window.operatingUpdates=[];window.failOperatingSave=query.has('fail');window.readOperating=()=>structuredClone(snapshot.s);
         window.changeOperatingAccess=(role,all)=>{snapshot={...snapshot,connection:access(role,all,(snapshot.connection?.access.version||0)+1)};emit();};
@@ -42,8 +46,9 @@ before(async () => {
     } }],
   });
   server = createServer((req, res) => {
-    if (req.url === "/app.mjs") { res.writeHead(200, { "content-type": "text/javascript" }); res.end(bundle.outputFiles[0].contents); }
-    else { res.writeHead(200, { "content-type": "text/html" }); res.end('<!doctype html><html><meta charset="utf-8"><body><div id="root"></div><script type="module" src="/app.mjs"></script></body></html>'); }
+    if (req.url === "/app.mjs") { res.writeHead(200, { "content-type": "text/javascript" }); res.end(bundle.outputFiles.find(file => file.path.endsWith(".mjs")).contents); }
+    else if (req.url === "/app.css") { res.writeHead(200, { "content-type": "text/css" }); res.end(bundle.outputFiles.find(file => file.path.endsWith(".css"))?.contents || ""); }
+    else { res.writeHead(200, { "content-type": "text/html" }); res.end('<!doctype html><html><meta charset="utf-8"><link rel="stylesheet" href="/app.css"><body><div id="root"></div><script type="module" src="/app.mjs"></script></body></html>'); }
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); origin = `http://127.0.0.1:${server.address().port}`;
   try { browser = await chromium.launch({ headless: true }); } catch { browser = await chromium.launch({ channel: "chrome", headless: true }); }
@@ -110,7 +115,8 @@ test("detail separates Active operations from missing profile and checklist evid
   await open("confirmed&detail=cedar"); const before = await page.evaluate(() => window.readOperating());
   const dialog = page.getByRole("dialog");
   assert.equal(await dialog.getByRole("heading", { name: "Workspace setup checklist", exact: true }).isVisible(), false);
-  assert.equal(await dialog.getByRole("button", { name: "Open company documents", exact: true }).isVisible(), true);
+  assert.equal(await dialog.getByRole("button", { name: "Company documents & logo", exact: true }).isVisible(), true);
+  await dialog.getByText("Company details & Missive source", { exact: true }).click();
   await dialog.getByText("Formation and approval history", { exact: true }).click();
   assert.match(await dialog.innerText(), /Workspace setup checklist/); assert.match(await dialog.innerText(), /Company profile needs completion/); assert.match(await dialog.innerText(), /owner@example.test/);
   assert.deepEqual(await page.evaluate(() => window.readOperating()), before);
@@ -124,7 +130,7 @@ test("detail separates Active operations from missing profile and checklist evid
 });
 
 test("staff can see saved operating context but cannot clear it", async () => {
-  await open("confirmed&detail=cedar&role=operations"); assert.match(await page.getByRole("dialog").innerText(), /Existing operations confirmed Active/);
+  await open("confirmed&detail=cedar&role=operations"); await page.getByText("Formation and approval history", { exact: true }).click(); assert.match(await page.getByRole("dialog").innerText(), /Existing operations confirmed Active/);
   assert.equal(await page.getByRole("button", { name: "Clear operating confirmation", exact: true }).count(), 0);
 });
 
@@ -143,4 +149,37 @@ test("malformed legacy metadata cannot claim Active operations or hide incomplet
   await page.keyboard.press("Escape"); await dialog.waitFor({ state: "detached" });
   await page.getByRole("tab", { name: "Active", exact: true }).click(); assert.equal(await page.locator(".company-card").count(), 1); assert.match(await page.locator(".company-card").innerText(), /Established Title/);
   await trigger().click(); assert.equal(await choose("Cedar Title").isChecked(), true); assert.doesNotMatch(await page.getByRole("dialog").innerText(), /Operations already confirmed/);
+});
+
+
+test("existing company upload shortcut opens its pinned private application dialog without creating records", async () => {
+  await open("confirmed&detail=cedar&application");
+  const before = await page.evaluate(() => window.readOperating());
+  await page.getByRole("button", { name: "Upload completed application", exact: true }).click();
+  const upload = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "Upload completed application", exact: true }) }).last();
+  await upload.getByLabel("Select completed application", { exact: true }).waitFor();
+  assert.match(await upload.innerText(), /Cedar Title/);
+  assert.match(await upload.innerText(), /Private company application · Restricted access/);
+  assert.equal(await upload.getByRole("combobox").count(), 0);
+  assert.equal(await upload.getByRole("button", { name: "Back", exact: true }).count(), 0);
+  assert.equal(await upload.getByRole("button", { name: "Upload and read application", exact: true }).isDisabled(), true);
+  assert.deepEqual(await page.evaluate(() => window.privateRequests), [{context:{workspaceId:"fictional-workspace",userId:"owner-user",companyId:"cedar"},action:"load"}]);
+  assert.deepEqual(await page.evaluate(() => window.portalRequests), []);
+  await upload.getByRole("button", { name: "Cancel", exact: true }).click();
+  await upload.waitFor({ state: "detached" });
+  assert.deepEqual(await page.evaluate(() => window.readOperating()), before);
+  assert.deepEqual(await page.evaluate(() => window.operatingUpdates), []);
+});
+
+test("new joint venture shortcut opens the private-link form without sending or preparing an invite", async () => {
+  await open("detail=cedar&application");
+  const before = await page.evaluate(() => window.readOperating());
+  await page.getByRole("button", { name: "Send application link", exact: true }).click();
+  await page.getByRole("textbox", { name: "Recipient name", exact: true }).waitFor();
+  await page.getByText("Application email setup is needed before recipients can verify and open a link.", { exact: false }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Private application links", exact: true }).count(), 0);
+  assert.deepEqual(await page.evaluate(() => window.portalRequests), [{context:{workspaceId:"fictional-workspace",userId:"owner-user",companyId:"cedar"},action:"list"}]);
+  assert.deepEqual(await page.evaluate(() => window.privateRequests), []);
+  assert.deepEqual(await page.evaluate(() => window.operatingUpdates), []);
+  assert.deepEqual(await page.evaluate(() => window.readOperating()), before);
 });

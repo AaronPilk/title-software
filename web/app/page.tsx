@@ -75,6 +75,7 @@ import {
   Companies,
   NewCompany,
   CompanyDetail,
+  type CompanyDetailTab,
 } from "@/components/title/companies";
 import {
   Documents,
@@ -96,6 +97,7 @@ import { HelpUIContext } from "@/lib/assistant/help-ui-context";
 import { VendorOAuthReturn } from "@/components/title/vendor-oauth-return";
 import { activeWorkspace, hostedPilot } from "@/lib/backend/client";
 import { documentScanIdentity } from "@/components/title/use-document-scan";
+import { allowWorkspaceNavigation } from "@/lib/title/workspace-navigation-guard";
 const navigation: { label: Page; icon: typeof LayoutGrid }[] = [
   { label: "Overview", icon: LayoutGrid },
   { label: "Assistant", icon: Sparkles },
@@ -129,20 +131,13 @@ export default function Home() {
 function Workspace() {
   const { s, ready, connection } = useWorkspace();
   const { setOpenMobile } = useSidebar();
-  const workspaceLocation = useWorkspaceView(connection ? {
-    userId: connection.access.userId,
-    email: connection.access.email,
-    role: connection.access.role,
-    workspaceId: activeWorkspace(),
-  } : undefined, s.user, ready);
-  const { page, view } = workspaceLocation;
   const [search, setSearch] = useState(false);
   const [notifications, setNotifications] = useState(false);
   const [orderId, setOrderId] = useState("");
   const [revisionMessage, setRevisionMessage] = useState("");
   const [policyId, setPolicyId] = useState("T-2026-1048");
   const [companyId, setCompanyId] = useState("");
-  const [companyTab, setCompanyTab] = useState<"Overview" | "Documents">("Overview");
+  const [companyTab, setCompanyTab] = useState<CompanyDetailTab>("Overview");
   const [docId, setDocId] = useState("");
   const [docTarget, setDocTarget] = useState<{ identity: string; page: number } | null>(null);
   const [newOrder, setNewOrder] = useState(false);
@@ -153,6 +148,17 @@ function Workspace() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpDestination, setHelpDestination] = useState<Page | null>(null);
   const [helpFromDialog, setHelpFromDialog] = useState(false);
+  const workspaceLocation = useWorkspaceView(connection ? {
+    userId: connection.access.userId,
+    email: connection.access.email,
+    role: connection.access.role,
+    workspaceId: activeWorkspace(),
+  } : undefined, s.user, ready, () => {
+    setOpenMobile(false); setSearch(false); setNotifications(false); setOrderId("");
+    setCompanyId(""); setDocId(""); setDocTarget(null);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  });
+  const { page, view } = workspaceLocation;
   const storeRef = useRef(s);
   useEffect(() => {
     const closeDrawer = () => setOpenMobile(false);
@@ -170,26 +176,10 @@ function Workspace() {
     };
   }, [setOpenMobile]);
   function navigate(p: Page) {
-    setOpenMobile(false);
-    workspaceLocation.navigate(p);
-    setSearch(false);
-    setNotifications(false);
-    setOrderId("");
-    setCompanyId("");
-    setDocId("");
-    setDocTarget(null);
-    window.scrollTo({ top: 0, behavior: "instant" });
+    return workspaceLocation.navigate(p);
   }
   function switchView(next: WorkspaceView) {
-    setOpenMobile(false);
-    workspaceLocation.switchView(next);
-    setSearch(false);
-    setNotifications(false);
-    setOrderId("");
-    setCompanyId("");
-    setDocId("");
-    setDocTarget(null);
-    window.scrollTo({ top: 0, behavior: "instant" });
+    return workspaceLocation.switchView(next);
   }
   const navRef = useRef(navigate);
   useEffect(() => {
@@ -285,16 +275,18 @@ function Workspace() {
     return () => controller.abort();
   }, [connection]);
   function openReview(id: string) {
+    if (!navigate("Policy workbench")) return;
     setPolicyId(id);
-    navigate("Policy workbench");
   }
   function upload(id?: string, destination: "company" | "title" = "company") {
+    if (companyId && !allowWorkspaceNavigation("company-detail")) return;
     setUploadCompany(id || null);
     setUploadDestination(destination);
     setCompanyId("");
     setUploadOpen(true);
   }
-  function openCompany(id: string, tab: "Overview" | "Documents" = "Overview") {
+  function openCompany(id: string, tab: CompanyDetailTab = "Overview") {
+    if (companyId && companyId !== id && !allowWorkspaceNavigation("company-detail")) return;
     setCompanyTab(tab);
     setCompanyId(id);
   }
@@ -484,7 +476,7 @@ function Workspace() {
                     aria-current={label === page ? "page" : undefined}
                   >
                     <Icon />
-                    <span>{label}</span>
+                    <span>{label === "Onboarding" ? "Applications" : label}</span>
                     {label === "Inbox" &&
                       s.inbox.some((m) => m.status === "New") && (
                         <b className="nav-count">
@@ -538,7 +530,7 @@ function Workspace() {
           <span>
             <SidebarTrigger className="mobile-menu" />
             {connection?.access.role === "partner" ? "Partner" : view === "agency" ? "Agency" : "Production"} <ChevronRight size={13} />
-            <strong>{page}</strong>
+            <strong>{page === "Onboarding" ? "Applications" : page}</strong>
           </span>
           <div>
             <button className="search-global" onClick={() => setSearch(true)}>
@@ -622,8 +614,7 @@ function Workspace() {
                   <CommandItem
                     key={c.id}
                     onSelect={() => {
-                      navigate("Companies");
-                      openCompany(c.id);
+                      if (navigate("Companies")) { setCompanyTab("Overview"); setCompanyId(c.id); }
                     }}
                   >
                     <Building2 />
@@ -637,8 +628,7 @@ function Workspace() {
                   <CommandItem
                     key={o.id}
                     onSelect={() => {
-                      navigate("Orders");
-                      setOrderId(o.id);
+                      if (navigate("Orders")) setOrderId(o.id);
                     }}
                   >
                     <Files />
@@ -653,8 +643,7 @@ function Workspace() {
                     key={d.id}
                     value={`${d.name} ${d.companyId} ${d.id}`}
                     onSelect={() => {
-                      navigate("Documents");
-                      openDoc(d);
+                      if (navigate("Documents")) openDoc(d);
                     }}
                   >
                     <FileTextIcon />

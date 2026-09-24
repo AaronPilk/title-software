@@ -11,8 +11,8 @@ let server, browser, context, page, origin;
 let errors = [];
 before(async () => {
   const bundle = await build({
-    absWorkingDir: web, write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent",
-    define: { "process.env.NODE_ENV": '"production"' },
+    absWorkingDir: web, write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent", loader: { ".css": "empty", ".module.css": "empty" },
+    define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_SUPABASE_URL": '""', "process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": '""', "process.env.NEXT_PUBLIC_TITLE_HOSTED_PILOT": '"false"' },
     stdin: { resolveDir: web, loader: "tsx", contents: `
       import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
       import {CompanyDetail} from './components/title/companies';
@@ -53,6 +53,7 @@ async function open() {
   await context?.close(); errors = []; context = await browser.newContext();
   await context.route("**/*", route => { if (!route.request().url().startsWith(`${origin}/`)) { errors.push("Unexpected external request"); return route.abort(); } return route.continue(); });
   page = await context.newPage(); page.setDefaultTimeout(4000); page.on("pageerror", e => errors.push(e.message));
+  page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
   await page.goto(origin); await page.locator("#ready").waitFor({ state: "attached" });
   await page.getByRole("tab", { name: "Documents", exact: true }).click();
 }

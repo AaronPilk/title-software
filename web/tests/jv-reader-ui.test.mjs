@@ -57,7 +57,8 @@ async function fullScan(text=fullPacket,method='pdf-text'){
 async function reviewAll(){for(const details of await page.locator('details.jv-candidate').all()){await details.locator('summary').click();await details.getByRole('checkbox').check()}}
 test('whole packet review maps multiple applicants, checks original pages, and applies only confirmed draft fields',async()=>{
  await open(true);await fullScan();const apply=page.getByRole('button',{name:'Apply reviewed application',exact:true});assert.equal(await apply.isDisabled(),true);
- assert.equal(await page.getByRole('combobox',{name:'Source applicant 1 destination',exact:true}).inputValue(),'fictional-person');assert.equal(await page.getByRole('combobox',{name:'Source applicant 2 destination',exact:true}).inputValue(),'');
+ assert.equal(await page.getByRole('combobox',{name:'Source applicant 1 destination',exact:true}).inputValue(),'');assert.equal(await page.getByRole('combobox',{name:'Source applicant 2 destination',exact:true}).inputValue(),'');
+ await page.getByRole('combobox',{name:'Source applicant 1 destination',exact:true}).selectOption('fictional-person');
  await reviewAll();assert.equal(await apply.isDisabled(),true);
  await page.getByRole('button',{name:'View original page 2',exact:true}).first().click();await page.getByRole('dialog').getByText('Original page 2').waitFor();await page.getByRole('button',{name:'Close original',exact:true}).click();
  await page.getByRole('checkbox',{name:/Replace existing source applicant 1 residence history/}).check();await apply.click();
@@ -76,7 +77,7 @@ test('OCR ambiguity and history gaps appear with manual feedback; rotation inval
  await open(true);await fullScan('Applicant 1\nName: Avery Example\nOwnership: [x] Individual [x] Business\nDOB: 01/02/1980\nResidence History\nAddress | From | To\n100 Fictional Lane | 2025-01-01 | Present','ocr');
  await page.getByText(/Ownership choice is incomplete, ambiguous or invalid/).waitFor();await page.locator('summary').filter({hasText:'Missing details and completeness feedback'}).click();await page.getByText(/provide residence history covering the full last five years without gaps/).waitFor();
  const name=page.locator('details.jv-candidate').filter({hasText:'Applicant name'});await name.locator('summary').click();await name.getByText(/OCR can misread handwriting/).waitFor();await name.getByRole('checkbox').check();
- await page.getByRole('combobox',{name:'Application scan orientation',exact:true}).selectOption('90');assert.equal(await page.getByRole('button',{name:'Apply reviewed application',exact:true}).count(),0);await page.getByText('Read the application again to use the new orientation.',{exact:true}).waitFor();
+ await page.locator('summary').filter({hasText:'Reading options'}).click();await page.getByRole('combobox',{name:'Application scan orientation',exact:true}).selectOption('90');assert.equal(await page.getByRole('button',{name:'Apply reviewed application',exact:true}).count(),0);await page.getByText('Read the application again to use the new orientation.',{exact:true}).waitFor();
 });
 test('a late old scan cannot publish private candidates after original replacement',async()=>{
  await open(true);await page.getByRole('combobox',{name:'Application original'}).selectOption('fictional-app');

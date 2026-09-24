@@ -12,8 +12,8 @@ import { FieldLabel } from "./shared";
 const statusOf = (error: unknown) => error && typeof error === "object" && "status" in error ? error.status : undefined;
 const delivery = (value: string) => ({ not_sent: "Email not sent", sending: "Email send in progress", sent: "Email accepted by provider", failed: "Email send failed", unknown: "Email outcome unknown — revoke and prepare a new link" })[value] || "Email not sent";
 
-export function JVPortalRequests({ context, applicationDirty, onApplicationChanged }: { context: JVIntakeContext; applicationDirty: boolean; onApplicationChanged: () => void }) {
-  const [opened, setOpened] = useState(false), [requests, setRequests] = useState<JVPortalStaffRecord[]>([]);
+export function JVPortalRequests({ context, applicationDirty, onApplicationChanged, initiallyOpen = false, embedded = false, onBusyChange, onDirtyChange }: { context: JVIntakeContext; applicationDirty: boolean; onApplicationChanged: () => void; initiallyOpen?: boolean; embedded?: boolean; onBusyChange?: (busy: boolean) => void; onDirtyChange?: (dirty: boolean) => void }) {
+  const [opened, setOpened] = useState(initiallyOpen), [requests, setRequests] = useState<JVPortalStaffRecord[]>([]);
   const [mailConfigured, setMailConfigured] = useState(false), [busy, setBusy] = useState(false), [loaded, setLoaded] = useState(false);
   const [name, setName] = useState(""), [email, setEmail] = useState(""), [link, setLink] = useState("");
   const [error, setError] = useState(""), [notice, setNotice] = useState("");
@@ -21,6 +21,11 @@ export function JVPortalRequests({ context, applicationDirty, onApplicationChang
   const [applicationVersion, setApplicationVersion] = useState<number | null>(null), [correction, setCorrection] = useState("");
   const alive = useRef(true), working = useRef(false), createId = useRef(crypto.randomUUID());
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const stateCallbacks = useRef({ onBusyChange, onDirtyChange });
+  useEffect(() => { stateCallbacks.current = { onBusyChange, onDirtyChange }; });
+  const dirty = !!name || !!email || !!correction || reviewed;
+  useEffect(() => { stateCallbacks.current.onBusyChange?.(busy); return () => { stateCallbacks.current.onBusyChange?.(false); }; }, [busy]);
+  useEffect(() => { stateCallbacks.current.onDirtyChange?.(dirty); return () => { stateCallbacks.current.onDirtyChange?.(false); }; }, [dirty]);
   const blocked = busy || applicationDirty;
   async function run(task: () => Promise<void>) {
     if (working.current) return;
@@ -53,8 +58,14 @@ export function JVPortalRequests({ context, applicationDirty, onApplicationChang
       }
     });
   }
+  const initialRefresh = useRef(() => run(refresh));
+  useEffect(() => {
+    if (!initiallyOpen) return;
+    const timer = window.setTimeout(() => { void initialRefresh.current(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [initiallyOpen]);
   return <div className="jv-portal-requests" aria-busy={busy}>
-    <div className="jv-actions"><Button type="button" variant="outline" size="sm" disabled={busy} aria-expanded={opened} onClick={() => { setOpened(!opened); if (!opened && !loaded) void run(refresh); }}>Private application links</Button></div>
+    {!embedded && <div className="jv-actions"><Button type="button" variant="outline" size="sm" disabled={busy} aria-expanded={opened} onClick={() => { setOpened(!opened); if (!opened && !loaded) void run(refresh); }}>Private application links</Button></div>}
     {opened && <div className="jv-section">
       <h4>Send an application</h4><p className="form-note">Prepare a private link for a new joint venture. The recipient verifies their email, saves answers and uploads documents. Submissions fill an empty, unchanged private application. Existing entries wait for your review.</p>
       {applicationDirty && <p className="notice warning">Save or close your unsaved application before changing requests.</p>}

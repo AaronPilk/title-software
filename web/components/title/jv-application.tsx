@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Eye, EyeOff, FileText, LockKeyhole, Plus, Save, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eye, EyeOff, Check, FileText, LockKeyhole, Plus, Save, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,7 +13,11 @@ import { FieldLabel, Picker, Status } from "./shared";
 import { JVApplicationReader } from "./jv-application-reader";
 import { JVPortalRequests } from "./jv-portal-requests";
 import { applyJVApplicationFill } from "@/lib/title/jv-application-fill";
+import { UploadDocument } from "./document-upload";
+import styles from "./jv-application-flow.module.css";
 import type { JVApplicationFillPatch } from "@/lib/title/jv-extraction";
+import { useWorkspaceNavigationGuard } from "./use-workspace-navigation-guard";
+import type { WorkspaceNavigationScope } from "@/lib/title/workspace-navigation-guard";
 
 const sections = ["Applicants", "Ownership & history", "Branding & documents", "Review", "Setup checklist"] as const;
 const stepStatuses: JVStep["status"][] = ["Not started", "In progress", "Complete", "Not applicable"];
@@ -24,7 +28,8 @@ const requestMessage = (error: unknown) => errorStatus(error) === 409
     ? "Your access changed or your session ended. Sign in with access to this company and reopen its private application."
     : "The private application could not be saved or loaded. Check the entries and connection, then try again.";
 
-export function JVApplicationPanel({ company, onDocuments }: { company: Company; onDocuments?: () => void }) {
+type PanelProps = { company: Company; onDocuments?: () => void; existingCompany?: boolean; initiallyOpen?: boolean; entryAction?: "upload" | "link"; onDirtyChange?: (dirty: boolean) => void; onBusyChange?: (busy: boolean) => void; navigationScope?: WorkspaceNavigationScope };
+export function JVApplicationPanel({ company, onDocuments, existingCompany = false, initiallyOpen = false, entryAction, onDirtyChange, onBusyChange, navigationScope = "workspace" }: PanelProps) {
   const { s, connection } = useWorkspace();
   if (!connection) return <section className="panel jv-panel" aria-label="Joint venture application"><header className="jv-header"><LockKeyhole size={19} aria-hidden="true" /><div><h3>Joint venture application</h3><p className="form-note">Sign in to a shared workspace to use the protected application. Personal intake is unavailable in local mode.</p></div></header></section>;
   const { access, workspaceId } = connection;
@@ -32,12 +37,17 @@ export function JVApplicationPanel({ company, onDocuments }: { company: Company;
   if (!allowed) return null;
   const scope = JSON.stringify([workspaceId, access.userId, access.version, access.role, access.restricted, access.allCompanies, access.companyIds, company.id]);
   const originals = s.documents.filter(doc => doc.companyId === company.id && !doc.orderId && doc.category === "Applications" && doc.visibility === "Restricted" && !!doc.assetId);
-  return <JVApplicationWorkspace key={scope} context={{ workspaceId, userId: access.userId, companyId: company.id }} originals={originals} onDocuments={onDocuments} />;
+  return <JVApplicationWorkspace key={scope} context={{ workspaceId, userId: access.userId, companyId: company.id }} originals={originals} onDocuments={onDocuments} existingCompany={existingCompany} initiallyOpen={initiallyOpen} entryAction={entryAction} onDirtyChange={onDirtyChange} onBusyChange={onBusyChange} navigationScope={navigationScope} />;
 }
 
-function JVApplicationWorkspace({ context, originals, onDocuments }: { context: JVIntakeContext; originals: VaultDoc[]; onDocuments?: () => void }) {
+function JVApplicationWorkspace({ context, originals, onDocuments, existingCompany, initiallyOpen, entryAction, onDirtyChange, onBusyChange, navigationScope }: { context: JVIntakeContext; originals: VaultDoc[]; onDocuments?: () => void; existingCompany: boolean; initiallyOpen: boolean; entryAction?: "upload" | "link"; onDirtyChange?: (dirty: boolean) => void; onBusyChange?: (busy: boolean) => void; navigationScope: WorkspaceNavigationScope }) {
   const { connection } = useWorkspace();
   const [opened, setOpened] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false), [manualOpen, setManualOpen] = useState(false), [linksOpen, setLinksOpen] = useState(entryAction === "link");
+  const [portalDirty, setPortalDirty] = useState(false), [portalBusy, setPortalBusy] = useState(false);
+  const [readerDirty, setReaderDirty] = useState(false);
+  const [sourceSelection, setSourceSelection] = useState({ id: "", generation: 0 });
+  const pendingUpload = useRef(false);
   const [record, setRecord] = useState<JVRecord | null>(null);
   const [draft, setDraft] = useState<JVApplication | null>(null);
   const [section, setSection] = useState(0);
@@ -52,19 +62,21 @@ function JVApplicationWorkspace({ context, originals, onDocuments }: { context: 
   const contentId = useId();
   const payloadDirty = !!record && !!draft && JSON.stringify(draft) !== JSON.stringify(record.payload);
   const noteDirty = record?.status === "Ready for review" && reviewNote !== record.reviewNote;
-  const dirty = payloadDirty || noteDirty;
+  const dirty = payloadDirty || noteDirty || readerDirty;
+  const navigationDirty = dirty || portalDirty;
+  useWorkspaceNavigationGuard(navigationScope, { dirty: navigationDirty, busy: busy || portalBusy || uploadOpen });
+  const dirtyCallback = useRef(onDirtyChange);
+  useEffect(() => { dirtyCallback.current = onDirtyChange; });
+  useEffect(() => { dirtyCallback.current?.(navigationDirty || busy || portalBusy || uploadOpen); return () => { dirtyCallback.current?.(false); }; }, [navigationDirty, busy, portalBusy, uploadOpen]);
+  const busyCallback = useRef(onBusyChange);
+  useEffect(() => { busyCallback.current = onBusyChange; });
+  useEffect(() => { busyCallback.current?.(busy || portalBusy || uploadOpen); return () => { busyCallback.current?.(false); }; }, [busy, portalBusy, uploadOpen]);
   const problems = draft ? jvReadiness(draft) : [];
   const applicant = draft?.applicants[applicantIndex];
   const checklistDone = draft?.steps.filter(step => step.status === "Complete" || step.status === "Not applicable").length ?? 0;
+  const showDetailsSummary = payloadDirty || (record?.version ?? 0) > 0;
 
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
-
   function change(next: (value: JVApplication) => JVApplication) {
     if (working.current) return;
     setDraft(current => current ? next(current) : current);
@@ -81,7 +93,7 @@ function JVApplicationWorkspace({ context, originals, onDocuments }: { context: 
     change(() => next);
   }
   function clear() {
-    generation.current++; setOpened(false); setRecord(null); setDraft(null); setReviewNote(""); setReviewConfirmed(false); setSection(0); setApplicantIndex(0); setError(""); setConflict(false); setNotice("");
+    generation.current++; setOpened(false); setRecord(null); setDraft(null); setReviewNote(""); setReviewConfirmed(false); setSection(0); setApplicantIndex(0); setManualOpen(false); setUploadOpen(false); setReaderDirty(false); setSourceSelection({ id: "", generation: 0 }); setError(""); setConflict(false); setNotice("");
   }
   function close() {
     if (working.current || (dirty && !window.confirm("Discard unsaved application changes and close?"))) return;
@@ -92,7 +104,7 @@ function JVApplicationWorkspace({ context, originals, onDocuments }: { context: 
     clear(); onDocuments?.();
   }
   async function request(action: JVIntakeAction) {
-    if (working.current) return;
+    if (working.current || portalBusy) return;
     if (action === "load" && dirty && !window.confirm("Reloading will discard unsaved application changes. Load the latest saved version?")) return;
     let payload: JVApplication | undefined;
     if (action !== "load") {
@@ -107,7 +119,8 @@ function JVApplicationWorkspace({ context, originals, onDocuments }: { context: 
     try {
       const result = await jvIntakeClientRequest(context, action, action === "load" ? undefined : action === "reopen" ? { expectedVersion: record!.version } : { expectedVersion: record!.version, payload, ...(action === "review" ? { reviewNote } : {}) });
       if (!alive.current || generation.current !== currentGeneration) return;
-      setRecord(result); setDraft(result.payload); setConflict(false); setReviewConfirmed(false);
+      setRecord(result); setDraft(result.payload); setConflict(false);
+      if (action === "load" && pendingUpload.current) { pendingUpload.current = false; setUploadOpen(true); } setReviewConfirmed(false);
       setReviewNote(action === "save" && result.status === "Ready for review" ? reviewNote : result.reviewNote);
       setApplicantIndex(index => Math.min(index, Math.max(0, result.payload.applicants.length - 1)));
       setNotice(action === "load" ? "Private application loaded." : action === "review" ? "Application marked reviewed. Company launch approval is a separate decision." : action === "submit" ? "Application saved and submitted for manual review." : action === "reopen" ? "Application reopened as a draft." : "Private application saved.");
@@ -122,26 +135,55 @@ function JVApplicationWorkspace({ context, originals, onDocuments }: { context: 
     }
   }
 
-  return <section className="panel jv-panel" aria-label="Joint venture application" aria-busy={busy}>
-    <header className="jv-header">
-      <div className="jv-heading"><LockKeyhole size={20} aria-hidden="true" /><div><h3>Joint venture application</h3><p className="form-note">Private applicant intake and the 17-step company setup checklist.</p></div></div>
-      <div className="jv-actions">{record && <Status value={record.status} />}{opened ? <Button type="button" variant="outline" size="sm" onClick={close} disabled={busy} aria-expanded={true} aria-controls={contentId}><X size={15} />Close application</Button> : <Button type="button" variant="outline" onClick={() => void request("load")} disabled={busy} aria-expanded={false} aria-controls={contentId}><LockKeyhole size={15} />Open private application</Button>}</div>
+  function openUpload() {
+    if (busy || portalBusy || conflict || (readerDirty && !window.confirm("Discard the current document review and upload another application?"))) return;
+    if (draft) { setOpened(true); setUploadOpen(true); }
+    else { pendingUpload.current = true; void request("load"); }
+  }
+  const openAction = useRef({ request, openUpload });
+  useEffect(() => { openAction.current = { request, openUpload }; });
+  useEffect(() => {
+    if (!initiallyOpen && !entryAction) return;
+    const timer = window.setTimeout(() => {
+      if (entryAction === "upload") openAction.current.openUpload();
+      else if (entryAction === "link") setLinksOpen(true);
+      else void openAction.current.request("load");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [initiallyOpen, entryAction]);
+
+  const requestFirst = !existingCompany && !originals.length && !showDetailsSummary && !manualOpen;
+  const uploadButton = <Button type="button" variant={requestFirst ? "outline" : "default"} disabled={busy || portalBusy || conflict} onClick={openUpload}><Upload size={16} />Upload completed application</Button>;
+  const linkButton = <Button type="button" variant={requestFirst ? "default" : "ghost"} disabled={busy || portalBusy} aria-expanded={linksOpen} onClick={() => { if (linksOpen && portalDirty && !window.confirm("Discard the unsaved application-link details?")) return; setLinksOpen(current => !current); }}>Send application link</Button>;
+  return <section className={`panel jv-panel ${styles.flow}`} aria-label="Joint venture application" aria-busy={busy}>
+    <header className={styles.heading}>
+      <span className={styles.icon}><FileText size={23} aria-hidden="true" /></span>
+      <div><p className={styles.eyebrow}>{existingCompany ? "Existing joint venture" : "Company application"}</p><h3>{existingCompany ? "Add the application you already have" : "Start with an application"}</h3><p className="form-note">{existingCompany ? "Upload the completed application. We’ll read the details so you can check and save them without retyping." : "Upload a completed application, or send a private link for the new venture to fill out."}</p></div>
     </header>
-    <JVPortalRequests context={context} applicationDirty={dirty || busy} onApplicationChanged={() => { clear(); void connection?.refresh?.(); }} />
+    <ol className={styles.steps} aria-label={requestFirst ? "New application steps" : "Application import steps"}><li><span>1</span>{requestFirst ? "Send private link" : "Upload application"}</li><li><span>2</span>{requestFirst ? "Applicant completes form" : "Check the details"}</li><li><span>3</span>{requestFirst ? "Review and save" : "Save to company"}</li></ol>
+    <div className={styles.primaryActions}>{requestFirst ? <>{linkButton}{uploadButton}</> : <>{uploadButton}{linkButton}</>}{!opened && <Button type="button" variant="outline" onClick={() => void request("load")} disabled={busy || portalBusy} aria-expanded={false} aria-controls={contentId}>Open private application</Button>}</div>
+    {linksOpen && <div className={styles.links}><JVPortalRequests context={context} initiallyOpen embedded onDirtyChange={setPortalDirty} onBusyChange={setPortalBusy} applicationDirty={dirty || busy} onApplicationChanged={() => { clear(); void connection?.refresh?.(); }} /></div>}
+    {uploadOpen && <UploadDocument companyId={context.companyId} initialDestination="company" applicationOnly onUploaded={docs => { const first = docs[0]; if (first) { setSourceSelection(current => ({ id: first.id, generation: current.generation + 1 })); setNotice("Original saved privately. Review the suggested details below."); } }} onClose={() => setUploadOpen(false)} />}
     {opened && <div id={contentId}>
-      <p className="form-note">Personal details stay in this protected application. Save explicitly before closing or navigating away.</p>
-      {error && <div className="notice warning" role="alert"><div><p>{error}</p><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void request("load")}>{conflict ? "Reload latest application" : "Retry loading application"}</Button>{draft && !conflict && <p className="form-note">Your unsaved entries remain here. Use Save draft to retry saving.</p>}</div></div>}
+      <div className={styles.savedHeader}>{record && <Status value={record.status} />}<p className="form-note"><LockKeyhole size={13} aria-hidden="true" /> Application details are private to authorized staff.</p><Button type="button" variant="ghost" size="sm" onClick={close} disabled={busy || portalBusy} aria-expanded={true} aria-controls={contentId}><X size={15} />Close application</Button></div>
+      {error && <div className="notice warning" role="alert"><div><p>{error}</p><Button type="button" variant="outline" size="sm" disabled={busy || portalBusy} onClick={() => void request("load")}>{conflict ? "Reload latest application" : "Retry loading application"}</Button>{draft && !conflict && <p className="form-note">Your unsaved entries remain here. Use Save application details to retry saving.</p>}</div></div>}
       {notice && <p className="form-note" role="status">{notice}</p>}
       {(record as (JVRecord & { sourceChanged?: boolean }) | null)?.sourceChanged && <p className="notice warning" role="alert">An application original changed. Review the current originals and submit again.</p>}
       {busy && !draft && <p role="status">Loading protected application…</p>}
       {draft && record && <>
+        {originals.length > 0 && <div className={styles.importArea}>
+          {applicant && <JVApplicationReader key={`reader:${sourceSelection.generation}`} companyId={context.companyId} applicant={applicant} applicationApplicants={draft.applicants} applicationDetails={draft} onFill={changeApplicant} onApplicationFill={fillApplication} disabled={busy || portalBusy || conflict} guided selectedDocumentId={sourceSelection.id} autoRead={!!sourceSelection.id} onReviewStateChange={setReaderDirty} />}
+        </div>}
+        {showDetailsSummary && <div className={styles.summary} aria-label="Application details summary"><div><h4>{payloadDirty ? "Details ready to save" : record.version ? "Saved application details" : "Your application details"}</h4><p>{draft.applicants.filter(person => person.name || person.email).length} applicant{draft.applicants.filter(person => person.name || person.email).length === 1 ? "" : "s"} · {draft.sourceDocumentIds.length} linked original{draft.sourceDocumentIds.length === 1 ? "" : "s"}</p>{draft.applicants.some(person => person.name) && <p className="form-note">{draft.applicants.map(person => person.name).filter(Boolean).join(" · ")}</p>}<p className="form-note">You can save now and add missing information later.</p></div><Button type="button" disabled={busy || portalBusy || conflict || (!payloadDirty && record.version > 0)} onClick={() => void request("save")}><Check size={16} />Save application details</Button></div>}
+        <div className={styles.secondaryActions}><Button type="button" variant="outline" aria-expanded={manualOpen} onClick={() => setManualOpen(current => !current)}>{manualOpen ? "Hide application details" : !originals.length && !showDetailsSummary ? "Enter details manually" : "Edit application details"}</Button>{(showDetailsSummary || manualOpen) && <Button type="button" variant="ghost" onClick={() => { setManualOpen(true); setSection(3); }}>Review status and missing details</Button>}</div>
+        {manualOpen && <div className={styles.manual}>
         <nav className="jv-nav" aria-label="Application sections">{sections.map((name, index) => <Button type="button" size="sm" key={name} variant={section === index ? "default" : "outline"} aria-current={section === index ? "step" : undefined} onClick={() => setSection(index)}>{index + 1}. {name}</Button>)}</nav>
         <form autoComplete="off" onSubmit={event => { event.preventDefault(); void request("save"); }}>
-          <fieldset disabled={busy} className="jv-section">
+          <fieldset disabled={busy || portalBusy} className="jv-section">
             <legend className="sr-only">{sections[section]}</legend>
             <h4>{sections[section]}</h4>
             {section < 2 && <div className="jv-applicant-bar">
-              <FieldLabel label="Current applicant"><Picker label="Current applicant" value={applicant?.id ?? ""} onChange={id => { const index = draft.applicants.findIndex(item => item.id === id); if (index >= 0) setApplicantIndex(index); }} options={draft.applicants.map((item, index) => ({ value: item.id, label: `Applicant ${index + 1}` }))} disabled={busy} /></FieldLabel>
+              <FieldLabel label="Current applicant"><Picker label="Current applicant" value={applicant?.id ?? ""} onChange={id => { const index = draft.applicants.findIndex(item => item.id === id); if (index >= 0) setApplicantIndex(index); }} options={draft.applicants.map((item, index) => ({ value: item.id, label: `Applicant ${index + 1}` }))} disabled={busy || portalBusy} /></FieldLabel>
               <Button type="button" variant="outline" size="sm" disabled={draft.applicants.length >= 20} onClick={() => { const added = newJVApplicant(); change(current => ({ ...current, applicants: [...current.applicants, added] })); setApplicantIndex(draft.applicants.length); }}><Plus size={15} />Add applicant</Button>
               <Button type="button" variant="outline" size="sm" disabled={draft.applicants.length <= 1} onClick={() => { if (!applicant || !window.confirm("Remove this applicant and their entered information?")) return; change(current => ({ ...current, applicants: current.applicants.filter(item => item.id !== applicant.id) })); setApplicantIndex(index => Math.max(0, index - 1)); }}>Remove applicant</Button>
             </div>}
@@ -156,14 +198,13 @@ function JVApplicationWorkspace({ context, originals, onDocuments }: { context: 
                 <PrivateField label="Driver’s license" value={applicant.driverLicense} maxLength={100} onChange={value => changeApplicant({ driverLicense: value })} />
                 <FieldLabel label="Current address"><Textarea value={applicant.currentAddress} rows={2} maxLength={1000} autoComplete="off" onChange={event => changeApplicant({ currentAddress: event.target.value })} /></FieldLabel>
               </div>
-              <JVApplicationReader key={applicant.id} companyId={context.companyId} applicant={applicant} applicationApplicants={draft.applicants} onFill={changeApplicant} onApplicationFill={fillApplication} disabled={busy} />
             </div>}
             {section === 1 && applicant && <div key={applicant.id}>
               <div className="jv-grid">
-                <FieldLabel label="Ownership election"><Picker label="Ownership election" value={applicant.ownershipType} onChange={value => changeApplicant({ ownershipType: value as JVApplicant["ownershipType"], ...(value === "individual" ? { businessStatus: "not-applicable" as const } : value === "business" && applicant.businessStatus === "not-applicable" ? { businessStatus: "forming" as const } : {}) })} options={[{ value: "undecided", label: "Choose individual or business" }, { value: "individual", label: "Own individually" }, { value: "business", label: "Own through a business" }]} disabled={busy} /></FieldLabel>
+                <FieldLabel label="Ownership election"><Picker label="Ownership election" value={applicant.ownershipType} onChange={value => changeApplicant({ ownershipType: value as JVApplicant["ownershipType"], ...(value === "individual" ? { businessStatus: "not-applicable" as const } : value === "business" && applicant.businessStatus === "not-applicable" ? { businessStatus: "forming" as const } : {}) })} options={[{ value: "undecided", label: "Choose individual or business" }, { value: "individual", label: "Own individually" }, { value: "business", label: "Own through a business" }]} disabled={busy || portalBusy} /></FieldLabel>
                 {applicant.ownershipType === "business" && <>
                   <FieldLabel label="Owner business name"><Input value={applicant.businessName} maxLength={200} onChange={event => changeApplicant({ businessName: event.target.value })} /></FieldLabel>
-                  <FieldLabel label="Owner business status"><Picker label="Owner business status" value={applicant.businessStatus === "not-applicable" ? "forming" : applicant.businessStatus} onChange={value => changeApplicant({ businessStatus: value as JVApplicant["businessStatus"] })} options={[{ value: "existing", label: "Already formed" }, { value: "forming", label: "Still being formed" }]} disabled={busy} /></FieldLabel>
+                  <FieldLabel label="Owner business status"><Picker label="Owner business status" value={applicant.businessStatus === "not-applicable" ? "forming" : applicant.businessStatus} onChange={value => changeApplicant({ businessStatus: value as JVApplicant["businessStatus"] })} options={[{ value: "existing", label: "Already formed" }, { value: "forming", label: "Still being formed" }]} disabled={busy || portalBusy} /></FieldLabel>
                   <FieldLabel label="Formation document or filing reference"><Input value={applicant.businessReference} maxLength={1000} onChange={event => changeApplicant({ businessReference: event.target.value })} /></FieldLabel>
                 </>}
               </div>
@@ -198,7 +239,7 @@ function JVApplicationWorkspace({ context, originals, onDocuments }: { context: 
                 if (!step) return null;
                 const changeStep = (patch: Partial<JVStep>) => change(current => ({ ...current, steps: current.steps.map(item => item.id === step.id ? { ...item, ...patch, id: item.id } : item) }));
                 return <details key={step.id} className="jv-checklist-row"><summary><span>{index + 1}. {definition.title}</span><Status value={step.status} /></summary><p className="form-note">{definition.description}</p><div className="jv-grid">
-                  <FieldLabel label={`${definition.title} status`}><Picker label={`${definition.title} status`} value={step.status} onChange={value => changeStep({ status: value as JVStep["status"] })} options={stepStatuses} disabled={busy} /></FieldLabel>
+                  <FieldLabel label={`${definition.title} status`}><Picker label={`${definition.title} status`} value={step.status} onChange={value => changeStep({ status: value as JVStep["status"] })} options={stepStatuses} disabled={busy || portalBusy} /></FieldLabel>
                   <FieldLabel label={`${definition.title} assignee`}><Input value={step.assignee} maxLength={200} onChange={event => changeStep({ assignee: event.target.value })} placeholder="Responsible person" /></FieldLabel>
                   <FieldLabel label={`${definition.title} due date`}><Input type="date" value={step.dueDate} onChange={event => changeStep({ dueDate: event.target.value })} /></FieldLabel>
                   <FieldLabel label={`${definition.title} evidence reference`}><Input value={step.reference} maxLength={2000} onChange={event => changeStep({ reference: event.target.value })} placeholder="Document, filing or confirmation reference" /></FieldLabel>
@@ -209,9 +250,10 @@ function JVApplicationWorkspace({ context, originals, onDocuments }: { context: 
           </fieldset>
           <footer className="jv-footer">
             <p className="form-note" aria-live="polite">{dirty ? "Unsaved changes" : record.version ? `Saved version ${record.version}` : "New application · not saved"}{noteDirty ? " · Review note is saved when you mark the application reviewed." : ""}</p>
-            <div className="jv-actions"><Button type="button" variant="outline" disabled={busy || section === 0} onClick={() => setSection(index => index - 1)}><ChevronLeft size={15} />Back</Button><Button type="button" variant="outline" disabled={busy || section === sections.length - 1} onClick={() => setSection(index => index + 1)}>Next<ChevronRight size={15} /></Button><Button type="submit" disabled={busy || conflict || (!payloadDirty && record.version > 0)}><Save size={15} />{busy ? "Working…" : record.status === "Draft" ? "Save draft" : "Save application"}</Button></div>
+            <div className="jv-actions"><Button type="button" variant="outline" disabled={busy || section === 0} onClick={() => setSection(index => index - 1)}><ChevronLeft size={15} />Back</Button><Button type="button" variant="outline" disabled={busy || section === sections.length - 1} onClick={() => setSection(index => index + 1)}>Next<ChevronRight size={15} /></Button><Button type="submit" disabled={busy || portalBusy || conflict || (!payloadDirty && record.version > 0)}><Save size={15} />{busy ? "Working…" : record.status === "Draft" ? "Save draft" : "Save application"}</Button></div>
           </footer>
         </form>
+        </div>}
       </>}
     </div>}
   </section>;

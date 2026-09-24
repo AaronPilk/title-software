@@ -4,6 +4,7 @@ import { JVApplicationPanel } from "./jv-application";
 import { canCreateCompany, canManageCompanies, canViewOnboardingEvidence, canManageOnboardingEvidence } from "@/lib/title/workspace-capabilities";
 import { companyDisplayStage } from "@/lib/title/company-operating-status";
 import { useState } from "react";
+import styles from "./agency-applications.module.css";
 import {
   Plus,
   FileCheck2,
@@ -23,7 +24,7 @@ import {
   Status,
   Empty,
   FieldLabel,
-  Metric,
+  CompanyAvatar,
 } from "./shared";
 import { useWorkspace, download } from "@/lib/title/store";
 import {
@@ -47,125 +48,76 @@ import {
   type CredentialRecord,
 } from "@/lib/title/business";
 
-export function OnboardingHub({
-  onOpen,
-  onNew,
-}: {
-  onOpen: (id: string, tab?: "Overview" | "Documents") => void;
+export function OnboardingHub({ onOpen, onNew }: {
+  onOpen: (id: string, tab?: "Overview" | "Documents" | "Application") => void;
   onNew: () => void;
 }) {
   const { s, connection } = useWorkspace();
   const canAddCompany = canCreateCompany(connection);
   const evidenceVisible = canViewOnboardingEvidence(connection);
-  const [selected, setSelected] = useState(
-    s.companies[0]?.id ||
-      "",
-  );
-  const [tab, setTab] = useState("Company cases");
-  const c = s.companies.find((c) => c.id === selected) || s.companies[0];
-  const due = business(s).credentials.filter((r) => !credentialCurrent(r));
-  const incompleteEvidence = evidenceVisible ? s.companies.filter((company) => {
-    const application = getOnboarding(s, company);
-    return application.applicationStatus !== "Reviewed" || !application.launchedAt || onboardingSteps.some((_, step) =>
-      !evidenceCurrent(s, company.id, application.evidence.find((evidence) => evidence.step === step))) || companyProblems(s, company).length > 0;
-  }).length : null;
-  return (
-    <>
-      <Heading
-        title="Company setup and reviews"
-        description="Choose a company, add its documents, and review what still needs attention."
-      >
-        {canAddCompany && <Button onClick={onNew}>
-          <Plus />
-          Add company
-        </Button>}
-      </Heading>
-      <div className="metrics">
-        <Metric
-          label="New companies"
-          value={s.companies.filter((c) => companyDisplayStage(c) === "Onboarding").length}
-          detail="Business status is still onboarding"
-        />
-        <Metric
-          label="Incomplete workspace evidence"
-          value={incompleteEvidence ?? "Access needed"}
-          detail={evidenceVisible ? "Includes active companies with records to review" : "Application evidence is restricted"}
-        />
-        <Metric
-          label="Authority reviews"
-          value={due.length}
-          detail="Open, expired or due for review"
-        />
-        <Metric
-          label="Setup approvals recorded"
-          value={evidenceVisible ? business(s).onboarding.filter((c) => c.launchedAt).length : "Access needed"}
-          detail={evidenceVisible ? "Evidence-based setup review completed" : "Setup approval evidence is restricted"}
-        />
-      </div>
-      <div className="toolbar">
-        <Segments
-          value={tab}
-          onChange={setTab}
-          items={["Company cases", "Authority & renewals"]}
-        />
-        <Picker
-          value={c?.id || ""}
-          label="Company for setup and reviews"
-          onChange={setSelected}
-          options={s.companies.map((c) => ({ value: c.id, label: c.name }))}
-        />
-      </div>
-      {c &&
-        (tab === "Company cases" ? (
-          <div className="business-workspace">
-            <aside className="panel business-queue">
-              <h2>Company cases</h2>
-              {s.companies.map((x) => (
-                <button
-                  className={x.id === c.id ? "selected" : ""}
-                  key={x.id}
-                  onClick={() => setSelected(x.id)}
-                >
-                  <strong>{x.name}</strong>
-                  <span>{companyDisplayStage(x) === "Active" ? `${s.documents.filter(d => d.companyId === x.id && !d.orderId).length} company documents available` : evidenceVisible ? `Workspace application: ${getOnboarding(s, x).applicationStatus}` : "Application evidence requires access"}</span>
-                  <Status value={companyDisplayStage(x)} />
-                </button>
-              ))}
-            </aside>
-            <section className="business-main">
-              <div className="panel business-file-header">
-                <div>
-                  <h2>{c.name}</h2>
-                  <p>
-                    {(c.operatingStates || [c.jurisdiction]).join(" · ")} ·{" "}
-                    {c.contact}
-                  </p>
-                </div>
-                <Button variant="outline" onClick={() => onOpen(c.id)}>
-                  Company record
-                  <ArrowRight />
-                </Button>
-              </div>
-              <section className="panel business-panel" aria-label="Start with company documents">
-                <h2>{companyDisplayStage(c) === "Active" ? "Bring your company records together" : "Start with the documents you have"}</h2>
-                <p>Keep {c.name}’s formation records, applications, agreements and logo in Company documents. Property searches, deeds and policies belong to a title file.</p>
-                <p className="subtle">Add the originals, then review the category and access for each file. You can add missing documents later.</p>
-                <div className="source-actions"><Button onClick={() => onOpen(c.id, "Documents")}>Open company documents <ArrowRight /></Button><Button variant="outline" onClick={() => onOpen(c.id, "Overview")}>Company details</Button></div>
-              </section>
-              <JVApplicationPanel key={`jv-${c.id}`} company={c} onDocuments={() => onOpen(c.id, "Documents")} />
-              {evidenceVisible ? <details className="panel business-panel" key={`authority-${c.id}`}>
-                <summary className="cursor-pointer font-semibold">Company authority and launch review</summary>
-                <p className="subtle my-3">Review formation, licensing and underwriter evidence here when the records are ready. Uploading a document does not approve it.</p>
-                <OnboardingCasePanel company={c} />
-              </details> : <OnboardingCasePanel key={c.id} company={c} />}
-            </section>
-          </div>
-        ) : (
+  const canEditApplication = canManageOnboardingEvidence(connection);
+  const existing = s.companies.filter(company => companyDisplayStage(company) === "Active");
+  const incoming = s.companies.filter(company => companyDisplayStage(company) !== "Active");
+  const [lane, setLane] = useState(existing.length ? "Existing companies" : "New joint ventures");
+  const [selected, setSelected] = useState("");
+  const [query, setQuery] = useState("");
+  const [applicationDirty, setApplicationDirty] = useState(false);
+  const [applicationBusy, setApplicationBusy] = useState(false);
+  const laneCompanies = lane === "Existing companies" ? existing : incoming;
+  const rows = laneCompanies.filter(company => company.name.toLowerCase().includes(query.toLowerCase()));
+  const c = laneCompanies.find(company => company.id === selected) || laneCompanies[0];
+  const leaveApplication = () => !applicationBusy && (!applicationDirty || window.confirm("Discard unsaved application changes? Save them first to keep your work."));
+  function chooseCompany(id: string) {
+    if (id === c?.id || !leaveApplication()) return;
+    setApplicationDirty(false); setSelected(id);
+  }
+  function chooseLane(value: string) {
+    if (value === lane || !leaveApplication()) return;
+    setApplicationDirty(false); setLane(value); setSelected(""); setQuery("");
+  }
+  function openCompany(tab: "Overview" | "Documents") {
+    if (c && !applicationBusy) onOpen(c.id, tab);
+  }
+  return <>
+    <Heading title="Applications" description="Upload a completed application, or request one with a private link.">
+      {canAddCompany && <Button disabled={applicationBusy} onClick={onNew}><Plus />Add company</Button>}
+    </Heading>
+    <div className={styles.lanes}>
+      <Segments value={lane} onChange={chooseLane} items={["Existing companies", "New joint ventures"]} />
+      <p className={styles.laneNote}>{existing.length} active {existing.length === 1 ? "company" : "companies"} · {incoming.length} in setup</p>
+    </div>
+    {c ? <div className={styles.workspace}>
+      <aside className={styles.queue} aria-label="Choose a company">
+        <h2>{lane}</h2>
+        <Input aria-label="Search application companies" placeholder="Find a company…" value={query} onChange={event => setQuery(event.target.value)} />
+        <div className={styles.queueList}>
+          {rows.map(company => <button type="button" className={styles.company} aria-pressed={company.id === c.id} key={company.id} disabled={applicationBusy} onClick={() => chooseCompany(company.id)}>
+            <strong>{company.name}</strong>
+            <small>{companyDisplayStage(company) === "Active" ? "Already operating" : "New joint venture"}</small>
+          </button>)}
+          {!rows.length && <p className="form-note">No companies match your search.</p>}
+        </div>
+      </aside>
+      <section className={styles.main}>
+        <header className={styles.header}>
+          <CompanyAvatar company={c} />
+          <div className={styles.headerCopy}><h2>{c.name}</h2><p>{companyDisplayStage(c) === "Active" ? "Existing joint venture · add the records you already have" : "New joint venture · collect the application"}</p></div>
+          <Button variant="outline" onClick={() => openCompany("Overview")}>Company details <ArrowRight /></Button>
+        </header>
+        {canEditApplication ? <JVApplicationPanel key={`jv-${c.id}`} company={c} existingCompany={companyDisplayStage(c) === "Active"} initiallyOpen onDirtyChange={setApplicationDirty} onBusyChange={setApplicationBusy} onDocuments={() => openCompany("Documents")} />
+          : <section className={`panel ${styles.empty}`}><h3>Application access needed</h3><p className="form-note">An administrator can give you access to this company’s private applications. Company documents and permitted records remain available below.</p></section>}
+        <div className={styles.supportLinks}><Button variant="ghost" onClick={() => openCompany("Documents")}>Other company documents <ArrowRight /></Button></div>
+        <details className={styles.support} key={`authority-${c.id}`}>
+          <summary>{companyDisplayStage(c) === "Active" ? "Licensing, records & approval history" : "Formation & launch checklist"}</summary>
+          <p>{companyDisplayStage(c) === "Active" ? "Keep existing formation and approval records here. Adding an application does not restart the company’s launch process." : "Track formation, licensing and approvals as the new venture gets ready to operate."}</p>
+          {evidenceVisible && <OnboardingCasePanel company={c} />}
           <CredentialCenter key={c.id} company={c} />
-        ))}
-    </>
-  );
+        </details>
+      </section>
+    </div> : <section className={styles.empty}><Empty title={lane === "Existing companies" ? "No active companies in this view" : "No new joint ventures in setup"} text={lane === "Existing companies" ? "Existing companies appear here after their operating status is confirmed." : "Add a company when a new joint venture is ready to apply."} action={canAddCompany && lane !== "Existing companies" ? <Button onClick={onNew}><Plus />Add company</Button> : undefined} /></section>}
+  </>;
 }
+
 export function OnboardingCasePanel({ company }: { company: Company }) {
   const { s, update: save, connection } = useWorkspace();
   const canEdit = canManageOnboardingEvidence(connection);

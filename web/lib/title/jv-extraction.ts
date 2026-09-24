@@ -91,15 +91,18 @@ const fullLabels: Record<ScalarField | HistoryField, string> = {
 function fullLabel(text: string): ScalarField | undefined {
   const plain = text.trim().replace(/\s*\((?:yyyy-mm-dd|mm\/dd\/yyyy|dd\/mm\/yyyy)\)\s*$/i, "");
   return labelFor(plain) || ([
-    ["ownershipType", /^(?:ownership(?: choice| type)?|individual\s*\/\s*business ownership|owner type|would you like ownership in your name or business\??)$/i],
+    ["ownershipType", /^(?:ownership(?: choice| type)?|individual\s*\/\s*business ownership|owner type|would you like ownership in your name or business\??|will ownership be individual or business\??)$/i],
     ["businessName", /^(?:(?:owner )?business name|owner (?:llc|entity) name)$/i],
     ["businessStatus", /^(?:(?:owner )?business status|(?:owner )?(?:llc|entity) (?:formation )?status)$/i],
     ["businessReference", /^(?:(?:owner )?(?:business )?formation reference|business reference)$/i],
     ["logoPreferences", /^(?:logo(?:\s*\/\s*colors?\s*\/\s*design)? preferences|logo\s*\/\s*colors?\s*\/\s*design|logo(?:,? colors?)?(?: and design)?|colors? and design preferences)$/i],
-    ["notes", /^(?:additional notes|notes)$/i],
+    ["notes", /^(?:additional notes|notes|any other information you think we should know or suggestions\??)$/i],
   ] as [ScalarField, RegExp][]).find(([, re]) => re.test(plain))?.[0];
 }
 const unclear = (value: string) => /(?:\?{2,}|\[(?:unclear|illegible|unreadable|crossed out)\]|\b(?:illegible|unreadable)\b|\uFFFD)/i.test(value);
+const formInstruction = (value: string) => /\b(?:please (?:enter|provide|complete|let us know)|enter (?:your|the)|complete (?:this|the)|print (?:your|the)|if you want to set up|need to be done prior|colors,? design etc\.?|licenses with nipr and underwriters)\b/i.test(value);
+const formDecoration = (value: string) => /^(?:www\.[\w.-]+|ballantyne|title company|appli\s*cat(?:i\s*on|ion))$/i.test(value);
+const historyHeadingPattern = /^(?:\d+[.)]\s*)?(?:(?:past|last|five|5|five-year|5-year)\s+)*(residen(?:ce|tial)|address|employment|work)(?:\s+history(?:\s*\([^)]*\)|\s*[-–:]?\s*(?:past|last)\s+(?:five|5)\s*years)?|\s+(?:past|last)\s+(?:five|5)\s*years)\s*:?$/i;
 function sourceDate(raw: string, label = "", allowPresent = false): string | null {
   if (allowPresent && /^(?:present|current|ongoing)$/i.test(raw)) return "";
   let value = raw;
@@ -131,6 +134,7 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
   let history: { field: HistoryField; cells: Record<string, string>; labels: Record<string, string>; quotes: string[]; page: SourceFieldPage } | null = null;
   let columns: string[] = [], columnLabels: string[] = [];
   let continuation: JVApplicationCandidate | null = null;
+  let pendingLabel: { field: ScalarField; label: string; lines: string[] } | null = null;
   const issue = (page: number, message: string) => { if (!result.issues.some(item => item.page === page && item.message === message)) result.issues.push({ page, message }); };
   const ensureApplicant = () => {
     if (!result.applicants.some(item => item.key === applicantKey)) {
@@ -180,25 +184,58 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
   };
   for (const page of [...pages].sort((a, b) => a.page - b.page)) {
     // A row never silently spans physical pages; the evidence must cover the complete row.
-    flushHistory(); continuation = null;
-    const pageHasName = page.text.split(/\r\n|\r|\n/).some(line => /^\s*(?:applicant(?:'s)? name|full name|name)\s*(?::|\t+| {2,})\s*\S/i.test(line));
-    for (const rawLine of page.text.split(/\r\n|\r|\n/)) {
+    flushHistory(); continuation = null; pendingLabel = null;
+    const lines = page.text.split(/\r\n|\r|\n/);
+    const pageHasName = lines.some((line, index) => {
+      const match = /^\s*(?:applicant(?:'s)? name|full name|name)\s*(?::|\t+| {2,})\s*(.*?)\s*$/i.exec(line);
+      if (!match) return false;
+      let answer = match[1];
+      if (placeholder(answer)) {
+        answer = "";
+        for (let next = index + 1; next < lines.length && next <= index + 12; next++) {
+          if (lines[next].trim()) { answer = lines[next].trim(); break; }
+        }
+      }
+      const adjacentField = /^([^:\t]{1,100}?)\s*(?::|\t+| {2,})/.exec(answer);
+      return !placeholder(answer) && !fullLabel(answer.replace(/:$/, "")) && !(adjacentField && fullLabel(adjacentField[1])) && !historyHeadingPattern.test(answer) && !/^(?:applicant|owner|person)\s*#?\s*\d/i.test(answer) && !formInstruction(answer) && !formDecoration(answer);
+    });
+    for (const [lineIndex, rawLine] of lines.entries()) {
       const line = rawLine.trim();
-      if (!line) { continuation = null; continue; }
+      if (!line) { continuation = null; if (pendingLabel && pendingLabel.lines.length < 12) pendingLabel.lines.push(rawLine); else pendingLabel = null; continue; }
       const heading = /^(?:applicant|owner|person)\s*(?:#\s*)?(\d{1,2})(?:\s*[-:]\s*.*)?$/i.exec(line);
       if (heading) {
-        flushHistory(); applicantKey = `applicant-${Number(heading[1])}`; ensureApplicant(); section = null; columns = []; continuation = null; continue;
+        flushHistory(); applicantKey = `applicant-${Number(heading[1])}`; ensureApplicant(); section = null; columns = []; continuation = null; pendingLabel = null; continue;
       }
-      if (/^joint[- ]venture application\s*$/i.test(line)) {
-        flushHistory(); section = null; columns = []; continuation = null;
+      if (/^joint[- ]venture\s+appli\s*cat(?:i\s*on|ion)$/i.test(line) || /^joint[- ]venture$/i.test(line) && /^appli\s*cat(?:i\s*on|ion)$/i.test(lines[lineIndex + 1]?.trim() || "")) {
+        flushHistory(); section = null; columns = []; continuation = null; pendingLabel = null;
         if (pageHasName && result.candidates.some(item => item.applicantKey === applicantKey && item.field === "name" && item.page !== page.page)) {
-          applicantKey = `applicant-${result.applicants.length + 1}`; ensureApplicant();
+          let number = result.applicants.length + 1;
+          while (result.applicants.some(item => item.key === `applicant-${number}`)) number++;
+          applicantKey = `applicant-${number}`; ensureApplicant();
         }
         continue;
       }
-      const historyHeading = /^(?:\d+[.)]\s*)?(?:(?:past|last|five|5|five-year|5-year)\s+)*(residen(?:ce|tial)|address|employment|work)\s+history(?:\s*\([^)]*\)|\s*[-–:]?\s*(?:past|last)\s+(?:five|5)\s+years)?\s*:?$/i.exec(line);
+      const historyHeading = historyHeadingPattern.exec(line);
       if (historyHeading) {
-        flushHistory(); section = /employment|work/i.test(historyHeading[1]) ? "employmentHistory" : "residenceHistory"; columns = []; continuation = null; ensureApplicant(); continue;
+        flushHistory(); section = /employment|work/i.test(historyHeading[1]) ? "employmentHistory" : "residenceHistory"; columns = []; continuation = null; pendingLabel = null; ensureApplicant(); continue;
+      }
+      if (section && /^(?:past|last)\s+(?:five|5)\s*years\s*:?$/i.test(line)) continue;
+      // The supplied Canva form has standalone labels and a three-line logo prompt.
+      // Keep only the next answer on the same page; never turn a prompt/footer into a fact.
+      const standaloneField = fullLabel(line.replace(/:$/, ""));
+      if (standaloneField) {
+        flushHistory(); section = null; columns = []; continuation = null;
+        pendingLabel = { field: standaloneField, label: line.replace(/:$/, ""), lines: [rawLine] }; continue;
+      }
+      if (/^logo:\s*please let us know if you have a preference or sugges(?:tions|toins) for logo\.?$/i.test(line)) {
+        flushHistory(); section = null; columns = []; continuation = null;
+        pendingLabel = { field: "logoPreferences", label: "Logo preferences", lines: [rawLine] }; continue;
+      }
+      if (formDecoration(line) || formInstruction(line)) {
+        continuation = null;
+        if (pendingLabel?.field === "logoPreferences" && /^(?:colors,? design etc\.?|please let us know\.?$)/i.test(line) && pendingLabel.lines.length < 12) pendingLabel.lines.push(rawLine);
+        else pendingLabel = null;
+        continue;
       }
       if (section && /^(?:(?:residence|employment|job|row)\s*#?\s*\d+|\d+[.)])\s*:?$/i.test(line)) { flushHistory(); continue; }
       if (section && /\||\t| {2,}/.test(line) && !/:/.test(line)) {
@@ -212,7 +249,15 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
           flushHistory(); continue;
         }
       }
-      const match = /^([^:\t]{1,100}?)\s*(?::|\t+| {2,})\s*(.*?)\s*$/.exec(line);
+      let match: string[] | null = /^([^:\t]{1,100}?)\s*(?::|\t+| {2,})\s*(.*?)\s*$/.exec(line);
+      let scalarQuote = line;
+      if (pendingLabel) {
+        if (!match || !fullLabel(match[1])) {
+          match = [line, pendingLabel.label, line];
+          scalarQuote = [...pendingLabel.lines, rawLine].join("\n");
+        }
+        pendingLabel = null;
+      }
       if (match) {
         const field = fullLabel(match[1]);
         const rowField = section ? historyLabel(match[1]) : undefined;
@@ -225,8 +270,8 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
         }
         if (field) {
           flushHistory(); section = null; columns = []; continuation = null;
-          if (placeholder(raw)) continue;
-          if (unclear(raw) || /[<>\t]/.test(raw) || fullLabel(raw.replace(/:$/, "")) || /\b(?:ownership(?: choice| type)?|(?:owner )?business (?:name|status|reference)|logo preferences|additional notes)\s*(?::| {2,})/i.test(raw) || /\b(?:please (?:enter|provide)|enter (?:your|the)|complete (?:this|the)|print (?:your|the))\b/i.test(raw)) { issue(page.page, `${fullLabels[field]} is unclear or contains form instructions. Enter it manually.`); continue; }
+          if (placeholder(raw)) { pendingLabel = { field, label: match[1], lines: [rawLine] }; continue; }
+          if (unclear(raw) || /[<>\t]/.test(raw) || fullLabel(raw.replace(/:$/, "")) || /\b(?:ownership(?: choice| type)?|(?:owner )?business (?:name|status|reference)|logo preferences|additional notes)\s*(?::| {2,})/i.test(raw) || formInstruction(raw)) { issue(page.page, `${fullLabels[field]} is unclear or contains form instructions. Enter it manually.`); continue; }
           let value: string | null = raw;
           if (Object.hasOwn(JV_FIELD_LABELS, field)) {
             if (field === "dob") value = sourceDate(raw, match[1]);
@@ -236,7 +281,7 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
           } else if (field === "ownershipType") value = election(raw, { individual: "individual", "in my name": "individual", "personal name": "individual", business: "business", "business name": "business" });
           else if (field === "businessStatus") value = election(raw, { existing: "existing", formed: "existing", forming: "forming", "not yet formed": "forming", "not applicable": "not-applicable", "not-applicable": "not-applicable" });
           if (value === null || raw.length > (field === "businessName" ? 200 : field === "businessReference" ? 2000 : 10000)) { issue(page.page, `${fullLabels[field]} is incomplete, ambiguous or invalid. Check the original and enter it manually.`); continue; }
-          const added = add(field, value, line, page);
+          const added = add(field, value, scalarQuote, page);
           if (added && ["logoPreferences", "notes", "businessReference"].includes(field)) continuation = added;
           continue;
         }

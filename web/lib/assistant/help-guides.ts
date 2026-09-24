@@ -54,14 +54,14 @@ const allViews: HelpScreen["view"][] = [...staffViews, "partner"];
 
 const catalog: CatalogGuide[] = [
   {
-    id: "help:jv-application", title: "Set up a new joint venture", page: "Onboarding", views: ["agency"],
-    roles: companyEditors, surfaces: ["company"], question: "Where do I complete a new joint venture application?",
-    summary: "The JV application collects each applicant's details and tracks Ballantyne's 17 setup steps.",
+    id: "help:jv-application", title: "Add a company application", page: "Onboarding", views: ["agency"],
+    roles: companyEditors, surfaces: ["company"], question: "How do I upload an existing application or send one to a new joint venture?",
+    summary: "Upload the completed form you already have, or send a new applicant a private link.",
     steps: [
-      "Add the company with its basic details, then open Agency → Onboarding and select that company. The company record's Onboarding tab opens the same application.",
-      "Open the private JV application. Add each applicant, choose individual or business ownership, and record five years of residence and employment history. Save your draft before leaving.",
-      "Upload originals to the company's Documents as Applications / Restricted. In the application, Read an uploaded application offers labeled suggestions to compare with the original before using them.",
-      "Complete the readiness items, submit for internal review, then record the review note. Use Setup checklist to track each of the 17 steps, its responsible person, dates and evidence reference.",
+      "Open Agency → Applications and choose the company, or open its Application tab. Existing companies and new joint ventures have separate lists.",
+      "For an existing company, choose Upload completed application. The original is saved privately to that company and the reader finds application details for you.",
+      "Compare each suggested value with its page evidence, check the information you reviewed, then apply it and save the private application. Unreadable or missing answers can be completed in the details editor; existing values require explicit replacement review.",
+      "For a new joint venture, choose Send application link, prepare the request and send or copy its private link. Submitted answers return for review before they are applied.",
     ],
     note: "A connected workspace, company access, an owner/admin/onboarding role and restricted evidence access are required. Applicant details are stored separately from general workspace records and exports. Reviewing the application or completing a checklist does not license a company, grant authority, send a vendor application or approve launch. Existing companies can continue with basic details and documents.",
   },
@@ -71,7 +71,7 @@ const catalog: CatalogGuide[] = [
     summary: "Agency organizes companies and business operations. Production organizes title files and requests.",
     steps: [
       "Use Agency or Production under Your workspace to switch views.",
-      "In Agency, use Companies for company profiles, ownership and documents; use Onboarding for company evidence reviews.",
+      "In Agency, use Companies for company profiles, ownership and documents; use Applications to upload completed forms or request a new application by private link.",
       "In Production, use Orders for title files, Inbox for incoming requests, and Policy workbench for source review and policy preparation.",
       "Use Settings → Account to see your signed-in account and assigned company access.",
     ],

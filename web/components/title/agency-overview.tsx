@@ -8,6 +8,7 @@ import { onboardingSteps, type Page } from "@/lib/title/model";
 import { business, companyProblems, credentialCurrent, evidenceCurrent, getOnboarding } from "@/lib/title/business";
 import { businessDay } from "@/lib/title/business-date";
 import { taskClock } from "@/lib/title/task-clock";
+import { canManageOnboardingEvidence } from "@/lib/title/workspace-capabilities";
 import { companyDisplayStage } from "@/lib/title/company-operating-status";
 import { CompanyAvatar, Empty, Heading, Metric, SectionTitle, Status } from "./shared";
 import styles from "./agency-overview.module.css";
@@ -15,7 +16,7 @@ import styles from "./agency-overview.module.css";
 export function AgencyOverview({ navigate, newCompany, openCompany }: {
   navigate: (page: Page) => void;
   newCompany?: () => void;
-  openCompany?: (id: string) => void;
+  openCompany?: (id: string, tab?: "Overview" | "Application") => void;
 }) {
   const { s, connection } = useWorkspace();
   const [now, setNow] = useState(() => new Date());
@@ -27,6 +28,7 @@ export function AgencyOverview({ navigate, newCompany, openCompany }: {
   const canAddCompany = !access || (access.allCompanies && ["owner", "admin", "onboarding"].includes(access.role));
   const canViewFinancials = !access || ["owner", "admin", "finance"].includes(access.role);
   const canViewApplicationEvidence = !access || access.restricted;
+  const canEditApplication = canManageOnboardingEvidence(connection);
   const date = businessDay(now);
   const activeCompanies = s.companies.filter((company) => companyDisplayStage(company) === "Active").length;
   const newCompanies = s.companies.filter((company) => companyDisplayStage(company) === "Onboarding").length;
@@ -44,7 +46,7 @@ export function AgencyOverview({ navigate, newCompany, openCompany }: {
         : problems[0] || (!application.launchedAt ? companyDisplayStage(company) === "Active" ? "Complete workspace setup review" : "Record launch review" : "Workspace evidence current");
     return { company, application, current, problems, nextStep };
   }) : [];
-  const openCases = cases.filter(({ company, application, current, problems }) => company.stage === "Onboarding" || !application.launchedAt || current.some((reviewed) => !reviewed) || problems.length > 0);
+  const openCases = cases.filter(({ company, application, current, problems }) => companyDisplayStage(company) === "Active" || company.stage === "Onboarding" || !application.launchedAt || current.some((reviewed) => !reviewed) || problems.length > 0);
   const ownershipGaps = s.companies.filter((company) => !company.members.length || Math.abs(company.members.reduce((total, member) => total + member.share, 0) - 100) > 0.00001);
   const authorityGaps = cases.filter(({ problems }) => problems.some((problem) => /Agency license|Producer credential|authority|Licensing review|Underwriter approval/.test(problem)));
   const credentialReviews = business(s).credentials.filter((credential) => companyIds.has(credential.companyId) && !credentialCurrent(credential, date));
@@ -53,6 +55,7 @@ export function AgencyOverview({ navigate, newCompany, openCompany }: {
     .map((task) => ({ task, clock: taskClock(task, now) }))
     .sort((a, b) => (a.clock.dueInDays ?? Infinity) - (b.clock.dueInDays ?? Infinity) || a.task.id.localeCompare(b.task.id));
   const openProfile = (id: string) => openCompany ? openCompany(id) : navigate("Companies");
+  const openApplication = (id: string) => openCompany ? openCompany(id, "Application") : navigate("Onboarding");
   const addCompany = () => newCompany ? newCompany() : navigate("Companies");
 
   return <>
@@ -63,7 +66,7 @@ export function AgencyOverview({ navigate, newCompany, openCompany }: {
       <div className={styles.welcomeIcon}><Building2 size={27} aria-hidden="true" /></div>
       <div className={styles.welcomeCopy}>
         <h2>One place for every company.</h2>
-        <p>Open a company to manage its ownership and records, or continue its workspace setup and reviews.</p>
+        <p>For an existing company, upload the application you already have. For a new joint venture, send a private application link.</p>
       </div>
       <Button variant="outline" onClick={() => navigate("Companies")}>Company portfolio <ArrowRight /></Button>
     </section>
@@ -75,15 +78,17 @@ export function AgencyOverview({ navigate, newCompany, openCompany }: {
     </div>
     <div className={styles.mainGrid}>
       <section className="panel" aria-labelledby="agency-next-steps">
-        <div className="section-heading"><h2 id="agency-next-steps">Company setup and reviews</h2><Button variant="ghost" onClick={() => navigate("Onboarding")}>Open company reviews <ArrowRight /></Button></div>
-        <p className={styles.sectionNote}>{canViewApplicationEvidence ? "Active companies can still need workspace records and evidence reviews. These tasks do not change their operating status." : "Application reviews are shown when your account can access their evidence."}</p>
-        {openCases.slice(0, 4).map(({ company, application, current, nextStep }) => <button className={styles.caseRow} key={company.id} onClick={() => openProfile(company.id)}>
+        <div className="section-heading"><h2 id="agency-next-steps">Applications</h2><Button variant="ghost" onClick={() => navigate("Onboarding")}>All applications <ArrowRight /></Button></div>
+        <p className={styles.sectionNote}>{canViewApplicationEvidence ? "Choose a company. Upload its completed form, review the information found, then save." : "Application reviews are shown when your account can access their evidence."}</p>
+        {openCases.slice(0, 4).map(({ company, application, current, nextStep }) => <button className={styles.caseRow} key={company.id} onClick={() => openApplication(company.id)}>
           <CompanyAvatar company={company} />
-          <span className={styles.rowCopy}><strong>{company.name}</strong><span>Next: {nextStep}</span><small>{application.applicationStatus} · {current.filter(Boolean).length} / {onboardingSteps.length} evidence steps current</small></span>
+          <span className={styles.rowCopy}><strong>{company.name}</strong>{companyDisplayStage(company) === "Active"
+            ? <><span>{!canEditApplication ? "View company application access" : s.documents.some(doc => doc.companyId === company.id && !doc.orderId && doc.category === "Applications" && doc.visibility === "Restricted" && doc.assetId) ? "Open application & saved originals" : "Upload completed application"}</span><small>Existing company · already operating</small></>
+            : <><span>Next: {nextStep}</span><small>{application.applicationStatus} · {current.filter(Boolean).length} / {onboardingSteps.length} evidence steps current</small></>}</span>
           <ChevronRight size={17} aria-hidden="true" />
         </button>)}
         {!canViewApplicationEvidence ? <Empty title="Application evidence requires additional access" text="Company profiles, recorded credentials and shared tasks remain available. An administrator can review your access for application work." /> : !openCases.length && <Empty title={s.companies.length ? "No company reviews outstanding" : "Start with a company"} text={s.companies.length ? "Current applications and evidence are recorded for your available companies." : canAddCompany ? "Add a company or joint venture, then collect its application and formation records." : "Your administrator can assign the companies you help manage."} action={!s.companies.length && canAddCompany ? <Button onClick={addCompany}>Add your first company</Button> : undefined} />}
-        {openCases.length > 4 && <div className={styles.panelFooter}>{openCases.length - 4} more company cases in setup and reviews</div>}
+        {openCases.length > 4 && <div className={styles.panelFooter}>{openCases.length - 4} more companies in Applications</div>}
       </section>
       <section className="panel" aria-labelledby="agency-readiness">
         <div className="section-heading"><h2 id="agency-readiness">Company readiness</h2><ShieldCheck size={19} aria-hidden="true" /></div>
