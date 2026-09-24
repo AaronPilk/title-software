@@ -20,6 +20,14 @@
 # Scratch used to stage the Claude Project status doc; not part of the app.
 /.statusdoc/
 /supabase/functions/title-missive-events/bundle.js
+/supabase/functions/title-jv-public/bundle.js
+/services/title-applications/public/app.js
+/services/title-applications/public/app.css
+/services/title-applications/public/brand/
+/services/title-applications/.wrangler/
+/services/title-applications/.dev.vars
+/services/title-applications/node_modules/
+/services/title-applications/dist/
 
 # Generated client-facing documents and local render/review intermediates.
 /output/

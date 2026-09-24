@@ -2,6 +2,8 @@ import { invitationEmailRedirect, sendInvitationEmail, invitationDeliveryMessage
 import { vendorRequest } from "../../../web/lib/backend/vendor-integrations.ts";
 import { documentPackageRequest } from "../../../web/lib/backend/document-packages.ts";
 import { jvIntakeRequest } from "../../../web/lib/backend/jv-intake.ts";
+import { jvPortalStaffRequest } from "../../../web/lib/backend/jv-portal.ts";
+import { portalEmailConfigured, sendJvPortalEmail } from "../../../web/lib/backend/jv-portal-email.ts";
 import { feedbackSubmission, feedbackUpdate, feedbackList } from "../../../web/lib/backend/feedback-validation.ts";
 import { readRequestFormData, readRequestText, RequestBodyError } from "../../../web/lib/shared/request-body.ts";
 import { documentByteProblem } from "../../../web/lib/shared/document-bytes.ts";
@@ -369,7 +371,7 @@ Deno.serve(async (req) => {
         ? Object.fromEntries(new URL(req.url).searchParams)
         : pathname === "/assets/upload"
           ? null
-          : pathname.startsWith("/jv-intake/") ? await body(req, 131_072, "Application request exceeds 128 KiB.")
+          : (pathname.startsWith("/jv-intake/") || pathname.startsWith("/jv-portal/")) ? await body(req, 131_072, "Application request exceeds 128 KiB.")
           : await body(req, pathname.startsWith("/integrations/vendors") ? 32_768 : 8_000_000);
     if (pathname === "/assets/upload" && req.method === "POST") {
       const form = await readRequestFormData(req, { maxBytes: 52_500_000, timeoutMs: 120_000, tooLargeMessage: "Upload exceeds 50 MB." });
@@ -452,10 +454,34 @@ Deno.serve(async (req) => {
       }
       return response({ id, sha256: hash, bytes: file.size });
     }
-    if ((pathname.startsWith("/integrations/vendors") || pathname.startsWith("/jv-intake/")) && (!input || typeof input !== "object" || Array.isArray(input)))
+    if ((pathname.startsWith("/integrations/vendors") || pathname.startsWith("/jv-intake/") || pathname.startsWith("/jv-portal/")) && (!input || typeof input !== "object" || Array.isArray(input)))
       error("Invalid connection request.");
     const wid = uuid(input.workspaceId),
       a = await access(wid, user);
+    if (pathname.startsWith("/jv-portal/")) {
+      if (req.method !== "POST") error("Application requests support POST only.", 405);
+      const w = await workspace(wid);
+      const mail = {
+        apiKey: Deno.env.get("RESEND_API_KEY"),
+        from: Deno.env.get("TITLE_APPLICATION_EMAIL_FROM") || "Ballantyne Title <noreply@pilk.ai>",
+        portalUrl: Deno.env.get("TITLE_APPLICATION_PORTAL_URL") || "https://title-applications.aaron-9c3.workers.dev",
+        staffUrl: "https://title-software-pilot.aaron-9c3.workers.dev/#agency/companies",
+      };
+      const result = await jvPortalStaffRequest(pathname.slice("/jv-portal/".length), input, {
+        workspaceId: wid, access: a, state: w.state, portalUrl: mail.portalUrl,
+        mailConfigured: portalEmailConfigured(mail) && !!Deno.env.get("JV_PORTAL_GATEWAY_KEY"),
+        sendEmail: job => sendJvPortalEmail(job, mail),
+        rpc: async (name, args) => { const result = await service.rpc(name, args); if (result.error) throw result.error; return result.data; },
+        storage: {
+          async upload(path, bytes, mime) { const result = await service.storage.from("title-documents").upload(path, bytes, { contentType: mime, upsert: false }); if (result.error) throw new Error("Upload unavailable."); },
+          async download(path) { const result = await service.storage.from("title-documents").download(path); if (result.error || !result.data || result.data.size > 10 * 1024 * 1024) throw new Error("Download unavailable."); return new Uint8Array(await result.data.arrayBuffer()); },
+          async remove(path) { const result = await service.storage.from("title-documents").remove([path]); if (result.error) throw new Error("Storage unavailable."); },
+        },
+      });
+      if (pathname === "/jv-portal/download-attachment" && result && typeof result === "object" && "bytes" in result && result.bytes instanceof Uint8Array && "mime" in result && typeof result.mime === "string" && "name" in result && typeof result.name === "string")
+        return new Response(new Uint8Array(result.bytes), { headers: { ...cors, "Content-Type": result.mime, "Content-Length": String(result.bytes.length), "X-Content-Type-Options": "nosniff", "Content-Disposition": `attachment; filename="application-document"; filename*=UTF-8''${encodeURIComponent(result.name).replace(/['()*]/g, c => `%${c.charCodeAt(0).toString(16)}`)}` } });
+      return response(result);
+    }
     if (pathname.startsWith("/jv-intake/")) {
       if (req.method !== "POST") error("Application requests support POST only.", 405);
       const w = await workspace(wid);

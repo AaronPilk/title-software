@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 const compiled = await build({entryPoints:['lib/title/jv-extraction.ts'],bundle:true,write:false,format:'esm',platform:'node'});
-const {extractJVFields,jvCandidatePatch}=await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
+const {extractJVFields,jvCandidatePatch,extractJVApplication,jvApplicationCandidatePatch}=await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 const source = (text,page=2,method='pdf-text')=>({text,page,method});
 test('captures only labeled applicant fields with exact page evidence',()=>{
  const text='JOINT VENTURE APPLICATION\nName: Avery Example\nEmail: avery@example.test\nPhone: (555) 010-2345\nDOB: 1988-02-20\nSSN: 123-45-6789\nDriver’s License #: EX123456\nCurrent Address: 100 Fictional Lane, Example NC 28000';
@@ -33,4 +33,80 @@ test('duplicate pages, huge source and control characters fail with non-sensitiv
 });
 test('flattened adjacent fields and unsavable birth dates cannot become an applicant value',()=>{
  for(const text of ['Name  Avery Example  Email  avery@example.test','Name:\tAvery Example\tEmail\tavery@example.test','DOB: 0000-01-01','DOB: 2100-01-01',`Name: ${'A'.repeat(201)}`,'Phone: 5-5----']) assert.deepEqual(extractJVFields([source(text)]),[]);
+});
+
+const completePerson = `Name: Avery Example
+Email: avery@example.test
+Phone: (555) 010-2345
+DOB: 1988-02-20
+SSN: 123-45-6789
+Driver’s License #: EX123456
+Current Address: 100 Fictional Lane, Example NC 28000
+Ownership: [ ] Individual [x] Business
+Owner business name: Fictional Example LLC
+Owner business status: Existing
+Formation reference: Fictional formation record 2021
+Residence History (last five years)
+Address | From | To
+100 Fictional Lane | 2023-01-01 | Present
+200 Example Road | 2020-01-01 | 2022-12-31
+Employment History
+Employer: Fictional Employer
+Role: Analyst
+Address: 500 Test Street
+From: 2020-01-01
+To: Present`;
+test('whole returned packet captures each section and all rows without inventing absent company fields',()=>{
+ const text=`Applicant 1\n${completePerson}\nLogo / colors / design preferences: Blue and white, simple wordmark\nAdditional notes: Call after 3 pm.`;
+ const found=extractJVApplication([source(text)],'2026-09-24');
+ assert.deepEqual(found.issues,[]);assert.deepEqual(found.missing,[]);
+ const patch=jvApplicationCandidatePatch(found,found.candidates.map(x=>x.id),{'applicant-1':'existing-person'});
+ assert.equal(patch.applicants.length,1);assert.equal(patch.applicants[0].targetApplicantId,'existing-person');
+ const person=patch.applicants[0].patch;
+ assert.equal(person.name,'Avery Example');assert.equal(person.ownershipType,'business');assert.equal(person.businessStatus,'existing');assert.equal(person.businessName,'Fictional Example LLC');assert.equal(person.businessReference,'Fictional formation record 2021');
+ assert.equal(person.residenceHistory.length,2);assert.equal(person.employmentHistory.length,1);assert.equal(person.residenceHistory[0].to,'');assert.equal(person.employmentHistory[0].role,'Analyst');
+ assert.equal(patch.logoPreferences,'Blue and white, simple wordmark');assert.equal(patch.notes,'Call after 3 pm.');
+ for(const row of found.candidates){assert.equal(row.page,2);assert.ok(text.includes(row.quote));assert.equal(row.method,'pdf-text')}
+ assert.deepEqual(Object.keys(patch).sort(),['applicants','logoPreferences','notes']);
+});
+test('multiple applicants and repeated physical application forms preserve source-person boundaries',()=>{
+ const found=extractJVApplication([source('Joint Venture Application\nName: Jordan Example\nEmail: jordan@example.test',4),source(`Joint Venture Application\n${completePerson}`,2)]);
+ assert.equal(found.applicants.length,2);
+ const patch=jvApplicationCandidatePatch(found,found.candidates.map(x=>x.id));
+ assert.equal(patch.applicants[0].patch.name,'Avery Example');assert.equal(patch.applicants[1].patch.name,'Jordan Example');assert.equal(patch.applicants[1].patch.email,'jordan@example.test');assert.equal(patch.applicants[1].patch.ssn,undefined);
+ const explicit=extractJVApplication([source('Applicant 1\nName: Avery Example\nApplicant 2\nName: Jordan Example\nEmail: jordan@example.test')]);
+ assert.deepEqual(explicit.candidates.map(x=>x.applicantKey),['applicant-1','applicant-2','applicant-2']);
+});
+test('batch applies only reviewed candidates and rejects competing values or shared destinations',()=>{
+ const found=extractJVApplication([source('Applicant 1\nName: Avery Example\nEmail: first@example.test\nEmail: second@example.test\nApplicant 2\nName: Jordan Example\nAdditional notes: Fictional note')]);
+ const email=found.candidates.filter(x=>x.field==='email');assert.ok(email.every(x=>x.conflict));assert.match(found.issues[0].message,/competing/);
+ assert.throws(()=>jvApplicationCandidatePatch(found,email.map(x=>x.id)),/only one/);
+ const selected=found.candidates.filter(x=>x.field==='name');assert.throws(()=>jvApplicationCandidatePatch(found,selected.map(x=>x.id),{'applicant-1':'same','applicant-2':'same'}),/different existing applicant/);
+ const patch=jvApplicationCandidatePatch(found,[email[1].id]);assert.deepEqual(patch.applicants[0].patch,{email:'second@example.test'});assert.equal(patch.notes,undefined);
+});
+test('ambiguous ownership marks, numeric dates, missing row ends and handwriting remain manual',()=>{
+ for(const ownership of ['[x] Individual [x] Business','[ ] Individual [ ] Business','Individual / Business','[?] Individual [ ] Business']){
+  const found=extractJVApplication([source(`Name: Avery Example\nOwnership: ${ownership}`)]);assert.equal(found.candidates.some(x=>x.field==='ownershipType'),false);assert.ok(found.issues.length);
+ }
+ const found=extractJVApplication([source(`Applicant 1\nDOB: 01/02/1980\nDriver’s License #: [illegible]\nResidence History\nAddress: 100 Fictional Lane\nFrom: 2021-01-01\nEmployment History\nEmployer: Fictional Employer\nFrom: 2021-01-01\nTo: 09/24/2026`,2,'ocr')]);
+ assert.equal(found.candidates.length,0);assert.ok(found.issues.length>=4);assert.ok(found.missing.some(x=>/five years/.test(x)));
+ const clear=extractJVApplication([source('Name: Avery Example\nDOB (MM/DD/YYYY): 01/02/1980\nOwnership: ☑ Individual ☐ Business',2,'ocr')]);
+ assert.equal(clear.candidates.find(x=>x.field==='dob').value,'1980-01-02');assert.equal(clear.candidates.find(x=>x.field==='ownershipType').value,'individual');assert.ok(clear.candidates.every(x=>/OCR/.test(x.warning)));
+});
+test('five-year gaps and partial scan history rows are explicit, never silently treated as complete',()=>{
+ const found=extractJVApplication([source(`Name: Avery Example\nResidence History\nAddress | From | To\n100 Fictional Lane | 2020-01-01 | 2022-01-01\n200 Example Road | 2023-01-01 | Present\nEmployment History\nEmployer | From | To\nUnemployed | 2020-01-01 | Present`)],'2026-09-24');
+ assert.ok(found.missing.some(x=>/residence history.*gaps/.test(x)));assert.equal(found.missing.some(x=>/employment history/.test(x)),false);
+ const split=extractJVApplication([source('Name: Avery Example\nResidence History\nAddress: 100 Fictional Lane\nFrom: 2020-01-01',2),source('To: Present',3)]);
+ assert.equal(split.candidates.some(x=>x.field==='residenceHistory'),false);assert.ok(split.issues.some(x=>/incomplete/.test(x.message)));
+});
+test('blank source instructions and malformed table rows do not become values',()=>{
+ const found=extractJVApplication([source('Joint Venture Application\nName: Enter your full name\nOwnership: Individual / Business\nBusiness name: ______\nResidence History\nAddress | From | To\nFill every blank with your answer\nLogo preferences:\nAdditional notes:')]);
+ assert.equal(found.candidates.length,0);assert.ok(found.issues.length);
+});
+test('history continuation pages retain their applicant and field bounds reject unsafe drafts',()=>{
+ const found=extractJVApplication([source('Joint Venture Application\nName: Avery Example',2),source('Joint Venture Application\nEmployment History\n| Employer | From | To |\n| Fictional Employer | 2020-01-01 | Present |',3)]);
+ assert.equal(found.applicants.length,1);assert.equal(found.candidates.find(x=>x.field==='employmentHistory').applicantKey,'applicant-1');
+ const unsafe=extractJVApplication([source('Name: Avery Example\nOwnership: __proto__\nBusiness name: Fictional LLC  Business status: Existing')]);assert.equal(unsafe.candidates.length,1);assert.ok(unsafe.issues.length>=2);
+ const rows=Array.from({length:41},(_,i)=>`Fictional address ${i+1} | 2020-01-01 | Present`).join('\n');
+ const capped=extractJVApplication([source(`Name: Avery Example\nResidence History\nAddress | From | To\n${rows}`)]);assert.equal(capped.candidates.filter(x=>x.field==='residenceHistory').length,40);assert.ok(capped.issues.some(x=>/exceeds 40/.test(x.message)));
 });

@@ -7,7 +7,8 @@ export class RequestBodyError extends Error {
 }
 
 type BodyOptions = { maxBytes: number; timeoutMs?: number; tooLargeMessage?: string };
-function requestBodyStream(request: Request, options: BodyOptions): ReadableStream<Uint8Array> | null {
+type BoundedBody = Pick<Request, "body" | "headers" | "signal">;
+function requestBodyStream(request: BoundedBody, options: BodyOptions): ReadableStream<Uint8Array> | null {
   const { maxBytes, timeoutMs = 15_000, tooLargeMessage = "Request too large." } = options;
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || !Number.isFinite(timeoutMs) || timeoutMs <= 0)
     throw new Error("Invalid request body limits.");
@@ -69,7 +70,7 @@ function requestBodyStream(request: Request, options: BodyOptions): ReadableStre
   }, { highWaterMark: 0 });
 }
 
-export async function readRequestBytes(request: Request, options: BodyOptions): Promise<Uint8Array<ArrayBuffer>> {
+export async function readRequestBytes(request: BoundedBody, options: BodyOptions): Promise<Uint8Array<ArrayBuffer>> {
   return new Uint8Array(await new Response(requestBodyStream(request, options)).arrayBuffer());
 }
 
@@ -90,7 +91,7 @@ export async function readRequestFormData(request: Request, options: BodyOptions
   }
 }
 
-export async function readRequestText(request: Request, options: BodyOptions): Promise<string> {
+export async function readRequestText(request: BoundedBody, options: BodyOptions): Promise<string> {
   const bytes = await readRequestBytes(request, options);
   try { return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes); }
   catch { throw new RequestBodyError("Request body must use UTF-8.", 400); }

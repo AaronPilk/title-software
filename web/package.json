@@ -59,7 +59,10 @@
     "test:vendors": "node --test tests/docusign.test.mjs tests/quickbooks.test.mjs tests/vendor-callback.test.mjs tests/vendor-http.test.mjs tests/vendor-settings-ui.test.mjs tests/vendor-oauth-return-ui.test.mjs tests/vendor-refresh-retry.test.mjs",
     "test:vendors:sql": "node scripts/backend/test-vendor-sql.mjs",
     "test:jv": "node --test tests/jv-application.test.mjs tests/jv-extraction.test.mjs tests/jv-intake.test.mjs tests/jv-intake-http.test.mjs tests/jv-intake-client.test.mjs tests/jv-application-ui.test.mjs tests/jv-reader-ui.test.mjs",
-    "test:jv:sql": "node scripts/backend/test-jv-intake-sql.mjs"
+    "test:jv:sql": "node scripts/backend/test-jv-intake-sql.mjs",
+    "test:jv:portal": "node --test tests/jv-portal*.test.mjs tests/jv-application-fill.test.mjs",
+    "test:jv:portal:sql": "node scripts/backend/test-jv-portal-sql.mjs",
+    "test:jv:recipient": "npm --prefix ../services/title-applications test"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

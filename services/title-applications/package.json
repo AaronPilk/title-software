@@ -1,0 +1,14 @@
+{
+  "name": "title-applications",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "node ../../web/node_modules/typescript/bin/tsc --noEmit",
+    "types": "node ../../web/node_modules/wrangler/bin/wrangler.js types --include-runtime false",
+    "check": "npm run build && node ../../web/node_modules/wrangler/bin/wrangler.js deploy --dry-run",
+    "deploy": "npm run build && node ../../web/node_modules/wrangler/bin/wrangler.js deploy",
+    "dev": "npm run build && node ../../web/node_modules/wrangler/bin/wrangler.js dev --ip 127.0.0.1 --port 5188 --inspector-port 0",
+    "test": "node --test tests/*.test.mjs"
+  }
+}

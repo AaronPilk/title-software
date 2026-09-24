@@ -36,9 +36,16 @@ export async function backendRequest<T = unknown>(
   timeoutMs = 30000,
   requestWorkspaceId = workspaceId,
   expectedUserId?: string,
+  requireActiveWorkspace = false,
 ): Promise<T> {
   if (!supabase) throw new Error("The shared backend is not configured.");
+  const assertPinnedWorkspace = () => {
+    if (requireActiveWorkspace && requestWorkspaceId && workspaceId !== requestWorkspaceId)
+      throw Object.assign(new Error("Your workspace changed. Reopen this page to continue."), { status: 403 });
+  };
+  assertPinnedWorkspace();
   const { data: session } = await supabase.auth.getSession();
+  assertPinnedWorkspace();
   if (!session.session) throw new Error("Sign in to continue.");
   if (expectedUserId && session.session.user.id !== expectedUserId)
     throw Object.assign(new Error("Your signed-in account changed. Reopen this page to continue."), { status: 403 });
@@ -58,6 +65,7 @@ export async function backendRequest<T = unknown>(
     signal: AbortSignal.timeout(timeoutMs),
   });
   const result: unknown = await response.json();
+  assertPinnedWorkspace();
   if (!response.ok) {
     const error = responseError(result, "The server could not complete this request.") as Error & { status: number; code?: string };
     error.status = response.status;

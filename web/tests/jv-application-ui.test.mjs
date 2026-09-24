@@ -13,6 +13,8 @@ before(async () => {
   const result = await build({ absWorkingDir: web, nodePaths: [`${web}/node_modules`], write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent", loader: { ".css": "empty" }, define: { "process.env.NODE_ENV": '"production"' },
     stdin: { resolveDir: web, loader: "tsx", contents: `import React from 'react';import {createRoot} from 'react-dom/client';import {JVApplicationPanel} from './components/title/jv-application';import {useWorkspace} from '@/lib/title/store';function App(){const {s}=useWorkspace();return <JVApplicationPanel company={s.companies[0]} onDocuments={()=>window.documentsOpened=true}/>;}createRoot(document.getElementById('root')).render(<App/>);` },
     plugins: [{ name: "jv-fixture", setup(b) {
+      b.onResolve({ filter: /^@\/lib\/backend\/jv-portal-client$/ }, () => ({ path: "portal", namespace: "fixture" }));
+      b.onLoad({ filter: /^portal$/, namespace: "fixture" }, () => ({ contents: `export async function jvPortalClientRequest(){throw Error('Portal requests must stay closed in this intake fixture');}export async function jvPortalDownload(){throw Error('No portal downloads in intake fixture');}` }));
       if (process.env.JV_UI_SOURCE) b.onResolve({ filter: /^\.\/components\/title\/jv-application$/ }, () => ({ path: process.env.JV_UI_SOURCE }));
       if (process.env.JV_DOMAIN_SOURCE) b.onResolve({ filter: /^@\/lib\/title\/jv-application$/ }, () => ({ path: process.env.JV_DOMAIN_SOURCE }));
       b.onResolve({ filter: /^\.\/shared$/ }, () => ({ path: `${web}/components/title/shared.tsx` }));

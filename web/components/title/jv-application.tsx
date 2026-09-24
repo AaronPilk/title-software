@@ -11,6 +11,9 @@ import { JV_STEPS, jvReadiness, newJVApplicant, validateJVApplication, type JVAp
 import { jvIntakeClientRequest, type JVIntakeAction, type JVIntakeContext } from "@/lib/backend/jv-intake-client";
 import { FieldLabel, Picker, Status } from "./shared";
 import { JVApplicationReader } from "./jv-application-reader";
+import { JVPortalRequests } from "./jv-portal-requests";
+import { applyJVApplicationFill } from "@/lib/title/jv-application-fill";
+import type { JVApplicationFillPatch } from "@/lib/title/jv-extraction";
 
 const sections = ["Applicants", "Ownership & history", "Branding & documents", "Review", "Setup checklist"] as const;
 const stepStatuses: JVStep["status"][] = ["Not started", "In progress", "Complete", "Not applicable"];
@@ -33,6 +36,7 @@ export function JVApplicationPanel({ company, onDocuments }: { company: Company;
 }
 
 function JVApplicationWorkspace({ context, originals, onDocuments }: { context: JVIntakeContext; originals: VaultDoc[]; onDocuments?: () => void }) {
+  const { connection } = useWorkspace();
   const [opened, setOpened] = useState(false);
   const [record, setRecord] = useState<JVRecord | null>(null);
   const [draft, setDraft] = useState<JVApplication | null>(null);
@@ -70,6 +74,11 @@ function JVApplicationWorkspace({ context, originals, onDocuments }: { context: 
     if (!applicant) return;
     const targetId = applicant.id;
     change(current => ({ ...current, applicants: current.applicants.map(item => item.id === targetId ? { ...item, ...patch, id: item.id } : item), sourceDocumentIds: sourceDocumentId ? [...new Set([...current.sourceDocumentIds, sourceDocumentId])] : current.sourceDocumentIds }));
+  }
+  function fillApplication(patch: JVApplicationFillPatch, sourceDocumentId: string) {
+    if (working.current || !draft || !originals.some(doc => doc.id === sourceDocumentId)) throw new Error("Reopen the source and review the suggestions again.");
+    const next = applyJVApplicationFill(draft, patch, sourceDocumentId);
+    change(() => next);
   }
   function clear() {
     generation.current++; setOpened(false); setRecord(null); setDraft(null); setReviewNote(""); setReviewConfirmed(false); setSection(0); setApplicantIndex(0); setError(""); setConflict(false); setNotice("");
@@ -118,6 +127,7 @@ function JVApplicationWorkspace({ context, originals, onDocuments }: { context: 
       <div className="jv-heading"><LockKeyhole size={20} aria-hidden="true" /><div><h3>Joint venture application</h3><p className="form-note">Private applicant intake and the 17-step company setup checklist.</p></div></div>
       <div className="jv-actions">{record && <Status value={record.status} />}{opened ? <Button type="button" variant="outline" size="sm" onClick={close} disabled={busy} aria-expanded={true} aria-controls={contentId}><X size={15} />Close application</Button> : <Button type="button" variant="outline" onClick={() => void request("load")} disabled={busy} aria-expanded={false} aria-controls={contentId}><LockKeyhole size={15} />Open private application</Button>}</div>
     </header>
+    <JVPortalRequests context={context} applicationDirty={dirty || busy} onApplicationChanged={() => { clear(); void connection?.refresh?.(); }} />
     {opened && <div id={contentId}>
       <p className="form-note">Personal details stay in this protected application. Save explicitly before closing or navigating away.</p>
       {error && <div className="notice warning" role="alert"><div><p>{error}</p><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void request("load")}>{conflict ? "Reload latest application" : "Retry loading application"}</Button>{draft && !conflict && <p className="form-note">Your unsaved entries remain here. Use Save draft to retry saving.</p>}</div></div>}
@@ -146,7 +156,7 @@ function JVApplicationWorkspace({ context, originals, onDocuments }: { context: 
                 <PrivateField label="Driver’s license" value={applicant.driverLicense} maxLength={100} onChange={value => changeApplicant({ driverLicense: value })} />
                 <FieldLabel label="Current address"><Textarea value={applicant.currentAddress} rows={2} maxLength={1000} autoComplete="off" onChange={event => changeApplicant({ currentAddress: event.target.value })} /></FieldLabel>
               </div>
-              <JVApplicationReader key={applicant.id} companyId={context.companyId} applicant={applicant} onFill={changeApplicant} disabled={busy} />
+              <JVApplicationReader key={applicant.id} companyId={context.companyId} applicant={applicant} applicationApplicants={draft.applicants} onFill={changeApplicant} onApplicationFill={fillApplication} disabled={busy} />
             </div>}
             {section === 1 && applicant && <div key={applicant.id}>
               <div className="jv-grid">

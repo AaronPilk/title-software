@@ -5356,4 +5356,14 @@ input::placeholder, textarea::placeholder { color: #63788c; opacity: 1; }
 .jv-candidate summary { cursor: pointer; font-weight: 600; }
 .jv-candidate blockquote { padding: 12px; margin: 12px 0; border-left: 3px solid #6c8dad; overflow-wrap: anywhere; white-space: pre-wrap; }
 .jv-panel :is(input, textarea, select):disabled { opacity: .65; }
+.jv-portal-requests { margin-block: 16px; border-block: 1px solid var(--glass-edge, #c9d8e8); padding-block: 16px; }
+.jv-portal-requests > .jv-section { margin-top: 14px; }
+.jv-request-card { padding: 18px; border: 1px solid var(--glass-edge, #c9d8e8); border-radius: 16px; background: var(--glass-control, #f7faff); overflow-wrap: anywhere; }
+.jv-request-card h5, .jv-submission-review h5 { font-size: 15px; font-weight: 600; margin-block: 6px; }
+.jv-request-card dl { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(0, 2fr); gap: 8px 16px; margin-block: 16px; }
+.jv-request-card dt { color: var(--muted-foreground); }
+.jv-request-card dd { white-space: pre-wrap; }
+.jv-submission-review { display: grid; gap: 16px; padding-top: 20px; border-top: 1px solid var(--glass-edge, #c9d8e8); }
+.jv-preserve { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .jv-request-card dl { grid-template-columns: 1fr; } .jv-request-card dd { margin-bottom: 8px; } }
 @media (max-width: 720px) { .jv-grid { grid-template-columns: minmax(0, 1fr); } .jv-nav { flex-direction: column; } .jv-header { align-items: flex-start; } }

@@ -9,3 +9,9 @@ entrypoint = "./functions/title-api/bundle.js"
 [functions.title-missive-events]
 verify_jwt = false
 entrypoint = "./functions/title-missive-events/bundle.js"
+
+# Isolated recipient gateway: shared server secret AND per-invitation email verification.
+# This function never accepts staff JWTs as recipient authorization.
+[functions.title-jv-public]
+verify_jwt = false
+entrypoint = "./functions/title-jv-public/bundle.js"
