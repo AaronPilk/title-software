@@ -1,3 +1,5 @@
+import { prepareDocumentIngestion } from "../../../web/lib/backend/document-ingestion.ts";
+import { requireSecurityCenterAccess, parseSecurityPage, parseAccessReview, redactSecurityEvent, securityEventsCsv, recordSecurityEvent, type SecurityAuditContext } from "../../../web/lib/backend/security-center.ts";
 import { invitationEmailRedirect, sendInvitationEmail, invitationDeliveryMessage } from "../../../web/lib/backend/invitation-email.ts";
 import { vendorRequest } from "../../../web/lib/backend/vendor-integrations.ts";
 import { documentPackageRequest } from "../../../web/lib/backend/document-packages.ts";
@@ -36,6 +38,9 @@ const url = Deno.env.get("SUPABASE_URL")!;
 const service = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
+const scannerEnv = () => ({ TITLE_SCANNER_URL: Deno.env.get("TITLE_SCANNER_URL"), TITLE_SCANNER_TOKEN: Deno.env.get("TITLE_SCANNER_TOKEN"), TITLE_SCANNER_TIMEOUT_MS: Deno.env.get("TITLE_SCANNER_TIMEOUT_MS") });
+const scanUpload = (input: Parameters<typeof prepareDocumentIngestion>[0]) => prepareDocumentIngestion(input, scannerEnv(), async (name, args) => checked(await service.rpc(name, args)));
+const securityAudit = (context: SecurityAuditContext, input: Parameters<typeof recordSecurityEvent>[2]) => recordSecurityEvent((name, args) => service.rpc(name, args), context, input);
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -59,6 +64,8 @@ const checked = (result: any) => {
         ? 409
         : result.error.code === "PT404"
           ? 404
+        : result.error.code === "PT503"
+          ? 503
         : result.error.code === "PT429"
           ? 429
         : result.error.code === "42501"
@@ -266,6 +273,7 @@ async function checkAssets(state: any, id: string) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS")
     return new Response(null, { status: 204, headers: cors });
+  let auditContext: SecurityAuditContext | undefined;
   try {
     const user = await actor(req);
     const pathname =
@@ -372,7 +380,7 @@ Deno.serve(async (req) => {
         : pathname === "/assets/upload"
           ? null
           : (pathname.startsWith("/jv-intake/") || pathname.startsWith("/jv-portal/")) ? await body(req, 131_072, "Application request exceeds 128 KiB.")
-          : await body(req, pathname.startsWith("/integrations/vendors") ? 32_768 : 8_000_000);
+          : await body(req, (pathname.startsWith("/integrations/vendors") || pathname.startsWith("/security/")) ? 32_768 : 8_000_000);
     if (pathname === "/assets/upload" && req.method === "POST") {
       const form = await readRequestFormData(req, { maxBytes: 52_500_000, timeoutMs: 120_000, tooLargeMessage: "Upload exceeds 50 MB." });
       const wid = uuid(form.get("workspaceId")),
@@ -380,6 +388,7 @@ Deno.serve(async (req) => {
         companyId = ident(form.get("companyId")),
         documentId = ident(form.get("documentId"));
       const a = await access(wid, user);
+      auditContext = { workspaceId: wid, actorId: user.id, accessVersion: a.version };
       if (
         ["partner", "viewer", "finance"].includes(a.role) ||
         !canCompany(a, companyId)
@@ -429,10 +438,11 @@ Deno.serve(async (req) => {
         return response({ id, sha256: hash, bytes: file.size });
       }
       const path = `${wid}/${crypto.randomUUID()}`;
+      const clearedBytes = await scanUpload({ path, bytes: new Uint8Array(bytes), workspaceId: wid, companyId });
       checked(
         await service.storage
           .from("title-documents")
-          .upload(path, bytes, { contentType: mime, upsert: false }),
+          .upload(path, clearedBytes, { contentType: mime, upsert: false }),
       );
       const inserted = await service
         .from("title_assets")
@@ -458,6 +468,32 @@ Deno.serve(async (req) => {
       error("Invalid connection request.");
     const wid = uuid(input.workspaceId),
       a = await access(wid, user);
+    auditContext = { workspaceId: wid, actorId: user.id, accessVersion: a.version };
+    if (pathname === "/security/center" && req.method === "GET") {
+      requireSecurityCenterAccess(a);
+      const summary = checked(await service.rpc("title_security_center", { p_workspace: wid, p_actor: user.id, p_access_version: a.version }));
+      const scanning = checked(await service.rpc("title_document_scan_status", { p_workspace: wid }));
+      return response({ ...summary, documentScanning: { ...scanning, configured: !!(Deno.env.get("TITLE_SCANNER_URL") && Deno.env.get("TITLE_SCANNER_TOKEN")) } });
+    }
+    if (["/security/events", "/security/events/export"].includes(pathname) && req.method === "GET") {
+      requireSecurityCenterAccess(a);
+      const page = parseSecurityPage(new URL(req.url).searchParams);
+      const result = checked(await service.rpc("title_security_events", { p_workspace: wid, p_actor: user.id, p_access_version: a.version, p_before: page.before, p_before_id: page.beforeId, p_limit: page.limit }));
+      result.items = result.items.map(redactSecurityEvent);
+      if (pathname.endsWith("/export") || page.format === "csv") await securityAudit(auditContext, { eventType: "security.events_exported", outcome: "success", count: result.items.length });
+      if (page.format === "csv") return new Response(securityEventsCsv(result.items), { headers: { ...cors, "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": "attachment; filename=security-events.csv", "X-Content-Type-Options": "nosniff" } });
+      return response(result);
+    }
+    if (pathname === "/security/access-review" && req.method === "POST") {
+      requireSecurityCenterAccess(a);
+      const review = parseAccessReview(input);
+      return response(checked(await service.rpc("title_record_access_review", { p_workspace: wid, p_actor: user.id, p_access_version: a.version, p_snapshot_digest: review.snapshotDigest, p_note: review.note })));
+    }
+    if (pathname === "/security/workspace-export" && req.method === "POST") {
+      requireSecurityCenterAccess(a);
+      await securityAudit(auditContext, { eventType: "workspace.export", outcome: "success", recordType: "workspace", recordId: wid });
+      return response({ recorded: true });
+    }
     if (pathname.startsWith("/jv-portal/")) {
       if (req.method !== "POST") error("Application requests support POST only.", 405);
       const w = await workspace(wid);
@@ -473,7 +509,7 @@ Deno.serve(async (req) => {
         sendEmail: job => sendJvPortalEmail(job, mail),
         rpc: async (name, args) => { const result = await service.rpc(name, args); if (result.error) throw result.error; return result.data; },
         storage: {
-          async upload(path, bytes, mime) { const result = await service.storage.from("title-documents").upload(path, bytes, { contentType: mime, upsert: false }); if (result.error) throw new Error("Upload unavailable."); },
+          async upload(path, bytes, mime) { const clearedBytes = await scanUpload({ path, bytes }); const result = await service.storage.from("title-documents").upload(path, clearedBytes, { contentType: mime, upsert: false }); if (result.error) throw new Error("Upload unavailable."); },
           async download(path) { const result = await service.storage.from("title-documents").download(path); if (result.error || !result.data || result.data.size > 10 * 1024 * 1024) throw new Error("Download unavailable."); return new Uint8Array(await result.data.arrayBuffer()); },
           async remove(path) { const result = await service.storage.from("title-documents").remove([path]); if (result.error) throw new Error("Storage unavailable."); },
         },
@@ -652,6 +688,7 @@ Deno.serve(async (req) => {
           .from("title-documents")
           .download(asset.object_path),
       );
+      await securityAudit({ ...auditContext, workspaceRevision: w.revision }, { eventType: "file.download", outcome: "success", companyId: asset.company_id, recordType: "asset", recordId: id });
       return new Response(blob, {
         headers: {
           ...cors,
@@ -875,7 +912,8 @@ Deno.serve(async (req) => {
         let asset = checked(await service.from("title_assets").select("*").eq("workspace_id", wid).eq("id", artifact.assetId).maybeSingle());
         if (!asset) {
           const objectPath = `${wid}/${crypto.randomUUID()}`;
-          checked(await service.storage.from("title-documents").upload(objectPath, artifact.bytes, { contentType: artifact.mime, upsert: false }));
+          const clearedBytes = await scanUpload({ path: objectPath, bytes: artifact.bytes, workspaceId: wid, companyId: artifact.companyId });
+          checked(await service.storage.from("title-documents").upload(objectPath, clearedBytes, { contentType: artifact.mime, upsert: false }));
           const inserted = await service.from("title_assets").insert({ workspace_id: wid, id: artifact.assetId,
             company_id: artifact.companyId, document_id: artifact.documentId, object_path: objectPath, mime: artifact.mime,
             filename: artifact.filename, byte_size: artifact.bytes.length, sha256: artifact.sha256, uploaded_by: user.id });
@@ -957,23 +995,7 @@ Deno.serve(async (req) => {
     }
     if (pathname === "/backups" && req.method === "POST") {
       administrator(a);
-      const w = await workspace(wid);
-      const assets = checked(
-        await service.from("title_assets").select("*").eq("workspace_id", wid),
-      );
-      const b = checked(
-        await service
-          .from("title_backups")
-          .insert({
-            workspace_id: wid,
-            revision: w.revision,
-            state: w.state,
-            asset_manifest: assets,
-            created_by: user.id,
-          })
-          .select("id,revision,created_at")
-          .single(),
-      );
+      const b = checked(await service.rpc("title_create_audited_backup", { p_workspace: wid, p_actor: user.id, p_access_version: a.version }));
       return response(b);
     }
     if (pathname === "/backups/restore" && req.method === "POST") {
@@ -1000,7 +1022,7 @@ Deno.serve(async (req) => {
         );
       }
       checked(
-        await service.rpc("title_restore_backup", {
+        await service.rpc("title_restore_audited_backup", {
           p_workspace: wid,
           p_actor: user.id,
           p_email: user.email,
@@ -1013,6 +1035,9 @@ Deno.serve(async (req) => {
     }
     error("Endpoint not found.", 404);
   } catch (e) {
+    if (auditContext && e instanceof ApiError && e.status === 403) {
+      try { await securityAudit(auditContext, { eventType: "authorization.denied", outcome: "denied" }); } catch { /* A failed audit can never permit a denied request. */ }
+    }
     return response(
       { error: e instanceof Error ? e.message : "Request failed." },
       e instanceof ApiError || e instanceof RequestBodyError ? e.status : 500,

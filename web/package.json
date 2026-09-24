@@ -62,7 +62,11 @@
     "test:jv:sql": "node scripts/backend/test-jv-intake-sql.mjs",
     "test:jv:portal": "node --test tests/jv-portal*.test.mjs tests/jv-application-fill.test.mjs",
     "test:jv:portal:sql": "node scripts/backend/test-jv-portal-sql.mjs",
-    "test:jv:recipient": "npm --prefix ../services/title-applications test"
+    "test:jv:recipient": "npm --prefix ../services/title-applications test",
+    "test:security": "node --test tests/security-center.test.mjs tests/security-center-client.test.mjs tests/security-center-ui.test.mjs tests/document-ingestion.test.mjs",
+    "test:security:sql": "node scripts/backend/test-security-center-sql.mjs && node scripts/backend/test-document-scan-sql.mjs",
+    "test:scanner": "npm --prefix ../services/title-scanner test",
+    "test:recovery": "node --test ../ops/recovery/tests/*.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

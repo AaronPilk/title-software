@@ -1,0 +1,24 @@
+{
+  "repository": "/absolute/path/to/title-software",
+  "archiveKeyEnv": "TITLE_RECOVERY_ARCHIVE_KEY",
+  "sslMode": "verify-full",
+  "maxEntryBytes": 10737418240,
+  "maxTotalBytes": 107374182400,
+  "source": {
+    "kind": "managed-supabase",
+    "id": "aaaaaaaaaaaaaaaaaaaa",
+    "databaseUrlEnv": "TITLE_RECOVERY_SOURCE_DATABASE_URL",
+    "storageUrl": "https://aaaaaaaaaaaaaaaaaaaa.supabase.co/",
+    "serviceKeyEnv": "TITLE_RECOVERY_SOURCE_STORAGE_KEY",
+    "vaultRootKeyEnv": "TITLE_RECOVERY_SOURCE_VAULT_ROOT_KEY",
+    "writeFreezeReference": "REPLACE with the approved database/storage write-freeze procedure and run evidence"
+  },
+  "recovery": {
+    "owner": "REPLACE with accountable recovery operator",
+    "retentionReference": "REPLACE with approved independent immutable retention policy",
+    "configurationReference": "REPLACE with reviewed deployed code, platform configuration and external secret recovery inventory",
+    "vaultKeyEscrowReference": "REPLACE with independent Vault root-key escrow and source-project verification evidence",
+    "rpoMinutes": 60,
+    "rtoMinutes": 240
+  }
+}

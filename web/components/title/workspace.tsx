@@ -378,9 +378,9 @@ export function Settings() {
       <Segments
         value={tab}
         onChange={setTab}
-        items={sharedConnection ? ["Account", "Connections", "Team & access", ...(workspaceAdmin ? ["Recovery"] : []), ...(sharedConnection.access.role !== "partner" ? ["Jurisdictions", "Activity"] : [])] : ["Connections", "Team & access", "Jurisdictions", "Activity", "Demo workspace"]}
+        items={sharedConnection ? ["Account", "Connections", "Team & access", ...(workspaceAdmin ? ["Recovery", "Security"] : []), ...(sharedConnection.access.role !== "partner" ? ["Jurisdictions", "Activity"] : [])] : ["Connections", "Team & access", "Jurisdictions", "Activity", "Demo workspace"]}
       />
-      {sharedConnection && ["Account", "Connections", "Team & access", "Recovery"].includes(tab) && <BackendSettings key={`${tab}:${sharedConnection.access.version}`} section={tab as BackendSettingsSection} />}
+      {sharedConnection && ["Account", "Connections", "Team & access", "Recovery", "Security"].includes(tab) && <BackendSettings key={`${tab}:${sharedConnection.access.version}`} section={tab as BackendSettingsSection} />}
       {tab === "Connections" && (
         <>
           <div className="settings-intro">

@@ -37,12 +37,12 @@ before(async () => {
       ` }));
       builder.onLoad({ filter: /^client$/, namespace: "fixture" }, () => ({ loader: "js", contents: `
         export const activeWorkspace=()=> 'workspace-A';export const supabase={auth:{signOut:async()=>{throw Error('Unexpected sign-out')}}};
-        window.remoteReads=[];window.remoteWrites=[];window.originalsAvailable=true;window.holdOriginal=false;
-        export async function backendRequest(path,data){if(data){window.remoteWrites.push({path,data});throw Error('Unexpected hosted write')}if(path==='/backups')return {backups:[]};throw Error('Unexpected endpoint')}
+        window.remoteReads=[];window.remoteWrites=[];window.securityAudit=[];window.auditFails=false;window.originalsAvailable=true;window.holdOriginal=false;
+        export async function backendRequest(path,data){if(path==='/security/workspace-export'){if(window.auditFails)throw Error('Security evidence unavailable');window.securityAudit.push({path,data});return {recorded:true}}if(data){window.remoteWrites.push({path,data});throw Error('Unexpected hosted write')}if(path==='/backups')return {backups:[]};throw Error('Unexpected endpoint')}
         export async function downloadRemoteAsset(id){window.remoteReads.push(id);if(window.holdOriginal)await new Promise(done=>window.releaseOriginal=done);if(!window.originalsAvailable||id!=='asset-A')throw Error('Fictional hosted file unavailable');return new Blob([new Uint8Array(${JSON.stringify([...png])})],{type:'image/png'})}
       ` }));
-      builder.onResolve({ filter: /^\.\/(missive-settings|team-access|vendor-settings)$/ }, () => ({ path: "unused", namespace: "child" }));
-      builder.onLoad({ filter: /.*/, namespace: "child" }, () => ({ contents: "export const MissiveSettings=()=>null,TeamAccess=()=>null,VendorSettings=()=>null;" }));
+      builder.onResolve({ filter: /^\.\/(missive-settings|team-access|vendor-settings|security-center)$/ }, () => ({ path: "unused", namespace: "child" }));
+      builder.onLoad({ filter: /.*/, namespace: "child" }, () => ({ contents: "export const MissiveSettings=()=>null,TeamAccess=()=>null,VendorSettings=()=>null,SecurityCenter=()=>null;" }));
     } }],
   });
   server = createServer((req, res) => {
@@ -174,3 +174,5 @@ test("production CSS keeps recovery controls and missing-file guidance inside a 
   await page.getByText("Missing originals: Unavailable original.pdf", { exact: false }).waitFor();
   if (process.env.TITLE_RECOVERY_SCREENSHOT) await page.screenshot({ path: process.env.TITLE_RECOVERY_SCREENSHOT, fullPage: true });
 });
+
+test("originals export requires audit evidence before creating a download",async()=>{await open();await page.evaluate(()=>{window.auditFails=true});let downloads=0;page.on("download",()=>downloads++);await button("Export original files archive").click();await page.getByText("Security evidence unavailable",{exact:true}).waitFor();assert.equal(downloads,0);assert.equal((await page.evaluate(()=>window.remoteWrites)).length,0)});

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui/button";
 import { download, useWorkspace } from "@/lib/title/store";
-import { downloadRemoteAsset } from "@/lib/backend/client";
+import { backendRequest, downloadRemoteAsset } from "@/lib/backend/client";
 import { MAX_BACKUP_FILE_BYTES } from "@/lib/title/backup-assets";
 import { createOriginalsArchive, recoverArchivedOriginal, verifyOriginalsArchive, type OriginalsArchive } from "@/lib/title/originals-archive";
 
@@ -37,6 +37,8 @@ export function OriginalFileRecovery({ workspaceId }: { workspaceId: string }) {
     <Button variant="outline" disabled={busy || !exportDocuments.length} onClick={() => void run(async signal => {
       if (!connection) return;
       const result = await createOriginalsArchive({ workspaceId, revision: connection.revision, documents: exportDocuments }, downloadRemoteAsset, signal);
+      if (signal.aborted) return;
+      await backendRequest("/security/workspace-export", { workspaceId }, "POST", 30_000, workspaceId, connection.access.userId, true);
       if (signal.aborted) return;
       download(`titleos-originals-${workspaceId}${exportId ? `-${exportId}` : ""}-${result.exportedAt.slice(0, 10)}.json`, JSON.stringify(result), "application/json");
       setNotice(`Archive downloaded: ${result.originals.length} originals, ${result.missing.length} missing. ${result.missing.length ? "This archive is incomplete; recover the missing originals before bulk import." : "Verify the downloaded archive and recover a sample original before bulk import."}`);

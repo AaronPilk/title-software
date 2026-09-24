@@ -67,6 +67,8 @@ try{
  sql(`create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text,metadata jsonb);`);
  sql(fs.readFileSync(path.join(root,'supabase/migrations/20260924150748_title_jv_intake.sql'),'utf8'));
  sql(fs.readFileSync(path.join(root,'supabase/migrations/20260924155947_title_jv_recipient_portal.sql'),'utf8'));
+ sql(fs.readFileSync(path.join(root,'supabase/migrations/20260924173821_title_security_center.sql'),'utf8'));
+ sql(fs.readFileSync(path.join(root,'supabase/migrations/20260924174405_title_document_scan_gate.sql'),'utf8'));
  const hash=c=>c.repeat(64), token=hash('a'), sess=hash('b'), otp=hash('c'), ip=hash('d');
  const staffCall=(action,input={},actor=staff,company='C1')=>`select public.title_jv_portal_staff('${w}','${actor}',1,'${company}','${action}',${json(input)});`;
  const publicCall=(action,input={},credential=sess,ipHash=ip)=>`select public.title_jv_portal_public('${action}','${credential}','${ipHash}',${json(input)});`;

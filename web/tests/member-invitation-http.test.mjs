@@ -15,7 +15,8 @@ const client={
  getClaims:async()=>ok({claims:{sub:actorId,session_id:'33333333-3333-4333-8333-333333333333',aal:'aal2'}})},
  async rpc(name,args){
   if(name==='title_security_state') return ok({session_valid:true,password_change_required:false,has_totp:true,session_totp:true});
-  fixture.calls.push({name,args:structuredClone(args)});
+  if (name === 'title_record_security_event') { assert.equal(args.p_event_type, 'authorization.denied'); assert.equal(args.p_outcome, 'denied'); assert.equal(args.p_actor, actorId); return ok(null); }
+    fixture.calls.push({name,args:structuredClone(args)});
   return fixture.rpcError?{data:null,error:fixture.rpcError}:ok(fixture.result);
  },
  from(table){

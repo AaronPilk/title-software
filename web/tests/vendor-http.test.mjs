@@ -48,6 +48,7 @@ const client = {
   },
   async rpc(name, args) {
     if (name === "title_security_state") return ok(fixture.security);
+    if (name === 'title_record_security_event') { assert.equal(args.p_event_type, 'authorization.denied'); assert.equal(args.p_outcome, 'denied'); assert.equal(args.p_actor, actorId); return ok(null); }
     fixture.calls.push({ name, args: structuredClone(args) });
     assert.ok(name.startsWith("title_vendor_"), `Unexpected RPC ${name}`);
     assert.equal(args.p_workspace, workspaceId); assert.equal(args.p_actor, actorId); assert.equal(args.p_access_version, 7);

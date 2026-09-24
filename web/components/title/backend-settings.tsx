@@ -14,9 +14,10 @@ import { Picker } from "./shared";
 import { MissiveSettings } from "./missive-settings";
 import { VendorSettings } from "./vendor-settings";
 import { TeamAccess } from "./team-access";
+import { SecurityCenter } from "./security-center";
 import { OriginalFileRecovery } from "./original-file-recovery";
 
-export type BackendSettingsSection = "Account" | "Connections" | "Team & access" | "Recovery";
+export type BackendSettingsSection = "Account" | "Connections" | "Team & access" | "Recovery" | "Security";
 type RecoveryPoint = { id: string; revision: number; created_at: string };
 type SettingsData = { backups?: RecoveryPoint[] };
 
@@ -68,6 +69,7 @@ function BackendSettingsContent({ section }: { section: BackendSettingsSection }
     }
   }
   if (!connection) return null;
+  if (admin && section === "Security") return <SecurityCenter workspaceId={workspaceId} userId={connection.access.userId} />;
   if (admin && section === "Team & access") return <TeamAccess workspaceId={workspaceId} companies={s.companies} access={connection.access} refreshWorkspace={connection.refresh} />;
   return (
     <section className="panel backend-settings">

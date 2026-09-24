@@ -1,0 +1,55 @@
+name: Security readiness checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  synthetic-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      TITLE_TEST_PG_BIN: /usr/lib/postgresql/16/bin
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            services/title-scanner/package-lock.json
+      - name: Install locked dependencies and isolated database tools
+        run: |
+          npm ci --prefix web
+          npm ci --prefix services/title-scanner
+          sudo apt-get update
+          sudo apt-get install -y postgresql-16 postgresql-client-16
+          cd web && npx playwright install --with-deps chromium
+      - name: Production dependency advisories
+        run: |
+          npm audit --prefix web --omit=dev --audit-level=high
+          npm audit --prefix services/title-scanner --omit=dev --audit-level=high
+      - name: Types and lint
+        run: |
+          npm --prefix web run typecheck
+          npm --prefix web run lint
+      - name: Synthetic domain, API and security regressions
+        run: |
+          npm --prefix web test
+          npm --prefix web run test:backend
+          npm --prefix web run test:api
+          npm --prefix web run test:security
+          npm --prefix web run test:security:sql
+          npm --prefix web run test:scanner
+          npm --prefix web run test:recovery
+      - name: Package the Edge functions
+        run: npm --prefix web run backend:build
+      # This workflow deliberately has no cloud credentials or deployment job.
+      # Tests start temporary local PostgreSQL clusters and use fictional records.
