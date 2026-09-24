@@ -108,7 +108,13 @@ test("access revocation removes an open confirmation and prevents a save", async
 
 test("detail separates Active operations from missing profile and checklist evidence; confirmation can be cleared", async () => {
   await open("confirmed&detail=cedar"); const before = await page.evaluate(() => window.readOperating());
-  const dialog = page.getByRole("dialog"); assert.match(await dialog.innerText(), /Workspace setup checklist/); assert.match(await dialog.innerText(), /Company profile needs completion/); assert.match(await dialog.innerText(), /owner@example.test/);
+  const dialog = page.getByRole("dialog");
+  assert.equal(await dialog.getByRole("heading", { name: "Workspace setup checklist", exact: true }).isVisible(), false);
+  assert.equal(await dialog.getByRole("button", { name: "Open company documents", exact: true }).isVisible(), true);
+  await dialog.getByText("Formation and approval history", { exact: true }).click();
+  assert.match(await dialog.innerText(), /Workspace setup checklist/); assert.match(await dialog.innerText(), /Company profile needs completion/); assert.match(await dialog.innerText(), /owner@example.test/);
+  assert.deepEqual(await page.evaluate(() => window.readOperating()), before);
+  assert.deepEqual(await page.evaluate(() => window.operatingUpdates), []);
   assert.equal(await dialog.getByRole("checkbox", { checked: false }).count(), 7);
   await page.getByRole("button", { name: "Clear operating confirmation", exact: true }).click();
   assert.match(await dialog.innerText(), /returns the displayed status to Onboarding/);
@@ -129,7 +135,10 @@ test("legacy onboarding counts exclude confirmed operating companies from launch
 
 test("malformed legacy metadata cannot claim Active operations or hide incomplete launch setup", async () => {
   await open("malformed&detail=cedar"); const dialog = page.getByRole("dialog");
-  assert.equal(await dialog.getByRole("heading", { name: "Onboarding checklist", exact: true }).count(), 1);
+  assert.equal(await dialog.getByRole("heading", { name: "Onboarding checklist", exact: true }).isVisible(), false);
+  await dialog.getByText("Formation and approval history", { exact: true }).click();
+  assert.equal(await dialog.getByRole("heading", { name: "Onboarding checklist", exact: true }).isVisible(), true);
+  assert.deepEqual(await page.evaluate(() => window.operatingUpdates), []);
   assert.doesNotMatch(await dialog.innerText(), /Existing operations confirmed Active|Workspace setup checklist|Invalid Date/);
   await page.keyboard.press("Escape"); await dialog.waitFor({ state: "detached" });
   await page.getByRole("tab", { name: "Active", exact: true }).click(); assert.equal(await page.locator(".company-card").count(), 1); assert.match(await page.locator(".company-card").innerText(), /Established Title/);

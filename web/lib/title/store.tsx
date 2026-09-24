@@ -465,12 +465,18 @@ function openAssets(): Promise<IDBDatabase> {
 export async function saveAsset(
   id: string,
   file: File,
-  binding?: { companyId: string; documentId: string },
+  binding?: { companyId: string; documentId: string; expectedUserId?: string; expectedWorkspaceId?: string },
 ) {
-  if (activeWorkspace()) {
+  const workspaceId = activeWorkspace();
+  if (binding?.expectedWorkspaceId !== undefined && binding.expectedWorkspaceId !== workspaceId)
+    throw Object.assign(new Error("Your account or workspace changed. Reopen Upload documents before sending these originals."), { status: 403 });
+  if (workspaceId) {
     if (!binding)
       throw new Error("Choose the company and document for this upload.");
-    await uploadRemoteAsset(id, file, binding.companyId, binding.documentId);
+    await uploadRemoteAsset(id, file, binding.companyId, binding.documentId, {
+      expectedUserId: binding.expectedUserId,
+      expectedWorkspaceId: binding.expectedWorkspaceId ?? workspaceId,
+    });
     return;
   }
   const db = await openAssets();

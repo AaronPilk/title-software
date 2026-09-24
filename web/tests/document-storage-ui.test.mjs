@@ -64,6 +64,13 @@ async function open(query = "") {
 async function selectFile() {
   await page.getByRole("button", { name: "Upload document", exact: true }).click();
   await page.getByLabel("Select documents", { exact: true }).setInputFiles({ name: "Fictional formation.txt", mimeType: "text/plain", buffer: Buffer.from("Fictional company original") });
+  assert.deepEqual(await page.evaluate(() => window.documentFixtureUpdates), []);
+  assert.deepEqual(await page.evaluate(() => window.documentFixtureUploads), []);
+  await page.getByRole("button", { name: "Review documents", exact: true }).click();
+  assert.equal(await page.getByLabel("Document category", { exact: true }).inputValue(), "Company records");
+  assert.equal(await page.getByLabel("Document visibility", { exact: true }).inputValue(), "Internal");
+  assert.deepEqual(await page.evaluate(() => window.documentFixtureUpdates), []);
+  assert.deepEqual(await page.evaluate(() => window.documentFixtureUploads), []);
 }
 for (const local of [false, true]) {
   test(`${local ? "local demo" : "connected workspace"} explains its storage and accepts the original file unchanged`, async () => {

@@ -50,15 +50,14 @@ export function OnboardingHub({
   onOpen,
   onNew,
 }: {
-  onOpen: (id: string) => void;
+  onOpen: (id: string, tab?: "Overview" | "Documents") => void;
   onNew: () => void;
 }) {
   const { s, connection } = useWorkspace();
   const canAddCompany = canCreateCompany(connection);
   const evidenceVisible = canViewOnboardingEvidence(connection);
   const [selected, setSelected] = useState(
-    s.companies.find((c) => companyDisplayStage(c) === "Onboarding")?.id ||
-      s.companies[0]?.id ||
+    s.companies[0]?.id ||
       "",
   );
   const [tab, setTab] = useState("Company cases");
@@ -73,7 +72,7 @@ export function OnboardingHub({
     <>
       <Heading
         title="Company setup and reviews"
-        description="Company records, applications and evidence reviews for new and existing businesses."
+        description="Choose a company, add its documents, and review what still needs attention."
       >
         {canAddCompany && <Button onClick={onNew}>
           <Plus />
@@ -127,7 +126,7 @@ export function OnboardingHub({
                   onClick={() => setSelected(x.id)}
                 >
                   <strong>{x.name}</strong>
-                  <span>{evidenceVisible ? `Workspace application: ${getOnboarding(s, x).applicationStatus}` : "Application evidence requires access"}</span>
+                  <span>{companyDisplayStage(x) === "Active" ? `${s.documents.filter(d => d.companyId === x.id && !d.orderId).length} company documents available` : evidenceVisible ? `Workspace application: ${getOnboarding(s, x).applicationStatus}` : "Application evidence requires access"}</span>
                   <Status value={companyDisplayStage(x)} />
                 </button>
               ))}
@@ -146,7 +145,17 @@ export function OnboardingHub({
                   <ArrowRight />
                 </Button>
               </div>
-              <OnboardingCasePanel key={c.id} company={c} />
+              <section className="panel business-panel" aria-label="Start with company documents">
+                <h2>{companyDisplayStage(c) === "Active" ? "Bring your company records together" : "Start with the documents you have"}</h2>
+                <p>Keep {c.name}’s formation records, applications, agreements and logo in Company documents. Property searches, deeds and policies belong to a title file.</p>
+                <p className="subtle">Add the originals, then review the category and access for each file. You can add missing documents later.</p>
+                <div className="source-actions"><Button onClick={() => onOpen(c.id, "Documents")}>Open company documents <ArrowRight /></Button><Button variant="outline" onClick={() => onOpen(c.id, "Overview")}>Company details</Button></div>
+              </section>
+              {companyDisplayStage(c) === "Active" && evidenceVisible ? <details className="panel business-panel" key={c.id}>
+                <summary className="cursor-pointer font-semibold">Application and approval review</summary>
+                <p className="subtle my-3">Review formation, licensing and underwriter evidence here when the records are ready. Uploading a document does not approve it.</p>
+                <OnboardingCasePanel company={c} />
+              </details> : <OnboardingCasePanel key={c.id} company={c} />}
             </section>
           </div>
         ) : (

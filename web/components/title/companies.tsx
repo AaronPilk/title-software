@@ -377,25 +377,30 @@ export function NewCompany({
     </Dialog>
   );
 }
+export type CompanyDetailTab = "Overview" | "Onboarding" | "Documents" | "Members" | "Jurisdictions";
 export function CompanyDetail({
   id,
+  initialTab = "Overview",
   onClose,
   onDoc,
   onUpload,
 }: {
   id: string;
+  initialTab?: CompanyDetailTab;
   onClose: () => void;
   onDoc: (doc: VaultDoc, physicalPage?: number) => void;
   onUpload: (id: string) => void;
 }) {
   const { s, connection } = useWorkspace();
-  const [tab, setTab] = useState("Overview");
+  const [tab, setTab] = useState<string>(initialTab);
   const [profileCapture, setProfileCapture] = useState<(CompanyProfileCapture & { companySnapshot: string }) | null>(null);
   const c = s.companies.find((x) => x.id === id);
   if (!c) return null;
   let existingOperationsConfirmed = false;
   try { existingOperationsConfirmed = !!validateOperatingConfirmation(c.operatingStatus ?? null); } catch { /* Invalid legacy metadata cannot confirm operations. */ }
   const docs = s.documents.filter((d) => d.companyId === id);
+  const companyDocs = docs.filter(d => !d.orderId);
+  const titleDocs = docs.filter(d => !!d.orderId);
   const canEditProfile = !connection || (["owner", "admin", "onboarding"].includes(connection.access.role) && (connection.access.allCompanies || connection.access.companyIds.includes(c.id)));
   const profileCaptureCurrent = !!profileCapture && profileCapture.companySnapshot === JSON.stringify(c) && profileCapture.sourceIdentities.every(source => {
     const current = s.documents.find(doc => doc.id === source.documentId && doc.companyId === c.id);
@@ -427,6 +432,11 @@ export function CompanyDetail({
             <>
               <CompanyOperatingStatusDetails company={c} />
               <CompanyIntakeProfile company={c} />
+              <section className="panel business-panel" aria-label="Company files and logo">
+                <h3>Company files and logo</h3>
+                <p>Add formation records, applications, agreements and your logo in Documents. You can organize several file types in one upload.</p>
+                <Button variant="outline" onClick={() => setTab("Documents")}>Open company documents <ArrowRight /></Button>
+              </section>
               <div className="detail-grid">
                 <div>
                   <small>Primary contact</small>
@@ -447,6 +457,8 @@ export function CompanyDetail({
                   <Status value={companyDisplayStage(c)} />
                 </div>
               </div>
+              <details className="mt-5 border-t pt-5">
+              <summary className="cursor-pointer text-sm font-semibold">Formation and approval history</summary>
               <div className="checklist-title">
                 <h3>{existingOperationsConfirmed ? "Workspace setup checklist" : "Onboarding checklist"}</h3>
                 <span>
@@ -484,19 +496,21 @@ export function CompanyDetail({
                     : `${c.jurisdiction || "The company"} checklist is a planning template. State licensing, attorney review, and underwriter evidence need confirmation before launch.`}
                 </p>
               </div>
+              </details>
             </>
           )}
           {tab === "Documents" && (
             <>
               <div className="section-heading">
-                <h3>Files</h3>
-                <PackageReviewButton documents={docs.filter(source => !source.orderId)} onOpenOriginal={onDoc} onCompanyCapture={c.intake && canEditProfile ? capture => setProfileCapture({ ...capture, companySnapshot: JSON.stringify(c) }) : undefined} />
+                <h3>Company documents</h3>
+                <PackageReviewButton documents={companyDocs} onOpenOriginal={onDoc} onCompanyCapture={c.intake && canEditProfile ? capture => setProfileCapture({ ...capture, companySnapshot: JSON.stringify(c) }) : undefined} />
                 <Button size="sm" onClick={() => onUpload(id)}>
                   <Plus />
                   Upload
                 </Button>
               </div>
-              {docs.map((d) => (
+              <p className="subtle my-3">Files about {c.name}: formation records, applications, agreements, disclosures and logos. The package reader above uses these company documents.</p>
+              {companyDocs.map((d) => (
                 <button
                   key={d.id}
                   className="doc-list-row"
@@ -513,12 +527,19 @@ export function CompanyDetail({
                   <ChevronRight size={15} />
                 </button>
               ))}
-              {!docs.length && (
+              {!companyDocs.length && (
                 <Empty
-                  title="Your vault is ready"
-                  text="Upload the first company document to get started."
+                  title="Add your company files"
+                  text="Start with what you have. Choose Upload, add the originals, then review a category for each file. Choose Logo / branding for a logo."
                 />
               )}
+              {!!titleDocs.length && <details className="mt-6 border-t pt-5">
+                <summary className="cursor-pointer text-sm font-semibold">Title-file documents ({titleDocs.length})</summary>
+                <p className="subtle my-3">These originals belong to property files. Read and review them from that title file’s Final sources.</p>
+                {titleDocs.map(d => <button className="doc-list-row" key={d.id} onClick={() => onDoc(d)}>
+                  <FolderClosed size={20} /><div className="grow"><strong>{d.name}</strong><small>{d.orderId} · {s.orders.find(order => order.id === d.orderId)?.address || "Title file"} · {d.sourceRole || "Type not assigned"}</small></div><Status value={d.visibility} /><ChevronRight size={15} />
+                </button>)}
+              </details>}
               <details className="mt-6 border-t pt-5">
                 <summary className="cursor-pointer text-sm font-semibold">
                   Requests and approvals

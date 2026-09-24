@@ -20,6 +20,8 @@ before(async () => {
       createRoot(document.getElementById('root')).render(<App/>);
     ` },
     plugins: [{ name: "fictional-company-documents", setup(builder) {
+      builder.onResolve({ filter: /^\.\/document-upload$/ }, () => ({ path: "upload", namespace: "fixture-upload" }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture-upload" }, () => ({ contents: `export const UploadDocument=()=>{throw Error("Unexpected uploader render; this fixture verifies destination callbacks")};` }));
       builder.onResolve({ filter: /^@\/lib\/backend\/client$/ }, () => ({ path: "client", namespace: "fixture-client" }));
       builder.onLoad({ filter: /.*/, namespace: "fixture-client" }, () => ({ contents: `export const activeWorkspace=()=>"fictional-workspace";export const backendRequest=async()=>{throw Error("Unexpected provider request")};` }));
       builder.onResolve({ filter: /^@\/lib\/title\/store$/ }, () => ({ path: "store", namespace: "fixture-store" }));
@@ -73,8 +75,8 @@ test("one Documents tab keeps scoped files, preview, package review and one uplo
   await open(); assert.equal(await page.getByRole("tab", { name: "Materials", exact: true }).count(), 0);
   assert.equal(await page.getByRole("tab", { name: "Documents", exact: true }).count(), 1);
   const state = await page.evaluate(() => window.readCompanyDocuments());
-  const companyFiles = state.documents.filter(doc => doc.companyId === "c1");
-  const names = await page.locator(".doc-list-row strong").allTextContents(); assert.deepEqual(names, companyFiles.map(doc => doc.name));
+  const companyFiles = state.documents.filter(doc => doc.companyId === "c1" && !doc.orderId);
+  const names = await page.locator(".doc-list-row:visible strong").allTextContents(); assert.deepEqual(names, companyFiles.map(doc => doc.name));
   assert.ok(names.every(name => name.startsWith("Cedar ")));
   await page.locator(".doc-list-row").filter({ hasText: "Cedar Company overview.txt" }).click();
   assert.deepEqual(await page.evaluate(() => window.documentPreviews), ["d0-1"]);
@@ -82,11 +84,36 @@ test("one Documents tab keeps scoped files, preview, package review and one uplo
   await page.getByRole("button", { name: "Read document package", exact: true }).click();
   const packageDialog = page.getByRole("dialog", { name: "Read and review a document package", exact: true });
   const included = await packageDialog.getByRole("checkbox").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label")));
-  assert.deepEqual(included, companyFiles.filter(doc => !doc.orderId).map(doc => `Include ${doc.name}`));
+  assert.deepEqual(included, companyFiles.map(doc => `Include ${doc.name}`));
   assert.ok(included.every(name => name.startsWith("Include Cedar "))); assert.ok(included.every(name => !name.includes("Recorded deed")));
   await page.keyboard.press("Escape"); await packageDialog.waitFor({ state: "detached" });
   await requests().click(); assert.equal(await page.getByRole("button", { name: /upload/i }).count(), 1);
   assert.equal(await page.getByRole("button", { name: "Upload company file", exact: true }).count(), 0);
+  assert.deepEqual(await page.evaluate(() => window.materialUpdates), []);
+});
+
+test("company records and collapsed title-file attachments have distinct destinations without moving originals", async () => {
+  await open(); const before = await page.evaluate(() => window.readCompanyDocuments());
+  const titleFiles = before.documents.filter(doc => doc.companyId === "c1" && doc.orderId);
+  assert.ok(titleFiles.length > 0);
+  const summary = page.locator("summary").filter({ hasText: /^Title-file documents/ });
+  const details = summary.locator("..");
+  assert.equal(await details.evaluate(node => node.open), false);
+  for (const doc of titleFiles) assert.equal(await details.getByRole("button").filter({ hasText: doc.name }).isVisible(), false);
+  await summary.focus(); await page.keyboard.press("Enter");
+  assert.equal(await details.evaluate(node => node.open), true);
+  assert.deepEqual(await details.locator(".doc-list-row strong").allTextContents(), titleFiles.map(doc => doc.name));
+  for (const doc of titleFiles) {
+    const row = details.locator(".doc-list-row").filter({ hasText: doc.name });
+    const order = before.orders.find(order => order.id === doc.orderId);
+    assert.ok((await row.innerText()).includes(doc.orderId));
+    assert.ok((await row.innerText()).includes(order.address));
+  }
+  await details.locator(".doc-list-row").first().click();
+  assert.deepEqual(await page.evaluate(() => window.documentPreviews), [titleFiles[0].id]);
+  await summary.focus(); await page.keyboard.press("Space");
+  assert.equal(await details.evaluate(node => node.open), false);
+  assert.deepEqual(await page.evaluate(() => window.readCompanyDocuments()), before);
   assert.deepEqual(await page.evaluate(() => window.materialUpdates), []);
 });
 

@@ -2142,6 +2142,18 @@ body {
   margin-top: 6px;
   color: #a6b1c2;
 }
+.document-filing-categories {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.document-filing-categories .vault-category[aria-pressed="true"] {
+  border-color: var(--brand-accent);
+  box-shadow: inset 0 0 0 1px var(--brand-accent);
+}
+.document-filing-categories .folder-art { flex-shrink: 0; }
+.document-filing-categories small { color: #667991; line-height: 1.5; }
+.document-filing-toolbar .toolbar-right { flex-wrap: wrap; min-width: 0; }
+.document-filing-toolbar > [data-slot="tabs"] { min-width: 0; max-width: 100%; }
+.document-filing-toolbar .segment-list { max-width: 100%; height: auto; flex-wrap: wrap; }
 .document-name {
   display: flex;
   align-items: center;

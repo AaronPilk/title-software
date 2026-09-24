@@ -16,7 +16,7 @@ before(async () => {
       import React from 'react';import {createRoot} from 'react-dom/client';
       import {Overview} from './components/title/overview';import {OnboardingHub} from './components/title/onboarding-suite';import {PartnerPortal} from './components/title/workspace';
       const view=new URLSearchParams(location.search).get('view');
-      createRoot(document.getElementById('root')).render(view==='setup'?<OnboardingHub onOpen={()=>{}} onNew={()=>{}}/>:view==='partner'?<PartnerPortal/>:<Overview navigate={()=>{}} newOrder={()=>{}} openOrder={()=>{}} openCompany={()=>{}}/>);
+      createRoot(document.getElementById('root')).render(view==='setup'?<OnboardingHub onOpen={(id,tab)=>window.statusOpens.push({id,tab})} onNew={()=>{}}/>:view==='partner'?<PartnerPortal/>:<Overview navigate={()=>{}} newOrder={()=>{}} openOrder={()=>{}} openCompany={()=>{}}/>);
     ` },
     plugins: [{ name: "company-status-fixture", setup(builder) {
       builder.onResolve({ filter: /^@\/lib\/title\/store$/ }, () => ({ path: "store", namespace: "fixture" }));
@@ -32,7 +32,7 @@ before(async () => {
         s.business={onboarding:[],credentials:[],closes:[],handoffs:[],policies:[],commitments:[],cpls:[],followups:[],corrections:[]};
         s.partnerSummary={asOfDate:'2026-09-23',rows:[]};
         const connection={access:{role:q.has('partner')?'partner':'operations',allCompanies:false,restricted:!q.has('limited'),companyIds:s.companies.map(c=>c.id),userId:'operator',email:'operator@example.test',version:1},revision:1};
-        window.statusState=()=>structuredClone(s);window.statusWrites=[];
+        window.statusState=()=>structuredClone(s);window.statusWrites=[];window.statusOpens=[];
         export const useWorkspace=()=>({s,connection,update:async()=>{window.statusWrites.push('unexpected update');throw Error('Unexpected state write');}});
         export const download=()=>{throw Error('Unexpected download');};export const exportCsv=download,exportFullBackup=download,parseBackupFile=download;
       ` }));
@@ -67,16 +67,29 @@ test("Production counts confirmed and legacy active businesses while keeping new
   assert.doesNotMatch(await page.locator("body").innerText(), /PRIVATE owner confirmation note/);
   assert.deepEqual(await page.evaluate(() => window.statusWrites), []);
 });
-test("setup metrics retain missing evidence for existing active businesses and prioritize the new company", async () => {
+test("setup starts with the selected company documents while keeping missing approval evidence reviewable", async () => {
   await open("view=setup"); await page.getByRole("heading", { name: "Company setup and reviews", exact: true }).waitFor();
   assert.equal(await metric("New companies").locator("strong").innerText(), "1");
   assert.equal(await metric("Incomplete workspace evidence").locator("strong").innerText(), "3");
   const queue = page.locator(".business-queue"); assert.equal(await queue.getByRole("button").filter({ hasText: "Existing Title" }).locator(".status").innerText(), "Active");
-  assert.match(await queue.locator("button.selected").innerText(), /New Title/);
-  await queue.getByRole("button").filter({ hasText: "Existing Title" }).click();
+  assert.match(await queue.locator("button.selected").innerText(), /Existing Title/);
+  const before = await page.evaluate(() => window.statusState());
+  assert.equal(await page.getByLabel("Legal company name", { exact: true }).isVisible(), false);
+  await page.getByRole("button", { name: "Open company documents", exact: true }).click();
+  await page.getByRole("button", { name: "Company details", exact: true }).click();
+  assert.deepEqual(await page.evaluate(() => window.statusOpens), [{ id: "existing", tab: "Documents" }, { id: "existing", tab: "Overview" }]);
+  assert.deepEqual(await page.evaluate(() => window.statusState()), before);
+  assert.deepEqual(await page.evaluate(() => window.statusWrites), []);
+  await page.getByText("Application and approval review", { exact: true }).click();
   await page.getByText("Workspace evidence checks still open", { exact: true }).waitFor();
   assert.match(await page.locator("body").innerText(), /0 \/ 7 reviewed|Evidence required/);
   const state = await page.evaluate(() => window.statusState()); assert.equal(state.companies[0].stage, "Onboarding"); assert.ok(state.companies[0].steps.every(step => step === false)); assert.deepEqual(state.business.onboarding, []);
+  assert.deepEqual(await page.evaluate(() => window.statusWrites), []);
+  await queue.getByRole("button").filter({ hasText: "New Title" }).click();
+  assert.equal(await page.getByLabel("Legal company name", { exact: true }).isVisible(), true);
+  await queue.getByRole("button").filter({ hasText: "Existing Title" }).click();
+  assert.equal(await page.getByLabel("Legal company name", { exact: true }).isVisible(), false);
+  assert.deepEqual(await page.evaluate(() => window.statusState()), before);
   assert.deepEqual(await page.evaluate(() => window.statusWrites), []);
 });
 test("withheld setup evidence stays unavailable rather than claiming an active company's records are complete or missing", async () => {
@@ -84,6 +97,10 @@ test("withheld setup evidence stays unavailable rather than claiming an active c
   assert.equal(await metric("New companies").locator("strong").innerText(), "1");
   assert.equal(await page.locator(".business-queue").getByRole("button").filter({ hasText: "Existing Title" }).locator(".status").innerText(), "Active");
   assert.doesNotMatch(await page.locator("body").innerText(), /PRIVATE|0 \/ 7 reviewed|Workspace application: Not started/);
+  assert.equal(await page.getByRole("heading", { name: "Application evidence requires additional access", exact: true }).isVisible(), true);
+  assert.equal(await page.getByLabel("Legal company name", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Record reviewed evidence", exact: true }).count(), 0);
+  assert.deepEqual(await page.evaluate(() => window.statusWrites), []);
 });
 test("partner company badge reflects operating status without exposing private confirmation metadata", async () => {
   await open("view=partner&partner=1"); assert.equal(await page.locator(".partner-welcome .status").innerText(), "Active");

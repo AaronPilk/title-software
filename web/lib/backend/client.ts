@@ -76,13 +76,25 @@ export async function uploadRemoteAsset(
   file: File,
   companyId: string,
   documentId: string,
+  expected: { expectedUserId?: string; expectedWorkspaceId?: string } = {},
 ) {
-  if (!supabase || !workspaceId)
+  const requestWorkspaceId = workspaceId;
+  const { expectedUserId, expectedWorkspaceId } = expected;
+  const contextChanged = () => Object.assign(
+    new Error("Your account or workspace changed. Reopen Upload documents before sending these originals."),
+    { status: 403 },
+  );
+  if (expectedWorkspaceId !== undefined && expectedWorkspaceId !== requestWorkspaceId)
+    throw contextChanged();
+  if (!supabase || !requestWorkspaceId)
     throw new Error("Open a connected workspace first.");
   const { data } = await supabase.auth.getSession();
+  if (workspaceId !== requestWorkspaceId) throw contextChanged();
   if (!data.session) throw new Error("Sign in to upload.");
+  if (expectedUserId !== undefined && data.session.user.id !== expectedUserId)
+    throw contextChanged();
   const form = new FormData();
-  form.set("workspaceId", workspaceId);
+  form.set("workspaceId", requestWorkspaceId);
   form.set("id", id);
   form.set("companyId", companyId);
   form.set("documentId", documentId);

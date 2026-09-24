@@ -142,11 +142,13 @@ function Workspace() {
   const [revisionMessage, setRevisionMessage] = useState("");
   const [policyId, setPolicyId] = useState("T-2026-1048");
   const [companyId, setCompanyId] = useState("");
+  const [companyTab, setCompanyTab] = useState<"Overview" | "Documents">("Overview");
   const [docId, setDocId] = useState("");
   const [docTarget, setDocTarget] = useState<{ identity: string; page: number } | null>(null);
   const [newOrder, setNewOrder] = useState(false);
   const [newCompany, setNewCompany] = useState(false);
   const [uploadCompany, setUploadCompany] = useState<string | null>(null);
+  const [uploadDestination, setUploadDestination] = useState<"company" | "title">("company");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpDestination, setHelpDestination] = useState<Page | null>(null);
@@ -286,10 +288,15 @@ function Workspace() {
     setPolicyId(id);
     navigate("Policy workbench");
   }
-  function upload(id?: string) {
+  function upload(id?: string, destination: "company" | "title" = "company") {
     setUploadCompany(id || null);
+    setUploadDestination(destination);
     setCompanyId("");
     setUploadOpen(true);
+  }
+  function openCompany(id: string, tab: "Overview" | "Documents" = "Overview") {
+    setCompanyTab(tab);
+    setCompanyId(id);
   }
   const doc = s.documents.find((d) => d.id === docId);
   const helpPage = connection?.access.role === "partner" ? page : doc ? "Documents" : companyId ? "Companies" : orderId ? "Orders" : page;
@@ -316,7 +323,7 @@ function Workspace() {
   switch (page) {
     case "Overview":
       content = view === "agency" ? (
-        <AgencyOverview navigate={navigate} newCompany={() => setNewCompany(true)} openCompany={setCompanyId} />
+        <AgencyOverview navigate={navigate} newCompany={() => setNewCompany(true)} openCompany={openCompany} />
       ) : (
         <Overview
           title="Production overview"
@@ -324,7 +331,7 @@ function Workspace() {
           newOrder={() => setNewOrder(true)}
           newCompany={() => setNewCompany(true)}
           openOrder={setOrderId}
-          openCompany={setCompanyId}
+          openCompany={openCompany}
         />
       );
       break;
@@ -361,19 +368,19 @@ function Workspace() {
       break;
     case "Companies":
       content = (
-        <Companies onOpen={setCompanyId} onNew={() => setNewCompany(true)} />
+        <Companies onOpen={openCompany} onNew={() => setNewCompany(true)} />
       );
       break;
     case "Onboarding":
       content = (
         <OnboardingHub
-          onOpen={setCompanyId}
+          onOpen={openCompany}
           onNew={() => setNewCompany(true)}
         />
       );
       break;
     case "Documents":
-      content = <Documents onDoc={openDoc} onUpload={() => upload()} />;
+      content = <Documents onDoc={openDoc} onUpload={upload} />;
       break;
     case "Inbox":
       content = (
@@ -616,7 +623,7 @@ function Workspace() {
                     key={c.id}
                     onSelect={() => {
                       navigate("Companies");
-                      setCompanyId(c.id);
+                      openCompany(c.id);
                     }}
                   >
                     <Building2 />
@@ -703,6 +710,7 @@ function Workspace() {
         <CompanyDetail
           key={companyId}
           id={companyId}
+          initialTab={companyTab}
           onClose={() => setCompanyId("")}
           onDoc={openDoc}
           onUpload={upload}
@@ -721,7 +729,8 @@ function Workspace() {
         <UploadDocument
           key={uploadCompany || "general"}
           companyId={uploadCompany}
-          onClose={() => setUploadOpen(false)}
+          initialDestination={uploadDestination}
+          onClose={() => { setUploadOpen(false); if (uploadCompany) openCompany(uploadCompany, "Documents"); }}
         />
       )}
     </HelpUIContext.Provider>
