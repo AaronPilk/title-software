@@ -13,7 +13,7 @@ const userId = "11111111-1111-4111-8111-111111111111";
 const otherId = "22222222-2222-4222-8222-222222222222";
 before(async () => {
   const bundle = await build({ absWorkingDir: web, outfile: "daily-use-fixture.mjs", write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent",
-    define: { "process.env.NODE_ENV": '"production"' },
+    define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_SUPABASE_URL": '""', "process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": '""', "process.env.NEXT_PUBLIC_TITLE_HOSTED_PILOT": '""' },
     stdin: { resolveDir: web, loader: "tsx", contents: `
       import React,{useState} from 'react'; import {createRoot} from 'react-dom/client';
       import {Tasks,InboxView,Automations} from './components/title/operations';
@@ -127,13 +127,13 @@ for(const role of ['viewer','onboarding','finance'])test(`${role} does not recei
   await open('orders',`role=${role}&dialog=1`);assert.equal(await page.getByRole('button',{name:'New order',exact:true}).count(),0);assert.equal(await page.getByRole('dialog').count(),0);
 });
 test('restricted onboarding projections say access is needed instead of inventing empty evidence',async()=>{
-  await open('onboarding','role=operations&restricted=1');const text=await page.locator('body').innerText();assert.match(text,/Application evidence requires additional access/);assert.doesNotMatch(text,/0 \/ 7 reviewed|Not started|Save application|Record reviewed evidence/);assert.equal(await page.getByLabel('Legal company name',{exact:true}).count(),0);
+  await open('onboarding','role=operations&restricted=1');const text=await page.locator('body').innerText();assert.match(text,/Application access needed/);assert.doesNotMatch(text,/0 \/ 7 reviewed|Not started|Save application|Record reviewed evidence/);assert.equal(await page.getByLabel('Legal company name',{exact:true}).count(),0);
 });
 test('visible onboarding evidence remains read-only for an operations account',async()=>{
-  await open('onboarding','role=operations');await page.getByText('Company authority and launch review',{exact:true}).click();assert.equal(await page.getByLabel('Legal company name',{exact:true}).isDisabled(),true);assert.equal(await page.getByRole('button',{name:'Save application',exact:true}).isDisabled(),true);assert.equal(await page.getByRole('button',{name:'Record reviewed evidence',exact:true}).isDisabled(),true);assert.deepEqual(await page.evaluate(()=>window.dailyUpdates),[]);
+  await open('onboarding','role=operations');await page.getByText('Licensing, records & approval history',{exact:true}).click();assert.equal(await page.getByLabel('Legal company name',{exact:true}).isDisabled(),true);assert.equal(await page.getByRole('button',{name:'Save application',exact:true}).isDisabled(),true);assert.equal(await page.getByRole('button',{name:'Record reviewed evidence',exact:true}).isDisabled(),true);assert.deepEqual(await page.evaluate(()=>window.dailyUpdates),[]);
 });
 test('a company operator with restricted access retains editable application controls',async()=>{
-  await open('onboarding','role=onboarding');await page.getByText('Company authority and launch review',{exact:true}).click();assert.deepEqual(await page.evaluate(()=>window.dailyUpdates),[]);assert.equal(await page.getByLabel('Legal company name',{exact:true}).isEnabled(),true);assert.equal(await page.getByRole('button',{name:'Save application',exact:true}).isEnabled(),true);
+  await open('onboarding','role=onboarding');await page.getByText('Licensing, records & approval history',{exact:true}).click();assert.deepEqual(await page.evaluate(()=>window.dailyUpdates),[]);assert.equal(await page.getByLabel('Legal company name',{exact:true}).isEnabled(),true);assert.equal(await page.getByRole('button',{name:'Save application',exact:true}).isEnabled(),true);
 });
 test('financial and close periods use the Eastern month and accept periods outside the seed data',async()=>{
   await open('financials','', '2027-02-01T02:30:00Z');assert.equal(await page.getByLabel('Reporting month',{exact:true}).inputValue(),'2027-01');await page.getByLabel('Reporting month',{exact:true}).fill('2028-03');assert.equal(await page.getByLabel('Reporting month',{exact:true}).inputValue(),'2028-03');assert.doesNotMatch(await page.locator('body').innerText(),/issued demo policies|Illustrative demo figures/);

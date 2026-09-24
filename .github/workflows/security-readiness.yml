@@ -61,6 +61,7 @@ jobs:
           npm --prefix web run test:jv:portal
           npm --prefix web run test:company-status
           npm --prefix web run test:workspace:views
+          npm --prefix web run test:daily-use:ui
       - name: Package the Edge functions
         run: npm --prefix web run backend:build
       # This workflow deliberately has no cloud credentials or deployment job.
