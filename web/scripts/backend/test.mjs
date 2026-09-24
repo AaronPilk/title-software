@@ -15,7 +15,7 @@ try {
     platform: "node",
     target: "es2022",
   });
-  execFileSync(process.execPath, ["--test", "tests/backend.test.mjs", "tests/account-security.test.mjs", "tests/recovery-intent.test.mjs", "tests/assistant-context.test.mjs", "tests/connected-workflow-actions.test.mjs", "tests/connected-workflow-projection.test.mjs", "tests/orchestration-backend.test.mjs"], {
+  execFileSync(process.execPath, ["--test", "tests/backend.test.mjs", "tests/account-security.test.mjs", "tests/recovery-intent.test.mjs", "tests/assistant-context.test.mjs", "tests/connected-workflow-actions.test.mjs", "tests/connected-workflow-projection.test.mjs", "tests/orchestration-backend.test.mjs", "tests/production-access.test.mjs"], {
     stdio: "inherit",
   });
 } finally {

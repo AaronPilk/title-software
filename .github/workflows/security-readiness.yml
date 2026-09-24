@@ -62,6 +62,12 @@ jobs:
           npm --prefix web run test:company-status
           npm --prefix web run test:workspace:views
           npm --prefix web run test:daily-use:ui
+      - name: Production email and document boundaries
+        run: |
+          npm --prefix web run test:missive
+          npm --prefix web run test:missive:sql
+          npm --prefix web run test:missive:ui
+          npm --prefix web run test:document-allocation
       - name: Package the Edge functions
         run: npm --prefix web run backend:build
       # This workflow deliberately has no cloud credentials or deployment job.

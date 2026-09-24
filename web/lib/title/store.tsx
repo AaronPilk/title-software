@@ -108,6 +108,12 @@ type Store = {
   };
 };
 const Context = createContext<Store | null>(null);
+/** Presentation only: retain the authenticated connection and canonical update
+ * handlers while showing the current workspace view's subset of records. */
+export function WorkspacePresentation({ state, children }: { state: Workspace; children: ReactNode }) {
+  const store = useWorkspace();
+  return <Context.Provider value={{ ...store, s: state }}>{children}</Context.Provider>;
+}
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [demo, setDemo] = useState(!backendConfigured && !hostedPilot);
   if (hostedPilot && !backendConfigured)

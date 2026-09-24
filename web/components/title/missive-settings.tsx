@@ -10,11 +10,12 @@ import type { MissiveCheck, MissiveSetup } from "@/lib/backend/missive";
 import type { MissivePage, MissivePreview } from "@/lib/backend/missive-import";
 import { MissiveCredentialSettings } from "./missive-credential-settings";
 
-import type { MissiveRouting } from "@/lib/backend/missive-routing";
+import type { MissiveRoute, MissiveRouting } from "@/lib/backend/missive-routing";
 
 type Setup = MissiveSetup & { routing: MissiveRouting; attachmentDownloadEnabled?: boolean };
 type MissiveEvent = { id: string; messageId: string; conversationId: string; subject: string; receivedAt: string; status: "queued" | "completed"; mappingVersion: number; companyId: string | null; organizationId: string; teamId: string; candidateRouteIds: string[]; originallyShared: boolean };
 type Events = { events: MissiveEvent[]; webhookConfigured: boolean; nextOffset: number | null };
+type ProductionAccessReview = { routeId: string; revision: number; companyName: string; teamName: string; productionOnly: boolean };
 class StaleMissiveResponse extends Error {}
 export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
   const { s, connection } = useWorkspace();
@@ -34,6 +35,19 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
   const [sourceMailId, setSourceMailId] = useState("");
   const [events, setEvents] = useState<Events | null>(null);
   const [mappingId, setMappingId] = useState("");
+  const [productionReview, setProductionReview] = useState<ProductionAccessReview | null>(null);
+  const [productionAcknowledged, setProductionAcknowledged] = useState(false);
+  const access = connection?.access;
+  const canManageProduction = access?.role === "owner" || (access?.role === "admin" && access.allCompanies);
+  const companyName = (route: MissiveRoute) => s.companies.find(c => c.id === route.companyId)?.name || route.companyId;
+  const sharedInbox = (route: MissiveRoute) => !!setup?.routing.mappings.some(other => other.id !== route.id &&
+    other.organizationId === route.organizationId && other.teamId === route.teamId && other.companyId !== route.companyId);
+  const productionRoute = setup?.routing.mappings.find(route => route.id === productionReview?.routeId);
+  const productionReviewCurrent = !!productionReview && !!productionRoute && canManageProduction &&
+    productionReview.revision === setup?.routing.revision && productionReview.companyName === companyName(productionRoute) &&
+    productionReview.teamName === productionRoute.teamName && (productionReview.productionOnly
+      ? productionRoute.enabled && !sharedInbox(productionRoute) && productionRoute.productionOnly !== true
+      : productionRoute.productionOnly === true);
   const activeRoutes = setup?.routing.mappings.filter(m => m.enabled) || [];
   const selectedId = mappingId || (activeRoutes.length === 1 ? activeRoutes[0].id : "");
   const mapping = activeRoutes.find(m => m.id === selectedId);
@@ -77,6 +91,7 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
   function clearReads() {
     setCheck(null); resetReview(); setConversations(null); setMessages(null); setEvents(null);
     setSourceMailId(""); setConversationId(""); setNotice("");
+    setProductionReview(null); setProductionAcknowledged(false);
   }
   function credentialBusyChanged(next: boolean) {
     credentialOperation.current = next;
@@ -99,6 +114,34 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
     resetReview(); setMessages(null); setConversationId("");
     setConversations(await request<MissivePage>("conversations", { until }));
   }
+  function reviewProductionAccess(route: MissiveRoute) {
+    if (!canManageProduction || !setup || busy) return;
+    setProductionAcknowledged(false); setError(""); setNotice("");
+    setProductionReview({ routeId: route.id, revision: setup.routing.revision, companyName: companyName(route), teamName: route.teamName, productionOnly: route.productionOnly !== true });
+  }
+  async function saveProductionAccess() {
+    if (!productionReviewCurrent || !productionReview || !access || (productionReview.productionOnly && !productionAcknowledged)) return;
+    const reviewed = productionReview;
+    await run(async current => {
+      try {
+        const result = await guarded(backendRequest<{ routing: MissiveRouting }>("/integrations/missive/production-access", {
+          workspaceId, expectedRoutingRevision: reviewed.revision, mappingId: reviewed.routeId,
+          productionOnly: reviewed.productionOnly, acknowledged: true,
+        }, "POST", 30000, workspaceId, access.userId, true));
+        setSetup(previous => previous ? { ...previous, routing: result.routing } : previous);
+        clearReads();
+        setNotice(reviewed.productionOnly ? "Production inbox access approved. Assigned Production staff can read this inbox." : "Production inbox access removed. Assigned Production staff can no longer read this inbox.");
+      } catch (reason) {
+        if (!current() || reason instanceof StaleMissiveResponse) return;
+        // A timeout may follow a committed change. Load current routing and require
+        // a new review instead of retrying the same access grant automatically.
+        setProductionReview(null); setProductionAcknowledged(false); setSetup(null);
+        try { setSetup(await guarded(backendRequest<Setup>("/integrations/missive", undefined, "GET", 30000, workspaceId, access.userId, true))); }
+        catch { if (current()) setError("Production inbox access could not be confirmed. Refresh connection settings before reviewing it again."); return; }
+        if (current()) setError(reason instanceof Error ? `${reason.message} Current routes are loaded; review access again before saving.` : "Production inbox access could not be saved. Current routes are loaded; review access again.");
+      }
+    });
+  }
   return (
     <div className={`backend-settings-section ${styles.root}`}>
       <h3><Mail size={18} /> Missive</h3>
@@ -107,7 +150,7 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
       {setup?.status === "workspace_required" && <p className="form-note">Connect this workspace to its Missive account above.</p>}
       {setup?.status === "token_required" && <p className="form-note">Connect a working Missive API token above to review your inboxes.</p>}
       <Button variant="outline" disabled={busy} onClick={() => void run(async () => {
-        setCheck(null); resetReview(); setConversations(null); setMessages(null); setEvents(null);
+        setCheck(null); resetReview(); setConversations(null); setMessages(null); setEvents(null); setProductionReview(null); setProductionAcknowledged(false);
         const current = await guarded(backendRequest<Setup>("/integrations/missive")); setSetup(current);
         if (current.status === "ready") setCheck(await request<MissiveCheck>("check"));
       })}><RefreshCw size={16} /> {busy ? "Working…" : "Check Missive connection"}</Button>
@@ -140,8 +183,15 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
         }}><option value="">Choose the company receiving this work</option>{activeRoutes.map(m => <option key={m.id} value={m.id}>{s.companies.find(c => c.id === m.companyId)?.name || m.companyId} · {m.teamName}</option>)}</select></label>
         <details className={styles.manage}><summary>Manage {setup.routing.mappings.length} company inbox {setup.routing.mappings.length === 1 ? "route" : "routes"}</summary><div className={styles.routeList}>
         {setup.routing.mappings.map(route => <div key={route.id} className={styles.routeRow}>
-          <div><strong>{s.companies.find(c => c.id === route.companyId)?.name || route.companyId}</strong><span>{route.teamName} · {route.enabled ? "Active" : "Paused"}</span></div>
-          <Button variant="ghost" aria-label={`${route.enabled ? "Pause" : "Enable"} ${s.companies.find(c => c.id === route.companyId)?.name || route.companyId} · ${route.teamName}`} disabled={busy} onClick={() => void run(async () => {
+          <div><strong>{companyName(route)}</strong><span>{route.teamName} · {route.enabled ? "Active" : "Paused"}</span>
+            <span>{route.productionOnly ? "Production staff access approved" : "General company inbox · Production staff access off"}</span>
+            {canManageProduction && <Button variant="ghost" aria-label={`${route.productionOnly ? "Remove" : "Review"} Production access for ${companyName(route)} · ${route.teamName}`}
+              disabled={busy || (!route.productionOnly && (!route.enabled || sharedInbox(route)))} onClick={() => reviewProductionAccess(route)}>
+              {route.productionOnly ? "Remove Production access" : "Review Production access"}
+            </Button>}
+            {canManageProduction && !route.productionOnly && sharedInbox(route) && <span>Shared inboxes cannot be approved for Production staff, including when another company route is paused.</span>}
+          </div>
+          <Button variant="ghost" aria-label={`${route.enabled ? "Pause" : "Enable"} ${companyName(route)} · ${route.teamName}`} disabled={busy} onClick={() => void run(async () => {
             const result = await request<{ routing: MissiveRouting }>("mapping", { mappingId: route.id, teamId: route.teamId, companyId: route.companyId, enabled: !route.enabled });
             setSetup(current => current ? { ...current, routing: result.routing } : current);
             setMappingId(""); resetReview(); setConversations(null); setMessages(null); setSourceMailId(""); setEvents(null);
@@ -149,6 +199,19 @@ export function MissiveSettings({ workspaceId }: { workspaceId: string }) {
           })}>{route.enabled ? "Pause" : "Enable"}</Button>
         </div>)}
         </div></details>
+        {productionReview && canManageProduction && <section aria-label="Production inbox access review">
+          <h4>{productionReview.productionOnly ? "Approve Production inbox access" : "Remove Production inbox access"}</h4>
+          <p><strong>{productionReview.companyName}</strong> · {productionReview.teamName}</p>
+          {productionReview.productionOnly ? <>
+            <p>Assigned Production staff will be able to read every incoming email in this entire inbox, including message bodies and attachment names. Approve only an inbox dedicated to title production. Agency applications, ownership details, financial records and other private company mail must use a separate inbox.</p>
+            <label className="form-note"><input type="checkbox" checked={productionAcknowledged && productionReviewCurrent} disabled={busy || !productionReviewCurrent}
+              onChange={event => setProductionAcknowledged(event.target.checked)} /> I confirm this entire inbox contains only production mail and assigned Production staff may read it.</label>
+          </> : <p>Assigned Production staff will lose access to this inbox. Organization administrators keep their existing access.</p>}
+          {!productionReviewCurrent && <p role="status" className="form-note">The reviewed route changed. Cancel this review and check the current inbox routes.</p>}
+          <div className="button-row"><Button disabled={busy || !productionReviewCurrent || (productionReview.productionOnly && !productionAcknowledged)} onClick={() => void saveProductionAccess()}>
+            {productionReview.productionOnly ? "Approve Production access" : "Confirm removal"}
+          </Button><Button variant="ghost" disabled={busy} onClick={() => { setProductionReview(null); setProductionAcknowledged(false); }}>Cancel access review</Button></div>
+        </section>}
         <Button variant="ghost" disabled={busy} onClick={() => void run(async () => setEvents(await request<Events>("events")))}>Refresh incoming events</Button>
       </section>}
       {mapping && <div>

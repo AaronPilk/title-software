@@ -1880,6 +1880,7 @@ export function validateBusinessMutation(before: Workspace, after: Workspace) {
           id: id("task"),
           companyId: c.id,
           title: "Review changed financial interests and authority",
+          scope: "agency",
           owner: "John",
           due: today(),
           priority: "High",

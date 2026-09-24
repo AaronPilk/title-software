@@ -1,6 +1,6 @@
 # Reviewed Missive connection and import
 
-Updated September 14, 2026. **Multiple-company routing and encrypted workspace credential settings are deployed and the five-round combined suite passed.** The verified token still needs saving through owner setup, followed by a signed-in live import acceptance case. See the [requirements implementation guide](REQUIREMENTS_IMPLEMENTATION.md) for release versions and test evidence.
+Updated September 24, 2026. Multiple-company routing and encrypted workspace credentials are implemented. The pilot has a saved, verified credential. Production → Inbox now includes read-only live email and a separate Saved requests tab. A saved credential still needs reviewed company routes before mail is shown. See the [Production access release notes](testing/production-access-inbox-2026-09-24.md) for verification and hosted release status.
 
 ## The token issue is resolved
 
@@ -19,7 +19,7 @@ In the deployed pilot:
 3. The server checks directory access before saving the token encrypted in Supabase Vault for that workspace. Status responses contain connection metadata, not the secret. Workspace JSON, backups and audit detail do not contain the token.
 4. Review and enable the intended inbox/company routes. Replacing or disconnecting the credential pauses existing routes and invalidates in-flight reviews; reapprove the destinations before resuming intake.
 
-The credential settings, API and migration are deployed. The actual token has not been installed: the connected SQL tool rejects data writes, and the local CLI lacks access to this project. Use the owner setup form above. Legacy server-secret configuration remains a compatibility path for the designated owner workspace. An explicit workspace disconnection must not silently fall back to that global credential. Secrets do not belong in frontend environment variables, committed files or this guide. [Supabase Vault](https://supabase.com/docs/guides/database/vault), [Edge Function secrets](https://supabase.com/docs/guides/functions/secrets)
+The pilot credential was saved and verified September 23. Legacy server-secret configuration remains a compatibility path for the designated owner workspace. An explicit workspace disconnection must not silently fall back to that global credential. Secrets do not belong in frontend environment variables, committed files or this guide. [Supabase Vault](https://supabase.com/docs/guides/database/vault), [Edge Function secrets](https://supabase.com/docs/guides/functions/secrets)
 
 Company permissions are assigned separately from provider connection setup. Giving someone an app login does not automatically authorize every company, and connecting Missive does not send account invitations or messages.
 
@@ -59,7 +59,7 @@ Use `https://<project-ref>.supabase.co/functions/v1/title-missive-events` as the
 
 ## Server enforcement
 
-Interactive integration endpoints require current organization-wide administrator access. Provider reads use fixed HTTPS API destinations, no redirects, bounded response sizes/time and sanitized errors. Directory pagination completeness is reported. Preview and import re-fetch scope and compare the reviewed fingerprint; stale reviews must be repeated.
+Connection management and reviewed import endpoints require current organization-wide administrator access. The separate live feed permits owners, administrators and operations accounts within their assigned companies; operations additionally requires explicit approval that the entire inbox contains only Production mail. Provider reads use fixed HTTPS API destinations, no redirects, bounded response sizes/time and sanitized errors. Directory pagination completeness is reported. Preview and import re-fetch scope and compare the reviewed fingerprint; stale reviews must be repeated.
 
 Atomic database transactions recheck membership, workspace revision, selected route, routing revision and company before saving. Request receipts bind input and actor; imports and queue completion either commit together or roll back. The same provider message cannot silently move to a different company/file. Attachment commits retain immutable metadata and private asset identity. Credential rotation/disconnection pauses routes so work started with an earlier connection cannot proceed under an unreviewed destination.
 
@@ -73,7 +73,15 @@ An older backup can intentionally remove an imported record. A fresh reviewed im
 
 Run `npm run test:missive` and `npm run test:missive:sql` from `web/`, plus the repository's backend/domain/browser checks. The disposable SQL runner requires local PostgreSQL tools and removes its synthetic database afterward. Current OCR has its separate real-raster browser suite, `npm run test:ocr`.
 
-Still unimplemented: scheduled mailbox polling, automatic mail classification/structured field extraction, provider-side notes/labels/reply drafts, outbound sending, OneDrive automation, accounting-provider connections and actual SoftPro reads/writes. The signed event receiver and reviewed import are implemented capabilities; they must not be described as autonomous title processing or a completed vendor integration.
+The live feed refreshes the selected inbox once a minute while its browser tab is visible; this is not a background mailbox synchronization service. Automatic mail classification, provider-side notes/labels/reply drafts, outbound sending, OneDrive automation and actual SoftPro reads/writes remain unavailable. Accounting and signature connectors have their own account-setup requirements. The signed event receiver and reviewed import must not be described as autonomous title processing.
+
+## Read-only live email
+
+In Production → Inbox, an administrator can review exact company/inbox matches retained from the earlier Missive company import and connect the reviewed list. Name similarity never creates a route. Missing, duplicated or shared inbox attribution requires manual review. This does not create title files, import attachments or send email.
+
+General company inboxes are available to permitted owners/administrators. Before allowing operations staff to read a complete inbox, an administrator must explicitly approve its Production-only content in Missive Settings. Mixed agency/Production inboxes should remain administrator-only; use reviewed requests tied to title files for staff. Shared inboxes serving multiple companies, including paused routes, are excluded from the live feed.
+
+The feed displays incoming message text and attachment names. It never marks messages read, moves/archives threads, creates provider drafts, sends replies or downloads attachment bytes. Message HTML is converted to plain text without remote image loads. Route, membership and credential versions are rechecked after provider reads; changed access clears the view. Originals and reviewed request imports remain separate workflows.
 
 ## Connection and review recovery
 

@@ -426,7 +426,7 @@ export function InboxView({
     </>
   );
 }
-export function Tasks() {
+export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
   const { s, update: save, connection } = useWorkspace();
   const canEdit = canManageTasks(connection);
   const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
@@ -495,6 +495,7 @@ export function Tasks() {
             priority: "Normal",
             done: false,
             createdAt: new Date().toISOString(),
+            ...(scope ? { scope } : {}),
           }),
         "Task created",
         title,

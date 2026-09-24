@@ -2,6 +2,7 @@ import { projectPartnerSummary } from "./partner-summary";
 import { validateCompanyIntake, companyProfileMissing, companyCandidateKey } from "../title/company-intake";
 import { buildOperatingConfirmation, companyDisplayStage } from "../title/company-operating-status";
 import { normalizeMemberContacts } from "../title/member-directory";
+import { productionOnlyRole, productionCompany, productionDocument, productionMessage, productionTask } from "../title/production-access";
 import type { Workspace, Company, Order, VaultDoc } from "../title/model";
 import { createSeed } from "../title/model";
 import * as B from "../title/business";
@@ -681,11 +682,18 @@ function applyEdit(
   if (edit.table === "tasks") {
     const current = s.tasks.find(r => rowId(r) === edit.id)!;
     permit(a, "tasks");
-    keys(v, ["id", "title", "companyId", "owner", "assigneeId", "due", "done", "priority", "createdAt"]);
+    keys(v, ["id", "scope", "title", "companyId", "owner", "assigneeId", "due", "done", "priority", "createdAt"]);
+    if (has(v, "scope") && !isOneOf(v.scope, ["agency", "production"])) fail("Choose an agency or production task.");
+    if (productionOnlyRole(a.role)) {
+      if (v.scope === "agency") fail("Your account can only manage production tasks.", 403);
+      if (edit.insert) v.scope = "production";
+    }
+    if (!edit.insert && has(v, "scope") && current.scope !== v.scope && !admin(a))
+      fail("An administrator must classify an existing task.", 403);
     validateAssignment(v, current, v.companyId || current?.companyId, a, "task");
     if (has(v, "createdAt") && !edit.insert) fail("Task creation time cannot be changed.");
     if (has(v, "createdAt") && typeof v.createdAt !== "string") fail("Invalid task creation time.");
-    const n = { ...current, ...v };
+    const n = { ...current, ...v, id: edit.id };
     nonempty(n.title, "task title");
     if (
       !isCalendarDay(n.due) ||
@@ -893,6 +901,8 @@ function applyEdit(
   }
   if (edit.table === "inbox") {
     permit(a, "production");
+    if (productionOnlyRole(a.role) && !productionMessage(s, { ...current, ...v } as Workspace["inbox"][number]))
+      fail("Production messages must belong to an available title file.", 403);
     if (edit.insert) {
       keys(v, [
         "id",
@@ -918,7 +928,7 @@ function applyEdit(
         s.inbox.some((m) => m.sourceReference === v.sourceReference)
       )
         fail("This source message was already captured.");
-      list.unshift({ ...v, status: "New" });
+      list.unshift({ ...v, id: edit.id, status: "New" });
     } else {
       keys(v, [
         "companyId",
@@ -943,6 +953,8 @@ function applyEdit(
   if (edit.table === "documents") {
     const current = s.documents.find(r => rowId(r) === edit.id)!;
     permit(a, a.role === "onboarding" ? "company" : "production");
+    if (productionOnlyRole(a.role) && !productionDocument(s, { ...current, ...v } as VaultDoc))
+      fail("Production documents must belong to an available title file.", 403);
     if (edit.insert) {
       nonempty(v.name, "document name");
       if (!isOneOf(v.visibility, ["Internal", "Restricted"]))
@@ -1437,49 +1449,87 @@ export function projectWorkspace(source: Workspace, a: Access): Workspace {
     result.partnerSummary = projectPartnerSummary(source, a);
     return result;
   }
+  const originalRecords = new Map(recordTables.map(table => [table, collection(s, table)]));
   for (const table of recordTables) {
     replaceCollection(s, table, collection(s, table).filter((r) => {
       const id = companyOf(source, table, r);
       return id ? canCompany(a, id) : admin(a);
     }));
   }
+  const hidden = new Set<string>();
+  if (productionOnlyRole(a.role)) {
+    s.companies = s.companies.map(productionCompany);
+    s.documents = s.documents.filter(document => productionDocument(s, document));
+    s.inbox = s.inbox.filter(message => productionMessage(s, message));
+    s.tasks = s.tasks.filter(task => productionTask(s, task));
+    s.business!.onboarding = [];
+    s.business!.credentials = [];
+    s.business!.closes = [];
+    s.business!.handoffs = s.business!.handoffs.filter(handoff => handoff.kind !== "Application packet" && !!handoff.orderId);
+    s.ownershipHistory = [];
+    s.statementDeliveries = [];
+    s.materials = { version: 1, items: [], publications: [] };
+    s.expansionStates = [];
+    // Source snapshots and dependent production records must not carry hidden
+    // agency evidence back through a different collection or asset endpoint.
+    for (const table of recordTables.filter(table => table !== "companies")) {
+      const visibleIds = new Set(collection(s, table).map(rowId));
+      for (const row of originalRecords.get(table)!)
+        if (row.id && !visibleIds.has(rowId(row))) hidden.add(row.id);
+    }
+  }
   if (!a.restricted) {
-    const hidden = new Set(
-      source.documents
+    for (const id of source.documents
         .filter((d) => d.visibility === "Restricted")
-        .flatMap((d) => [d.id, ...(d.orderId ? [d.orderId] : [])]),
-    );
+        .flatMap((d) => [d.id, ...(d.orderId ? [d.orderId] : [])])) hidden.add(id);
     s.documents = s.documents.filter((d) => !hidden.has(d.id));
     s.business!.onboarding = [];
     s.business!.handoffs=s.business!.handoffs.filter(h=>h.kind!=="Application packet");
-    // Evidence snapshots contain source text. Withhold the dependent record as well.
-    for (let pass = 0; pass < recordTables.length; pass++)
+  }
+  if (hidden.size) {
+    const integrationTables = recordTables.filter((t): t is `orchestration.${Exclude<keyof OR.OrchestrationState, "version">}` => t.startsWith("orchestration."));
+    const hiddenCompanies = new Set<string>();
+    // Repeat until both evidence references and complete integration histories
+    // are closed over the hidden records. Each pass only removes records.
+    let changed = true;
+    while (changed) {
+      changed = false;
       for (const table of recordTables.filter((t) => t !== "companies")) {
         replaceCollection(s, table, collection(s, table).filter((r) => {
           if (referencesHidden(r, hidden)) {
             hidden.add(rowId(r));
+            changed = true;
             return false;
           }
           return true;
         }));
       }
-    // Revision histories must remain complete within a company. If restricted
-    // evidence withholds one integration record, withhold that company's ledger
-    // instead of exposing a broken sequence or a misleading older profile.
-    const integrationTables = recordTables.filter((t): t is `orchestration.${Exclude<keyof OR.OrchestrationState, "version">}` => t.startsWith("orchestration."));
-    const hiddenCompanies = new Set<string>();
-    for (const table of integrationTables)
-      for (const row of collection(s, table))
-        if (referencesHidden(row, hidden)) hiddenCompanies.add(row.companyId);
-    for (const table of integrationTables) {
-      const key = table.split(".")[1] as Exclude<keyof OR.OrchestrationState, "version">;
-      const original = source.orchestration?.[key] || [];
-      const visibleIds = new Set(collection(s, table).map(rowId));
-      for (const row of original)
-        if (canCompany(a, row.companyId) && !visibleIds.has(row.id)) hiddenCompanies.add(row.companyId);
-    }
-    for (const table of integrationTables) {
-      replaceCollection(s, table, collection(s, table).filter(row => !hiddenCompanies.has(row.companyId)));
+      // A partial ledger could expose a misleading old profile or invalid
+      // revision sequence. Withhold the company's complete integration history.
+      for (const table of integrationTables) {
+        const visibleIds = new Set(collection(s, table).map(rowId));
+        for (const row of originalRecords.get(table)!)
+          if (row.companyId && canCompany(a, row.companyId) && !visibleIds.has(rowId(row))) hiddenCompanies.add(row.companyId);
+      }
+      for (const table of integrationTables) {
+        replaceCollection(s, table, collection(s, table).filter(row => {
+          if (!hiddenCompanies.has(row.companyId)) return true;
+          hidden.add(row.id);
+          changed = true;
+          return false;
+        }));
+      }
+      // Removing another file's private evidence can remove this file's safe
+      // proposal too. Never leave a file looking ready while its unresolved
+      // external-change blocker exists only in the canonical server state.
+      for (const proposal of source.orchestration?.proposals || []) {
+        if (hiddenCompanies.has(proposal.companyId) &&
+            ["Pending review", "Exception", "Approved"].includes(proposal.status) &&
+            !proposal.outcome && !hidden.has(proposal.orderId)) {
+          hidden.add(proposal.orderId);
+          changed = true;
+        }
+      }
     }
   }
   if (!admin(a) && a.role !== "finance") {
@@ -1496,6 +1546,8 @@ export function projectWorkspace(source: Workspace, a: Access): Workspace {
     s.approvedReports = [];
     s.importTemplates = [];
   }
+  // Dependency pruning may have removed the file behind a generated task.
+  if (productionOnlyRole(a.role)) s.tasks = s.tasks.filter(task => productionTask(s, task));
   if (!workspaceAdmin(a)) s.rules = [];
   return s;
 }

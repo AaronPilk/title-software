@@ -153,6 +153,8 @@ export type VaultDoc = {
   mime?: string;
 };
 export type Task = {
+  /** Explicit work domain. Unclassified legacy tasks are withheld from production-only accounts. */
+  scope?: "agency" | "production";
   id: string;
   title: string;
   companyId: string;
@@ -696,6 +698,7 @@ export function createSeed(): Workspace {
       tasks: [
         {
           id: "task1",
+          scope: "production",
           title: "Review final-policy changes",
           companyId: "c1",
           owner: "Tyler",
@@ -705,6 +708,7 @@ export function createSeed(): Workspace {
         },
         {
           id: "task2",
+          scope: "production",
           title: "Request a clearer recording stamp",
           companyId: "c2",
           owner: "Tyler",
@@ -714,6 +718,7 @@ export function createSeed(): Workspace {
         },
         {
           id: "task3",
+          scope: "agency",
           title: "Complete licensing review",
           companyId: "c3",
           owner: "John",
@@ -723,6 +728,7 @@ export function createSeed(): Workspace {
         },
         {
           id: "task4",
+          scope: "agency",
           title: "Collect formation documents",
           companyId: "c4",
           owner: "Stephenie",
@@ -732,6 +738,7 @@ export function createSeed(): Workspace {
         },
         {
           id: "task5",
+          scope: "agency",
           title: "Prepare September reconciliation",
           companyId: "c1",
           owner: "John",

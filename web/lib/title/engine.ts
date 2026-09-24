@@ -30,6 +30,7 @@ export function executeRules(d: Workspace, ids: string[]) {
           if (!d.tasks.some((t) => t.id === key)) {
             d.tasks.unshift({
               id: key,
+              scope: "agency",
               title,
               companyId: c.id,
               owner: onboardingOwner(c.steps.findIndex((x) => !x)),
@@ -48,6 +49,7 @@ export function executeRules(d: Workspace, ids: string[]) {
             d.tasks.unshift({
               id: key,
               title: `Review rejected order ${o.id}`,
+              scope: "production",
               companyId: o.companyId,
               owner: "John",
               due: nextWeekday(businessDay()),
@@ -72,6 +74,7 @@ export function executeRules(d: Workspace, ids: string[]) {
           d.tasks.unshift({
             id: key,
             title: `Review ${record.state} ${record.underwriter || record.kind} authority`,
+            scope: "agency",
             companyId: record.companyId,
             owner: record.reviewer || "John",
             due,

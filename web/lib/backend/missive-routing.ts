@@ -1,7 +1,7 @@
 import { ApiError } from './workspace';
 import type { MissiveMapping } from './missive-import';
 
-export type MissiveRoute = MissiveMapping & { id: string; enabled: boolean };
+export type MissiveRoute = MissiveMapping & { id: string; enabled: boolean; productionOnly?: boolean };
 export type MissiveRouting = { schemaVersion: 2; revision: number; mappings: MissiveRoute[] };
 const object = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const validId = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(v);
@@ -20,11 +20,12 @@ export function missiveRouting(config: unknown): MissiveRouting {
     const m = object(value);
     if (![m.organizationId, m.teamId, m.companyId].every(validId) || !Number.isSafeInteger(m.version) || Number(m.version) < 1 || Number(m.version) > Number(revision) ||
       typeof m.teamName !== 'string' || m.teamName.length > 500 || typeof m.approvedAt !== 'string' || !Number.isFinite(Date.parse(m.approvedAt)) ||
-      typeof m.approvedBy !== 'string' || !m.approvedBy.trim() || m.approvedBy.length > 320 || (!legacy && typeof m.enabled !== 'boolean')) invalid();
+      typeof m.approvedBy !== 'string' || !m.approvedBy.trim() || m.approvedBy.length > 320 || (!legacy && typeof m.enabled !== 'boolean') ||
+      (m.productionOnly !== undefined && typeof m.productionOnly !== 'boolean')) invalid();
     const mapping = m as MissiveMapping;
     const id = missiveRouteId(mapping);
     if (!legacy && m.id !== id) invalid();
-    return { ...mapping, id, enabled: legacy || m.enabled === true } as MissiveRoute;
+    return { ...mapping, id, enabled: legacy || m.enabled === true, productionOnly: m.productionOnly === true } as MissiveRoute;
   });
   if (new Set(mappings.map(m => m.id)).size !== mappings.length) invalid();
   return { schemaVersion: 2, revision: Number(revision), mappings };

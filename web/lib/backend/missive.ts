@@ -51,6 +51,14 @@ export function missiveReader(
     throw new ApiError(setup.status === "workspace_required"
       ? "Assign the Missive connection to this workspace before checking it."
       : "Connect your Missive account in Settings first.", 409);
+  return missiveReadTransport(config, workspaceId, fetcher);
+}
+
+/** Fixed-origin GET transport. Call only after an authenticated route capability
+ * has been checked; this function itself does not grant mailbox access. */
+export function missiveReadTransport(config: MissiveConfig, workspaceId: string, fetcher: typeof fetch = fetch) {
+  if (config.workspaceId !== workspaceId || !config.token?.trim())
+    throw new ApiError("Connect your Missive account in Settings first.", 409);
   const token = config.token!.trim();
   if (!/^[\x21-\x7e]{1,4096}$/.test(token))
     throw new ApiError("The saved Missive token has an invalid format. Replace it in the server's secret settings.", 409);

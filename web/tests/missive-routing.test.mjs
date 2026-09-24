@@ -8,7 +8,7 @@ const routing={schemaVersion:2,revision:8,mappings:[route('company-a'),route('co
 test('legacy mapping becomes one stable route without changing approval or source version',()=>{
  const input={mapping:approved},copy=structuredClone(input),r=missiveRouting(input);
  assert.deepEqual(input,copy);assert.equal(r.revision,7);assert.equal(r.mappings.length,1);
- assert.deepEqual(r.mappings[0],{...approved,id:missiveRouteId(approved),enabled:true});
+ assert.deepEqual(r.mappings[0],{...approved,id:missiveRouteId(approved),enabled:true,productionOnly:false});
  assert.equal(selectMissiveRoute(r,7,r.mappings[0].id).companyId,'company-a');
 });
 test('empty integration supports first route while malformed saved versions fail closed',()=>{
@@ -34,6 +34,11 @@ test('changing any route invalidates an existing preview even when selected rout
 test('paused, malformed and impersonated route identities are rejected',()=>{
  assert.throws(()=>selectMissiveRoute({...routing,mappings:[{...routing.mappings[0],enabled:false}]},8,routing.mappings[0].id));
  for(const change of [{id:'route:org-a:team-a:company-b'},{teamId:'https://elsewhere.test'},{enabled:'true'},{version:9},{approvedAt:'invalid'}]) assert.throws(()=>missiveRouting({...routing,mappings:[{...routing.mappings[0],...change}]}));
+});
+test('production-only inbox access must be explicit boolean approval and defaults to false',()=>{
+ assert.equal(missiveRouting({mapping:approved}).mappings[0].productionOnly,false);
+ for(const productionOnly of [true,false]) assert.equal(missiveRouting({...routing,mappings:[{...routing.mappings[0],productionOnly}]}).mappings[0].productionOnly,productionOnly);
+ for(const productionOnly of ['true','false',0,1,null,{},[]]) assert.throws(()=>missiveRouting({...routing,mappings:[{...routing.mappings[0],productionOnly}]}));
 });
 test('events expose only exact organization and inbox matches',()=>{
  const r={...routing,mappings:[...routing.mappings,route('company-c',{teamId:'team-b'}),route('company-d',{organizationId:'org-b'}),{...route('company-e'),enabled:false}]};

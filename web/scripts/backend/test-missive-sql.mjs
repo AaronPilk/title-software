@@ -187,6 +187,8 @@ try {
   console.log(sql(fs.readFileSync(path.join(root, "web/tests/missive-credentials-sql.test.sql"), "utf8")).trim());
   sql(fs.readFileSync(path.join(root, "supabase/migrations/20260914222408_title_preserve_shared_inbox_context.sql"), "utf8"));
   console.log(sql(fs.readFileSync(path.join(root, "web/tests/missive-queue-pause.test.sql"), "utf8")).trim());
+  sql(fs.readFileSync(path.join(root, "supabase/migrations/20260924195755_title_missive_readonly_feed.sql"), "utf8"));
+  console.log(sql(fs.readFileSync(path.join(root, "web/tests/missive-feed-sql.test.sql"), "utf8")).trim());
 
 
 } finally {

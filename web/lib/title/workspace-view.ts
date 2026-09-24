@@ -1,4 +1,5 @@
 import type { Page } from "./model";
+import { productionOnlyRole } from "./production-access";
 
 export type WorkspaceView = "agency" | "production";
 export type ViewIdentity = { userId: string; email: string; role: string; workspaceId: string };
@@ -15,6 +16,7 @@ const slug = (page: Page) => page.toLowerCase().replaceAll(" ", "-");
 // An explicit view choice takes precedence and is stored per workspace/account.
 export function defaultWorkspaceView(identity?: ViewIdentity, demoUser = "Stephenie"): WorkspaceView {
   if (!identity) return demoUser === "Tyler" ? "production" : "agency";
+  if (productionOnlyRole(identity.role)) return "production";
   const email = identity.email.trim().toLowerCase();
   if (["s.tocado@rtocado.com", "john@ballantynetitle.com"].includes(email)) return "agency";
   if (email === "tyler@ballantyne-title.com") return "production";
@@ -33,8 +35,18 @@ export function validWorkspaceView(value: unknown): value is WorkspaceView {
 
 export function pageVisibleInWorkspace(page: Page, role?: string) {
   if (role === "partner") return page === "Partner portal" || page === "Settings";
+  if (productionOnlyRole(role)) return page === "Settings" || workspaceViewPages.production.includes(page);
   if (page === "Financials" && role) return ["owner", "admin", "finance"].includes(role);
   return true;
+}
+
+/** Apply account capabilities to navigation independently of URL or saved view. */
+export function accessibleWorkspaceLocation(location: WorkspaceLocation, role?: string): WorkspaceLocation {
+  if (productionOnlyRole(role)) return {
+    view: "production",
+    page: pageVisibleInWorkspace(location.page, role) ? location.page : "Overview",
+  };
+  return pageVisibleInWorkspace(location.page, role) ? location : { view: location.view, page: "Overview" };
 }
 
 export function viewForPage(page: Page, current: WorkspaceView): WorkspaceView {

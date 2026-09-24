@@ -94,6 +94,7 @@ export function createFollowup(
     });
     s.tasks.unshift({
       id: `task-${id}`,
+      scope: "production",
       companyId: o.companyId,
       title: `Attorney follow-up · ${o.id}`,
       owner: input.owner.trim(),

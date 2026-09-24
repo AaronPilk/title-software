@@ -14,6 +14,8 @@ import { parseHelpScreen } from "../../../web/lib/assistant/help-guides.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { accountSecurity, requireAccountReady } from "../../../web/lib/backend/account-security.ts";
 import { checkMissiveConnection } from "../../../web/lib/backend/missive.ts";
+import { missiveFeedRequest } from "../../../web/lib/backend/missive-feed-http.ts";
+import { proposeMissiveCompanyRoutes } from "../../../web/lib/backend/missive-company-routes.ts";
 import { credentialStatus, credentialChange, workspaceMissiveConfig, verifyCredentialChange } from "../../../web/lib/backend/missive-credentials.ts";
 import { missiveAttachmentsEnabled, existingMissiveAttachment, downloadMissiveAttachment,
   attachMissiveAttachment } from "../../../web/lib/backend/missive-attachments.ts";
@@ -220,7 +222,7 @@ async function stateResponse(id: string, a: Access) {
       .limit(100),
   );
   const projected = projectWorkspace(w.state, a);
-  if (a.role !== "partner")
+  if (a.role !== "partner" && a.role !== "operations")
     projected.activity = audit
       .filter(
         (r: any) =>
@@ -803,8 +805,44 @@ Deno.serve(async (req) => {
       }));
       return response(result);
     }
+    if (pathname === "/missive-feed" || pathname.startsWith("/missive-feed/")) {
+      const w = await workspace(wid);
+      const integration = checked(await service.from("title_integrations").select("config,status").eq("workspace_id", wid).eq("provider", "missive").maybeSingle());
+      const bootstrap = checked(await service.from("title_bootstrap").select("workspace_id").eq("singleton", true).maybeSingle());
+      return response(await missiveFeedRequest(pathname, req.method, input, {
+        workspaceId: wid, access: a, state: w.state, integration,
+        fallback: { token: Deno.env.get("MISSIVE_API_TOKEN"), workspaceId: Deno.env.get("MISSIVE_WORKSPACE_ID") || bootstrap?.workspace_id },
+        credential: async (routeId, revision, decrypt) => {
+          const result = await service.rpc("title_missive_feed_context", { p_workspace: wid, p_actor: user.id,
+            p_access_version: a.version, p_route_id: routeId, p_routing_revision: revision, p_decrypt: decrypt });
+          if (result.error) error(result.error.code === "42501" ? "Your email access changed. Refresh your workspace." :
+            "Email access or routing changed. Refresh the inbox list.", result.error.code === "42501" ? 403 : result.error.code === "PT503" ? 503 : 409);
+          return result.data;
+        },
+      }));
+    }
     if (pathname.startsWith("/integrations/missive")) {
       administrator(a);
+      if (pathname === "/integrations/missive/production-access") {
+        if (req.method !== "POST") error("Use the reviewed Production inbox access action.", 405);
+        if (Object.keys(input).some(key => !["workspaceId", "expectedRoutingRevision", "mappingId", "productionOnly", "acknowledged"].includes(key)) ||
+          typeof input.productionOnly !== "boolean" || input.acknowledged !== true ||
+          typeof input.mappingId !== "string" || !/^route:[a-zA-Z0-9_-]{1,100}:[a-zA-Z0-9_-]{1,100}:[a-zA-Z0-9_-]{1,100}$/.test(input.mappingId) ||
+          !Number.isSafeInteger(input.expectedRoutingRevision) || input.expectedRoutingRevision < 0)
+          error("Review the exact inbox and confirm its Production access before saving.");
+        // This approval changes only local access. It must also remain possible
+        // to revoke access while Missive or credential storage is unavailable.
+        const saved = await service.rpc("title_missive_set_production_only", {
+          p_workspace: wid, p_actor: user.id, p_access_version: a.version,
+          p_expected: input.expectedRoutingRevision, p_route_id: input.mappingId,
+          p_production_only: input.productionOnly,
+        });
+        if (saved.error) error(saved.error.code === "42501" ? "Administrator access changed. Sign in again." :
+          ["PT409", "40001"].includes(saved.error.code) ? "Inbox routing changed or this inbox is shared. Refresh the routes before reviewing access." :
+          "Unable to save Production inbox access. Refresh the routes and try again.",
+          saved.error.code === "42501" ? 403 : ["PT409", "40001"].includes(saved.error.code) ? 409 : 500);
+        return response({ routing: missiveRouting(saved.data) });
+      }
       // The single explicitly bootstrapped workspace is the default token owner.
       // A server override can bind a different workspace during a reviewed move.
       const bootstrap = checked(await service.from("title_bootstrap").select("workspace_id").eq("singleton", true).maybeSingle());
@@ -847,6 +885,21 @@ Deno.serve(async (req) => {
       if (pathname === "/integrations/missive" && req.method === "GET") return response({ ...setup, routing, mapping: routing.mappings.length === 1 ? routing.mappings[0] : null,
         attachmentDownloadEnabled: setup.importEnabled && missiveAttachmentsEnabled({ attachmentOrigins }) });
       if (pathname === "/integrations/missive/check" && req.method === "POST") return response(await checkMissiveConnection(await providerConfig(), wid, a));
+      if (pathname === "/integrations/missive/company-routes" && ["GET", "POST"].includes(req.method)) {
+        const w = await workspace(wid);
+        const directory = await checkMissiveConnection(await providerConfig(), wid, a);
+        const proposal = await proposeMissiveCompanyRoutes(w.state, routing, directory);
+        if (req.method === "GET") return response(proposal);
+        if (input.expectedRevision !== proposal.revision || input.fingerprint !== proposal.fingerprint)
+          error("Companies or inboxes changed. Review the connection list again.", 409);
+        if (!proposal.proposals.length) error("There are no new company inboxes to connect.", 409);
+        const saved = checked(await service.rpc("title_save_missive_routes", {
+          p_workspace: wid, p_actor: user.id, p_email: user.email, p_access_version: a.version,
+          p_expected: proposal.revision, p_workspace_revision: w.revision,
+          p_mappings: proposal.proposals.map(({ companyId, teamId, teamName, organizationId }) => ({ companyId, teamId, teamName, organizationId, enabled: true })),
+        }));
+        return response({ routing: missiveRouting(saved), connected: proposal.proposals.length, readOnly: true });
+      }
       if (pathname === "/integrations/missive/company-candidates" && req.method === "GET") {
         const directory = await checkMissiveConnection(await providerConfig(), wid, a);
         return response({ candidates: directory.teamInboxes.flatMap(team => {

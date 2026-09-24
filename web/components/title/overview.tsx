@@ -26,14 +26,12 @@ export function Overview({
   title = "Your title workspace",
   navigate,
   newOrder,
-  newCompany,
   openOrder,
   openCompany,
 }: {
   title?: string;
   navigate: (p: Page) => void;
   newOrder: () => void;
-  newCompany?: () => void;
   openOrder: (id: string) => void;
   openCompany: (id: string) => void;
 }) {
@@ -44,7 +42,6 @@ export function Overview({
     return () => clearInterval(timer);
   }, []);
   const access = connection?.access;
-  const canAddCompany = !access || (access.allCompanies && ["owner", "admin", "onboarding"].includes(access.role));
   const canManageAccess = !!access && (access.role === "owner" || (access.role === "admin" && access.allCompanies));
   const canAddOrder = !access || ["owner", "admin", "operations"].includes(access.role);
   const firstRun = !!connection && !s.orders.length;
@@ -70,27 +67,26 @@ export function Overview({
         </Button>}
       </Heading>
       {firstRun && <section className={`panel ${styles.setup}`} aria-labelledby="workspace-setup-title">
-        <h2 id="workspace-setup-title">{s.companies.length ? "Start your first title file" : canAddCompany ? "Set up your workspace" : "Company access needed"}</h2>
+        <h2 id="workspace-setup-title">{s.companies.length ? "Start your first title file" : "Company access needed"}</h2>
         <p>{s.companies.length
-          ? "Your company workspace is ready for its first file. Confirm team access, then create an order or capture a request."
-          : "No companies are available to your account yet. Start with a company and its team, then bring in the first request."}</p>
+          ? "Choose the company, read the incoming request, then create its title file."
+          : "No companies are available to your account yet. Your workspace administrator can review your company access."}</p>
         <div className={styles.steps}>
           <div className={styles.step}>
-            <span className={styles.number}>1</span><h3>Add a company</h3>
-            <p>{s.companies.length ? `${s.companies.length} company ${s.companies.length === 1 ? "is" : "are"} available. Review the profile and onboarding evidence.` : canAddCompany ? "Create the company profile so files and documents have a clear destination." : "Ask your workspace administrator to add a company or assign your company access."}</p>
-            {s.companies.length ? <Button variant="outline" onClick={() => navigate("Companies")}>Review companies</Button> : canAddCompany && <Button onClick={() => newCompany ? newCompany() : navigate("Companies")}><Plus /> Add company</Button>}
+            <span className={styles.number}>1</span><h3>Choose a company</h3>
+            <p>{s.companies.length ? `${s.companies.length} ${s.companies.length === 1 ? "company is" : "companies are"} available. Find the business receiving this work in the company directory.` : "Your assigned companies will appear in the company directory when access is available."}</p>
+            <Button variant="outline" disabled={!s.companies.length} onClick={() => navigate("Companies")}>Company directory</Button>
           </div>
           <div className={styles.step}>
-            <span className={styles.number}>2</span><h3>Assign team access</h3>
-            <p>{canManageAccess ? "Choose each person's role and company access in Settings. Share their sign-in instructions separately." : "Your administrator assigns roles and company access. Check your account details in Settings."}</p>
-            <Button variant="outline" onClick={() => navigate("Settings")}>{canManageAccess ? "Open settings" : "View my account"}</Button>
+            <span className={styles.number}>2</span><h3>Read the request</h3>
+            <p>Read incoming email or open a saved request to confirm the property and the work needed.</p>
+            <Button variant="outline" disabled={!s.companies.length} onClick={() => navigate("Inbox")}>Open inbox</Button>
           </div>
           <div className={styles.step}>
-            <span className={styles.number}>3</span><h3>Create or import a file</h3>
-            <p>{canAddOrder ? "Create the title file, then capture the request and upload its source documents. Missive imports require a reviewed connection." : "Your operations team can create the first file and attach its source documents."}</p>
+            <span className={styles.number}>3</span><h3>Create the title file</h3>
+            <p>{canAddOrder ? "Create an order for the selected company and property, then attach its source documents to the title file." : "Your operations team can create the first file and attach its source documents."}</p>
             <div className={styles.actions}>
               {canAddOrder && <Button disabled={!s.companies.length} onClick={newOrder}>New order</Button>}
-              <Button variant="outline" disabled={!s.companies.length} onClick={() => navigate("Inbox")}>Open inbox</Button>
             </div>
           </div>
         </div>
@@ -224,20 +220,20 @@ export function Overview({
               <div className="grow">
                 <strong>{c.name}</strong>
                 <small>
-                  {c.contact} · {c.jurisdiction}
+                  {[c.contact, c.jurisdiction].filter(Boolean).join(" · ")}
                 </small>
               </div>
               <Status value={companyDisplayStage(c)} />
               <ChevronRight size={16} />
             </button>
           ))}
-          {!s.companies.length && <Empty title="No companies available" text="Add a company or ask your administrator for access." />}
+          {!s.companies.length && <Empty title="No companies available" text="Your workspace administrator can review your company access." />}
         </section>
         <section className="panel">
           <SectionTitle
             title="Workspace activity"
-            action="View all"
-            onClick={() => navigate("Settings")}
+            action={canManageAccess ? "View all" : undefined}
+            onClick={canManageAccess ? () => navigate("Settings") : undefined}
           />
           <div className="activity-list">
             {s.activity.slice(0, 3).map((a, i) => (

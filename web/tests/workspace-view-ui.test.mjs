@@ -11,8 +11,8 @@ const web = fileURLToPath(new URL("../", import.meta.url));
 let server, browser, context, page, origin;
 let errors = [];
 const people = {
-  stephenie: { userId: "staff-s", email: "s.tocado@rtocado.com", role: "operations", workspaceId: "workspace-a" },
-  john: { userId: "staff-j", email: "john@ballantynetitle.com", role: "operations", workspaceId: "workspace-a" },
+  stephenie: { userId: "staff-s", email: "s.tocado@rtocado.com", role: "admin", workspaceId: "workspace-a" },
+  john: { userId: "staff-j", email: "john@ballantynetitle.com", role: "owner", workspaceId: "workspace-a" },
   tyler: { userId: "staff-t", email: "tyler@ballantyne-title.com", role: "operations", workspaceId: "workspace-a" },
   partner: { userId: "partner-fixture", email: "partner@example.test", role: "partner", workspaceId: "workspace-a" },
 };
@@ -32,6 +32,7 @@ before(async () => {
         const [ready,setReady]=useState(!query.has('hydrate'));
         const navigation=useWorkspaceView(identity,demoUser,ready);
         window.changeFixtureIdentity=(person,workspaceId)=>setIdentity(person?{...people[person],workspaceId:workspaceId||people[person].workspaceId}:undefined);
+        window.changeFixtureRole=role=>setIdentity(current=>({...current,role}));
         window.completeFixtureHydration=()=>{setDemoUser('Tyler');setReady(true);};
         if(!ready)return <p>Loading fixture workspace</p>;
         const pages=identity?.role==='partner'?['Partner portal','Settings']:['Tasks','Orders','Onboarding','Settings'];
@@ -104,7 +105,7 @@ test("view preferences stay separate for each account and workspace",async()=>{
   assert.equal(await page.evaluate(()=>localStorage.getItem("title:workspace-view:v1:workspace-a:staff-j")),null);
   assert.equal(await page.evaluate(()=>localStorage.getItem("title:workspace-view:v1:workspace-b:staff-s")),null);
 });
-for(const[person,hash,view]of[["tyler","#agency/tasks","agency"],["stephenie","#production/tasks","production"]]){
+for(const[person,hash,view]of[["tyler","#agency/tasks","production"],["stephenie","#production/tasks","production"]]){
   test(`explicit ${hash} shares both view and page for ${person}`,async()=>{
     await open({person,hash});await at(view,"Tasks");
     await page.reload();await at(view,"Tasks");
@@ -113,7 +114,7 @@ for(const[person,hash,view]of[["tyler","#agency/tasks","agency"],["stephenie","#
 test("legacy page bookmarks still open and select a compatible view",async()=>{
   await open({hash:"#tasks"});await at("agency","Tasks");
   await page.goto(`${origin}/?person=stephenie#orders`);await at("production","Orders");
-  await page.goto(`${origin}/?person=tyler#onboarding`);await at("agency","Onboarding");
+  await page.goto(`${origin}/?person=tyler#onboarding`);await at("production","Overview");
 });
 test("cross-links select their view while shared pages preserve the current view",async()=>{
   await open();await go("Orders");await at("production","Orders");
@@ -161,4 +162,20 @@ test("partners remain in their portal or settings and have no view switcher",asy
   await go("Settings");await at("agency","Settings");
   await page.reload();await at("agency","Settings");
   await go("Partner portal");await at("agency","Partner portal");
+});
+
+test("operations account cannot recover agency access through switcher, links, hash or saved preferences",async()=>{
+  await open({person:"tyler",hash:"#agency/onboarding",preferences:{"title:workspace-view:v1:workspace-a:staff-t":"agency"}});
+  await at("production","Overview");
+  assert.equal(new URL(page.url()).hash,"#production/overview");
+  await switchTo("Agency");await at("production","Overview");
+  assert.equal(await page.evaluate(()=>localStorage.getItem("title:workspace-view:v1:workspace-a:staff-t")),"production");
+  await go("Onboarding");await at("production","Overview");
+  await page.evaluate(()=>{location.hash="#agency/financials"});await at("production","Overview");
+  await page.waitForFunction(()=>location.hash==="#production/overview");
+  await page.evaluate(()=>{location.hash="#agency/tasks"});await at("production","Tasks");
+});
+test("role downgrade on the same account removes an already-open agency page",async()=>{
+  await open({hash:"#agency/onboarding"});await at("agency","Onboarding");
+  await page.evaluate(()=>window.changeFixtureRole("operations"));await at("production","Overview");
 });

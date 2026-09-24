@@ -1,6 +1,6 @@
 "use client";
 import { canManageFinance } from "@/lib/title/workspace-capabilities";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   LayoutGrid,
   Inbox,
@@ -58,7 +58,11 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
-import { WorkspaceProvider, useWorkspace } from "@/lib/title/store";
+import { WorkspaceProvider, WorkspacePresentation, useWorkspace } from "@/lib/title/store";
+import { projectWorkspace } from "@/lib/backend/workspace";
+import { productionOnlyRole } from "@/lib/title/production-access";
+import { ProductionCompanyDirectory } from "@/components/title/production-company-directory";
+import { ProductionInbox } from "@/components/title/production-inbox";
 import type { Page, VaultDoc } from "@/lib/title/model";
 import { Overview } from "@/components/title/overview";
 import { AgencyOverview } from "@/components/title/agency-overview";
@@ -82,7 +86,7 @@ import {
   DocumentPreview,
   UploadDocument,
 } from "@/components/title/documents";
-import { InboxView, Tasks, Automations } from "@/components/title/operations";
+import { Tasks, Automations } from "@/components/title/operations";
 import { OrchestrationWorkspace } from "@/components/title/orchestration";
 import { Revisions } from "@/components/title/revisions";
 import { Financials } from "@/components/title/financials";
@@ -129,7 +133,7 @@ export default function Home() {
   );
 }
 function Workspace() {
-  const { s, ready, connection } = useWorkspace();
+  const { s: rawState, ready, connection } = useWorkspace();
   const { setOpenMobile } = useSidebar();
   const [search, setSearch] = useState(false);
   const [notifications, setNotifications] = useState(false);
@@ -137,6 +141,7 @@ function Workspace() {
   const [revisionMessage, setRevisionMessage] = useState("");
   const [policyId, setPolicyId] = useState("T-2026-1048");
   const [companyId, setCompanyId] = useState("");
+  const [productionCompanyId, setProductionCompanyId] = useState("");
   const [companyTab, setCompanyTab] = useState<CompanyDetailTab>("Overview");
   const [docId, setDocId] = useState("");
   const [docTarget, setDocTarget] = useState<{ identity: string; page: number } | null>(null);
@@ -153,12 +158,19 @@ function Workspace() {
     email: connection.access.email,
     role: connection.access.role,
     workspaceId: activeWorkspace(),
-  } : undefined, s.user, ready, () => {
+  } : undefined, rawState.user, ready, () => {
     setOpenMobile(false); setSearch(false); setNotifications(false); setOrderId("");
     setCompanyId(""); setDocId(""); setDocTarget(null);
     window.scrollTo({ top: 0, behavior: "instant" });
   });
   const { page, view } = workspaceLocation;
+  const s = useMemo(() => {
+    if (view !== "production" || page === "Settings") return rawState;
+    // This only narrows display. The actual connection/role and canonical
+    // update handlers remain unchanged, and the API enforces real permissions.
+    return projectWorkspace(rawState, { ...(connection?.access || { userId: "demo", email: rawState.user,
+      companyIds: [], allCompanies: true, restricted: true, version: 1, partnerMembers: [] }), role: "operations" });
+  }, [rawState, connection?.access, view, page]);
   const storeRef = useRef(s);
   useEffect(() => {
     const closeDrawer = () => setOpenMobile(false);
@@ -281,11 +293,16 @@ function Workspace() {
   function upload(id?: string, destination: "company" | "title" = "company") {
     if (companyId && !allowWorkspaceNavigation("company-detail")) return;
     setUploadCompany(id || null);
-    setUploadDestination(destination);
+    setUploadDestination(view === "production" ? "title" : destination);
     setCompanyId("");
     setUploadOpen(true);
   }
   function openCompany(id: string, tab: CompanyDetailTab = "Overview") {
+    if (view === "production") {
+      if (!navigate("Companies")) return;
+      setProductionCompanyId(id);
+      return;
+    }
     if (companyId && companyId !== id && !allowWorkspaceNavigation("company-detail")) return;
     setCompanyTab(tab);
     setCompanyId(id);
@@ -321,7 +338,6 @@ function Workspace() {
           title="Production overview"
           navigate={navigate}
           newOrder={() => setNewOrder(true)}
-          newCompany={() => setNewCompany(true)}
           openOrder={setOrderId}
           openCompany={openCompany}
         />
@@ -359,7 +375,7 @@ function Workspace() {
       );
       break;
     case "Companies":
-      content = (
+      content = view === "production" ? <ProductionCompanyDirectory key={productionCompanyId || "directory"} initialCompanyId={productionCompanyId} openOrder={setOrderId} navigate={navigate} /> : (
         <Companies onOpen={openCompany} onNew={() => setNewCompany(true)} />
       );
       break;
@@ -376,7 +392,9 @@ function Workspace() {
       break;
     case "Inbox":
       content = (
-        <InboxView
+        <ProductionInbox
+          view={view}
+          onSettings={() => navigate("Settings")}
           onReview={openReview}
           onCommitment={(id) => {
             setPolicyId(id);
@@ -390,7 +408,7 @@ function Workspace() {
       );
       break;
     case "Tasks":
-      content = <Tasks />;
+      content = <Tasks scope={view} />;
       break;
     case "Financials":
       content = canManageFinance(connection) ? <Financials /> : <section className="panel"><h1>Financials access required</h1><p>Your account does not have financial access. Ask the workspace owner to review your role.</p></section>;
@@ -411,6 +429,7 @@ function Workspace() {
       content = <Settings />;
   }
   return (
+    <WorkspacePresentation state={s}>
     <HelpUIContext.Provider value={() => { setHelpFromDialog(true); setHelpOpen(true); }}>
       <a
         href="#main-content"
@@ -442,7 +461,7 @@ function Workspace() {
               <span className="brand-company">Title Company</span>
             </span>
           </button>
-          {connection?.access.role !== "partner" ? <WorkspaceSwitcher view={view} onChange={switchView} /> : <div className="workspace-switch">
+          {productionOnlyRole(connection?.access.role) ? <div className="workspace-switch"><strong>Production workspace</strong><small>Title files &amp; incoming requests</small></div> : connection?.access.role !== "partner" ? <WorkspaceSwitcher view={view} onChange={switchView} /> : <div className="workspace-switch">
             <span className="workspace-symbol">
               <Building2 size={17} />
             </span>
@@ -719,10 +738,12 @@ function Workspace() {
           key={uploadCompany || "general"}
           companyId={uploadCompany}
           initialDestination={uploadDestination}
+          productionOnly={view === "production"}
           onClose={() => { setUploadOpen(false); if (uploadCompany) openCompany(uploadCompany, "Documents"); }}
         />
       )}
     </HelpUIContext.Provider>
+    </WorkspacePresentation>
   );
 }
 function FileTextIcon() {

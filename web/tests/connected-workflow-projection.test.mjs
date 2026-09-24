@@ -44,7 +44,7 @@ const document = (id, companyId, orderId) => ({
   sourceRole: "Other",
 });
 const task = (id, companyId) => ({
-  id, companyId, title: `Synthetic task ${id}`, owner: "Synthetic operator", due: "2026-12-01",
+  id, companyId, scope: "production", title: `Synthetic task ${id}`, owner: "Synthetic operator", due: "2026-12-01",
   done: false, priority: "Normal", createdAt: "2026-01-01T12:00:00Z",
 });
 function fixture() {
@@ -117,7 +117,7 @@ test("owner sees both company histories and scoped staff sees only its company a
   const visible = projectWorkspace(s, scoped());
   assert.equal(visible.deliveries.length, 3);
   assert(visible.deliveries.every(r => r.companyId === "A"));
-  assert.deepEqual(visible.ownershipHistory.map(r => r.companyId), ["A"]);
+  assert.deepEqual(visible.ownershipHistory, []);
   assert.deepEqual(visible.tasks.map(t => t.id), ["TASK-A"]);
   assert.deepEqual(visible.tasks[0].waiting, s.tasks[0].waiting);
   assert(!JSON.stringify(visible).includes("WAITING-B-ONLY"));
@@ -151,7 +151,7 @@ test("restricted file evidence withholds its delivery retry chain and nested tas
   assert.deepEqual(visible.deliveries.map(r => r.documentId), ["DOC-A-PUBLIC"]);
   assert(!visible.tasks.some(t => t.id === "TASK-A-RESTRICTED"));
   assert(visible.tasks.some(t => t.id === "TASK-A" && t.waiting.length === 1));
-  assert.equal(visible.ownershipHistory.length, 1);
+  assert.equal(visible.ownershipHistory.length, 0);
   assert.equal(projectWorkspace(s, owner).deliveries.length, 4);
 });
 
@@ -161,7 +161,8 @@ test("projected histories and accepted command inputs cannot mutate original wor
   deepFreeze(s);
   const visible = projectWorkspace(s, scoped());
   visible.deliveries[0].recipientName = "Changed view only";
-  visible.ownershipHistory[0].members[0].share = 1;
+  const ownerView = projectWorkspace(s, owner);
+  ownerView.ownershipHistory[0].members[0].share = 1;
   visible.tasks[0].waiting[0].detail = "Changed view only";
   const commands = [command("prepareDelivery", recipient("DOC-A-PUBLIC", "another@example.com"))];
   const originalCommands = structuredClone(commands);

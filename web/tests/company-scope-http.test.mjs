@@ -120,3 +120,35 @@ for (const name of ["executeRules","loadDemoScenario"])
     assert.equal(result.status,403);assert.equal(saves,0);
   });
 
+function agencyFixture() {
+  state.companies[0].members = [{ name: "A_ONLY_PRIVATE_OWNER", share: 100, email: "private-owner@example.test" }];
+  state.companies[0].contact = "A_ONLY_PRIVATE_CONTACT";
+  state.documents = [{ id: "agency-original", companyId: "A", name: "A_ONLY_PRIVATE_APPLICATION.pdf", category: "Applications", visibility: "Restricted", version: 1, date: "2026-09-01", size: "20 B", text: "A_ONLY_PRIVATE_APPLICATION", assetId: "agency-original-asset" }];
+  state.tasks = [{ id: "agency-task", scope: "agency", companyId: "A", title: "A_ONLY_PRIVATE_OWNERSHIP_TASK", owner: "staff@example.test", assigneeId: actor, due: "2026-12-01", done: false, priority: "Normal" }];
+}
+for (const restricted_access of [false, true]) test(`operations API cannot return company agency details with restricted=${restricted_access}`, async () => {
+  agencyFixture(); Object.assign(membership, { role: "operations", restricted_access });
+  const result = await request();
+  assert.equal(result.status, 200);
+  assert.equal(result.body.access.role, "operations");
+  assert.deepEqual(result.body.state.companies.map(c => c.id), ["A"]);
+  assert.deepEqual(result.body.state.companies[0].members, []);
+  assert.deepEqual(result.body.state.documents, []);
+  assert.deepEqual(result.body.state.tasks, []);
+  assert.doesNotMatch(JSON.stringify(result.body), /A_ONLY_PRIVATE|private-owner@example/);
+  assert.equal(state.companies[0].members[0].name, "A_ONLY_PRIVATE_OWNER");
+});
+test("operations API rejects same-company agency task edits without committing", async () => {
+  agencyFixture(); Object.assign(membership, { role: "operations", restricted_access: true });
+  for (const value of [{ done: true }, { scope: "production" }]) {
+    const result = await request(edit("tasks", value, "agency-task"));
+    assert.equal(result.status, 403); assert.equal(saves, 0);
+  }
+});
+test("owner API retains agency records independently of preferred workspace view", async () => {
+  agencyFixture(); Object.assign(membership, { role: "owner", restricted_access: true, all_companies: true });
+  const result = await request();
+  assert.equal(result.status, 200);
+  assert.equal(result.body.state.companies[0].members[0].name, "A_ONLY_PRIVATE_OWNER");
+  assert.equal(result.body.state.documents[0].id, "agency-original");
+});

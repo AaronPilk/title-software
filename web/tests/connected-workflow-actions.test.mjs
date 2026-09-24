@@ -46,7 +46,7 @@ function fixture() {
     date: "2026-09-10", size: "24 B", version: 1, text: "Reviewed fixture evidence",
   }));
   s.tasks = ["A", "B"].map((companyId) => ({
-    id: `task-${companyId}`, companyId, title: `Review file ${companyId}`,
+    id: `task-${companyId}`, companyId, scope: "production", title: `Review file ${companyId}`,
     owner: "Assigned operator", due: DAY, done: false, priority: "Normal",
     createdAt: "2026-09-10T12:00:00.000Z",
   }));

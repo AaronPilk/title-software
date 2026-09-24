@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { emptyWorkspace, executeCommands, projectWorkspace, normalizeWorkspace, captureCommands, OR } from "../.local-test/backend/api.mjs";
+import { emptyWorkspace, executeCommands, projectWorkspace, normalizeWorkspace, captureCommands, OR, P } from "../.local-test/backend/api.mjs";
 
 const NOW = "2026-09-14T14:00:00.000Z";
 const EMAIL = "reviewer@example.test";
@@ -190,6 +190,41 @@ test("restricted evidence removes the whole company integration history while pr
   const { commands } = capture(s, access("owner", { restricted: true }), d => OR.setOrchestrationControl(d, { ...controlInput("A"), paused: true }));
   assert.throws(() => executeCommands(s, commands, access("admin", { allCompanies: true })), e => e.status === 403);
 });
+
+for (const restricted of [false, true])
+  for (const status of ["Pending review", "Exception", "Approved"]) test(`hidden agency evidence cannot erase another file's ${status} blocker with restricted=${restricted}`, t => {
+    freeze(t);
+    const s = configure(configure(fixture(), "A"), "B");
+    for (const suffix of ["blocked", "clear"]) {
+      s.orders.push({ ...structuredClone(s.orders[0]), id: `order-A-${suffix}`, address: `Fictional ${suffix} property` });
+      s.documents.push({ ...s.documents[0], id: `doc-A-${suffix}`, orderId: `order-A-${suffix}`, name: `Source ${suffix}.txt` });
+    }
+    s.documents.push({ id: "private-agency-doc", companyId: "A", name: "AGENCY_PRIVATE formation.txt", text: "AGENCY_PRIVATE source", category: "Formation", visibility: "Restricted", date: "2026-09-14", size: "20 B", version: 1 });
+    // File A's link references agency evidence; the blocked file has its own
+    // entirely production-safe source and active proposal in the same ledger.
+    OR.verifyExternalOrderLink(s, { ...linkInput(), evidence: JSON.stringify({ documentId: "private-agency-doc", note: "AGENCY_PRIVATE original checked" }) });
+    OR.proposeExternalChange(s, proposalInput(s));
+    OR.verifyExternalOrderLink(s, { ...linkInput(), orderId: "order-A-blocked", externalFileId: "provider-file-A-blocked", externalFileNumber: "SP-101", missiveConversationId: "thread-A-blocked" });
+    const proposal = OR.proposeExternalChange(s, { ...proposalInput(s), orderId: "order-A-blocked", sourceDocumentId: "doc-A-blocked", matchStatus: status === "Exception" ? "Unknown" : "Confirmed" });
+    if (status === "Approved") OR.reviewExternalProposal(s, proposal.id, reviewInput);
+    assert.equal(proposal.status, status);
+    assert(P.finalReadiness(s, s.orders.find(o => o.id === "order-A-blocked")).missingContext.includes("unresolved external change proposal"));
+    const canonical = structuredClone(s);
+    const a = access("operations", { restricted, allCompanies: true });
+    const shown = projectWorkspace(s, a);
+    assert(!shown.orders.some(o => o.id === "order-A-blocked"), "Withhold the file when its unresolved blocker cannot be shown");
+    assert(!shown.documents.some(d => d.orderId === "order-A-blocked"));
+    assert(shown.orders.some(o => o.id === "order-A-clear"), "An unaffected file in the company remains available");
+    assert(shown.orders.some(o => o.id === "order-B"), "Another company's production records remain available");
+    assert(!shown.orchestration.proposals.some(p => p.companyId === "A"));
+    assert.doesNotMatch(JSON.stringify(shown), /AGENCY_PRIVATE|private-agency-doc/);
+    assert.doesNotThrow(() => normalizeWorkspace(shown));
+    assert.throws(() => executeCommands(s, [{ id: crypto.randomUUID(), name: "editDraft", args: [[{ table: "orders", id: "order-A-blocked", value: { status: "Ready for jacket" } }]] }], a), e => e.status === 403);
+    const full = projectWorkspace(s, access("owner", { restricted: true }));
+    assert(full.orders.some(o => o.id === "order-A-blocked"));
+    assert(full.orchestration.proposals.some(p => p.id === proposal.id && p.status === status));
+    assert.deepEqual(s, canonical);
+  });
 
 test("integration history cannot bypass supported actions using direct editDraft writes", t => {
   freeze(t);

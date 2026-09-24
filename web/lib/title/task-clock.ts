@@ -293,6 +293,7 @@ export function validWaitingShape(t: Task) {
 export function isValidTaskFields(t: unknown): boolean {
   if (!t || typeof t !== "object") return false;
   const task = t as Record<string, unknown>;
+  if (task.scope !== undefined && task.scope !== "agency" && task.scope !== "production") return false;
   if (task.createdAt !== undefined && typeof task.createdAt !== "string") return false;
   if (task.createdAt !== undefined && !Number.isFinite(Date.parse(task.createdAt as string)))
     return false;

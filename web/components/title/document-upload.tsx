@@ -9,7 +9,7 @@ import { uid, type VaultDoc, type Workspace } from "@/lib/title/model";
 import { getCommitment } from "@/lib/title/business";
 import { sourceRoles, outputRoles, sameDocumentFamily, neededFields, titleFile, type SourceRole } from "@/lib/title/production";
 
-type Props = { applicationOnly?: boolean; onUploaded?: (documents: VaultDoc[]) => void; initialDestination?: "company" | "title"; companyId: string | null; orderId?: string; initialRole?: SourceRole; policyId?: string; commitmentVersion?: number; cplId?: string; cplVersion?: number; correctionId?: string; onClose: () => void };
+type Props = { productionOnly?: boolean; applicationOnly?: boolean; onUploaded?: (documents: VaultDoc[]) => void; initialDestination?: "company" | "title"; companyId: string | null; orderId?: string; initialRole?: SourceRole; policyId?: string; commitmentVersion?: number; cplId?: string; cplVersion?: number; correctionId?: string; onClose: () => void };
 type Entry = { id: string; file: File; category: string; visibility: "Internal" | "Restricted"; role: SourceRole };
 const categories = ["Company records", "Formation", "Applications", "Policy documents", "Branding", "Disclosures", "Agreements"];
 const categoryNames: Record<string, string> = { "Company records": "General company document / EIN", Formation: "Formation / LLC records", Applications: "Application (restricted)", "Policy documents": "Title / policy document", Branding: "Logo / branding", Disclosures: "Disclosure", Agreements: "Agreement" };
@@ -21,8 +21,8 @@ function fileProblem(entries: Entry[]) {
   return "";
 }
 function binding(props: Props) {
-  const { companyId, orderId, initialRole, policyId, commitmentVersion, cplId, cplVersion, correctionId, initialDestination, applicationOnly } = props;
-  return JSON.stringify({ companyId, orderId, initialRole, policyId, commitmentVersion, cplId, cplVersion, correctionId, initialDestination, applicationOnly });
+  const { companyId, orderId, initialRole, policyId, commitmentVersion, cplId, cplVersion, correctionId, initialDestination, applicationOnly, productionOnly } = props;
+  return JSON.stringify({ companyId, orderId, initialRole, policyId, commitmentVersion, cplId, cplVersion, correctionId, initialDestination, applicationOnly, productionOnly });
 }
 function outputSnapshot(state: Workspace, props: Props) {
   if (!props.initialRole || !outputRoles.includes(props.initialRole)) return "";
@@ -39,10 +39,11 @@ export function UploadDocument(props: Props) {
   const { companyId, orderId, initialRole, policyId, commitmentVersion, cplId, cplVersion, correctionId, onClose } = props;
   const store = useWorkspace();
   const { s, connection } = store;
+  const productionOnly = props.productionOnly || connection?.access.role === "operations";
   const [company, setCompany] = useState(s.orders.find(o => o.id === orderId)?.companyId || companyId || "");
-  const [kind, setKind] = useState<"company" | "title">(orderId || props.initialDestination === "title" ? "title" : "company");
+  const [kind, setKind] = useState<"company" | "title">(orderId || productionOnly || props.initialDestination === "title" ? "title" : "company");
   const [linkedOrder, setLinkedOrder] = useState(orderId || "");
-  const [step, setStep] = useState(orderId || (companyId && props.initialDestination !== "title") ? 2 : 1);
+  const [step, setStep] = useState(orderId || (companyId && !productionOnly && props.initialDestination !== "title") ? 2 : 1);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -58,6 +59,7 @@ export function UploadDocument(props: Props) {
   const selectedCompany = s.companies.find(c => c.id === company);
   const selectedOrder = s.orders.find(o => o.id === linkedOrder);
   function destinationProblem(state = s) {
+    if (productionOnly && kind !== "title") return "Production documents must belong to a title file.";
     if (props.applicationOnly && (!companyId || kind !== "company" || orderId || linkedOrder || initialRole || policyId || cplId || correctionId || commitmentVersion !== undefined || cplVersion !== undefined)) return "Reopen the application upload from its company.";
     if (accessChanged) return "Your account, access, or upload context changed. Close this dialog and reopen Upload documents.";
     if (!state.companies.some(c => c.id === company)) return "Choose the company these documents belong to.";
@@ -181,7 +183,7 @@ export function UploadDocument(props: Props) {
     <form onSubmit={submit} className="allocation-form"><fieldset disabled={busy || accessChanged} className="allocation-fields">
       {step === 1 && <><h3>Where do these documents belong?</h3><label className="allocation-field">Company<select aria-label="Upload company" value={company} disabled={!!companyId || !!orderId} onChange={event => { setCompany(event.target.value); setLinkedOrder(""); setEntries(current => current.map(entry => ({ ...entry, id: uid("doc") }))); setError(""); }}><option value="">Choose a company…</option>{s.companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
         {!s.companies.length && <p>Add a company or ask an administrator to give you company access before uploading.</p>}
-        <div className="allocation-types" role="group" aria-label="Document destination"><button type="button" aria-pressed={kind === "company"} disabled={!!orderId} onClick={() => { setKind("company"); setError(""); }}><strong>Company documents</strong><span>Formation, EIN, applications, logos and agreements for the business.</span></button><button type="button" aria-pressed={kind === "title"} onClick={() => { setKind("title"); setError(""); }}><strong>Title file documents</strong><span>Deeds, searches, opinions and policies for a specific property.</span></button></div>
+        <div className="allocation-types" role="group" aria-label="Document destination">{!productionOnly && <button type="button" aria-pressed={kind === "company"} disabled={!!orderId} onClick={() => { setKind("company"); setError(""); }}><strong>Company documents</strong><span>Formation, EIN, applications, logos and agreements for the business.</span></button>}<button type="button" aria-pressed={kind === "title"} onClick={() => { setKind("title"); setError(""); }}><strong>Title file documents</strong><span>Deeds, searches, opinions and policies for a specific property.</span></button></div>
         {kind === "title" && <label className="allocation-field">Title file<select aria-label="Link upload to order" value={linkedOrder} disabled={!!orderId} onChange={event => { setLinkedOrder(event.target.value); setError(""); }}><option value="">Choose an existing title file…</option>{s.orders.filter(order => order.companyId === company).map(order => <option key={order.id} value={order.id}>{order.id} · {order.address}</option>)}</select>{!s.orders.some(order => order.companyId === company) && <small>Create a title file for this company first, then add its documents.</small>}</label>}
       </>}
       {step === 2 && <><h3>Add the originals for {selectedCompany?.name || "this company"}</h3><p className="allocation-explanation">{props.applicationOnly ? "Choose the completed application. We’ll save the original here and read it to suggest application details." : "You’ll check each document’s category and access before saving."}</p><label className="allocation-drop"><Upload size={25} /><strong>{props.applicationOnly ? entries.length ? "Choose a different application" : "Choose completed application" : entries.length ? "Add more documents" : "Choose documents"}</strong><span>{props.applicationOnly ? "One application · Up to 120 pages / 25 MB" : "Up to 10 files · 25 MB each · 100 MB per batch"}</span><Input aria-label={props.applicationOnly ? "Select completed application" : "Select documents"} type="file" multiple={!props.applicationOnly} accept={props.applicationOnly ? ".pdf,.txt,.png,.jpg,.jpeg" : ".pdf,.txt,.csv,.png,.jpg,.jpeg"} onChange={event => { const added = Array.from(event.target.files || []).map(file => ({ id: uid("doc"), file, category: props.applicationOnly ? "Applications" : kind === "title" ? "Policy documents" : "Company records", visibility: props.applicationOnly ? "Restricted" as const : "Internal" as const, role: initialRole || "Other" as SourceRole })); setEntries(current => props.applicationOnly ? added : [...current, ...added]); setError(""); event.target.value = ""; }} /></label></>}

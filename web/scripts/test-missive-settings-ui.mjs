@@ -19,7 +19,7 @@ const access = { userId: "33333333-3333-4333-8333-333333333333", email, role: "o
 const user = { id: access.userId, email, aud: "authenticated", role: "authenticated", app_metadata: {}, user_metadata: {}, created_at: "2026-01-01T00:00:00Z" };
 const jwt = [{ alg: "HS256", typ: "JWT" }, { sub: user.id, email, role: "authenticated", aud: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600 }, "synthetic-signature"].map(v => Buffer.from(typeof v === "string" ? v : JSON.stringify(v)).toString("base64url")).join(".");
 const session = { access_token: jwt, refresh_token: "synthetic-refresh", token_type: "bearer", expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600, user };
-const routeFor = company => ({ id: `route-${company}`, organizationId: `org-${company}`, teamId: `team-${company}`, teamName: `Inbox ${company}`, companyId: company, version: 1, enabled: true, approvedAt: "2026-09-14T12:00:00Z", approvedBy: email });
+const routeFor = company => ({ id: `route:org-${company}:team-${company}:${company}`, organizationId: `org-${company}`, teamId: `team-${company}`, teamName: `Inbox ${company}`, companyId: company, version: 1, enabled: true, productionOnly: false, approvedAt: "2026-09-14T12:00:00Z", approvedBy: email });
 function workspace(company) {
   return { workspaceId: ids[company], name: `Fixture ${company}`, revision: 1, access, state: {
     version: 1, companies: [{ id: company, name: `Company ${company}`, members: [], steps: [] }],
@@ -114,6 +114,17 @@ async function scenario(name, test) {
         }
         body ??= statusRecord;
       } else if (url.pathname === endpoint("")) body = { status: statusRecord.configured ? "ready" : "token_required", importEnabled: statusRecord.configured, routing: routings[company], attachmentDownloadEnabled: statusRecord.configured };
+      else if (url.pathname === endpoint("/production-access")) {
+        const routing = routings[company], route = routing.mappings.find(row => row.id === input.mappingId);
+        assert.equal(input.acknowledged, true); assert.equal(typeof input.productionOnly, "boolean");
+        if (input.expectedRoutingRevision !== routing.revision) { status = 409; body = { error: "Inbox routing changed. Refresh before saving." }; }
+        else {
+          assert(route); assert(!input.productionOnly || route.enabled);
+          assert(!input.productionOnly || !routing.mappings.some(other => other.companyId !== route.companyId && other.teamId === route.teamId && other.organizationId === route.organizationId));
+          routing.revision++; route.version = routing.revision; route.productionOnly = input.productionOnly;
+          body = { routing };
+        }
+      }
       else if (url.pathname === endpoint("/check")) body = { status: "verified", checkedAt: "2026-09-14T12:00:00Z", importEnabled: true, organizations: [{ id: `org-${company}`, name: `Organization ${company}` }], teamInboxes: [{ id: `team-${company}`, name: `Inbox ${company}`, organizationId: `org-${company}` }], moreOrganizations: false, moreTeams: false };
       else if (url.pathname === endpoint("/conversations")) body = { rows: [{ id: `conversation-${company}`, subject: `Conversation ${company}`, at: 1789387200 }], until: null };
       else if (url.pathname === endpoint("/messages")) body = { rows: [{ id: `message-${company}`, subject: `Message ${company}`, at: 1789387200 }], until: null };
@@ -244,10 +255,10 @@ try {
     await page.evaluate(next => window.setFixture(next), workspaces.B); await button("Replace token").waitFor(); await settle(pending);
     assert.equal(await page.getByText("Private fixture message A", { exact: true }).count(), 0);
     await button("Replace token").click(); assert.equal(await page.getByLabel("Complete Missive API token", { exact: true }).inputValue(), "");
-    assert.equal(await page.getByLabel("Active Missive company route", { exact: true }).inputValue(), "route-B");
+    assert.equal(await page.getByLabel("Active Missive company route", { exact: true }).inputValue(), routeFor("B").id);
   });
   await scenario("Saved event queue survives disconnect and preserves shared origin with one remaining route", async ({ page, button, ready, events }) => {
-    await ready(); events.A.push({ id: "event-A", messageId: "message-A", conversationId: "conversation-A", subject: "Previously shared incoming event", receivedAt: "2026-09-14T12:00:00Z", status: "queued", companyId: null, organizationId: "org-A", teamId: "team-A", candidateRouteIds: ["route-A"], originallyShared: true });
+    await ready(); events.A.push({ id: "event-A", messageId: "message-A", conversationId: "conversation-A", subject: "Previously shared incoming event", receivedAt: "2026-09-14T12:00:00Z", status: "queued", companyId: null, organizationId: "org-A", teamId: "team-A", candidateRouteIds: [routeFor("A").id], originallyShared: true });
     await button("Refresh incoming events").click();
     await page.getByText("Shared inbox: choose the destination company above before reviewing. No company has been assigned automatically.", { exact: true }).waitFor();
     await button("Disconnect account").click(); await button("Confirm disconnect").click();
@@ -256,6 +267,79 @@ try {
     await page.getByText("Previously shared incoming event", { exact: true }).waitFor();
     assert(await button("Review incoming email").isDisabled());
     await page.getByText("This event has no active route", { exact: false }).waitFor();
+  });
+  const productionReviewButton = page => page.getByRole("button", { name: "Review Production access for Company A · Inbox A", exact: true });
+  const productionAcknowledgement = page => page.getByRole("checkbox", { name: "I confirm this entire inbox contains only production mail and assigned Production staff may read it.", exact: true });
+  async function openProductionReview(page) {
+    await page.getByText("Manage 1 company inbox route", { exact: true }).click();
+    await productionReviewButton(page).click();
+  }
+  await scenario("Production inbox access requires exact inbox review and explicit unchecked acknowledgement", async ({ page, button, ready, hold, settle, requests }) => {
+    await ready(); await openProductionReview(page);
+    await page.getByText("Assigned Production staff will be able to read every incoming email in this entire inbox", { exact: false }).waitFor();
+    assert(await button("Approve Production access").isDisabled());
+    assert.equal(requests.filter(row => row.path === endpoint("/production-access")).length, 0);
+    await productionAcknowledgement(page).check(); await button("Cancel access review").click();
+    await productionReviewButton(page).click(); assert.equal(await productionAcknowledgement(page).isChecked(), false);
+    await productionAcknowledgement(page).check();
+    const pending = hold(endpoint("/production-access")); await button("Approve Production access").click(); await pending.started;
+    assert(await button("Approve Production access").isDisabled()); await settle(pending);
+    await page.getByText("Production inbox access approved.", { exact: false }).waitFor();
+    const changes = requests.filter(row => row.path === endpoint("/production-access"));
+    assert.equal(changes.length, 1);
+    assert.deepEqual(changes[0].input, { workspaceId: ids.A, expectedRoutingRevision: 1, mappingId: routeFor("A").id, productionOnly: true, acknowledged: true });
+    await page.getByRole("button", { name: "Remove Production access for Company A · Inbox A", exact: true }).waitFor();
+  });
+  await scenario("Production access revocation works after a route is paused and a shared destination is added", async ({ page, button, ready, routings, requests }) => {
+    routings.A.mappings[0].productionOnly = true; routings.A.mappings[0].enabled = false;
+    routings.A.mappings.push({ ...routeFor("A"), id: "route:org-A:team-A:other", companyId: "other", enabled: false });
+    await ready(); await page.getByText("Manage 2 company inbox routes", { exact: true }).click();
+    await page.getByRole("button", { name: "Remove Production access for Company A · Inbox A", exact: true }).click();
+    await page.getByText("Assigned Production staff will lose access to this inbox.", { exact: false }).waitFor();
+    await button("Confirm removal").click(); await page.getByText("Production inbox access removed.", { exact: false }).waitFor();
+    assert.equal(requests.find(row => row.path === endpoint("/production-access")).input.productionOnly, false);
+    assert.equal(routings.A.mappings[0].productionOnly, false);
+  });
+  await scenario("A shared inbox including paused companies cannot be approved for Production access", async ({ page, ready, routings, requests }) => {
+    routings.A.mappings.push({ ...routeFor("A"), id: "route:org-A:team-A:other", companyId: "other", enabled: false });
+    await ready(); await page.getByText("Manage 2 company inbox routes", { exact: true }).click();
+    assert(await productionReviewButton(page).isDisabled());
+    await page.getByText("Shared inboxes cannot be approved for Production staff", { exact: false }).first().waitFor();
+    assert.equal(requests.filter(row => row.path === endpoint("/production-access")).length, 0);
+  });
+  await scenario("Stale routing clears consent and requires reviewing the reloaded revision", async ({ page, button, ready, routings, requests }) => {
+    await ready(); await openProductionReview(page); await productionAcknowledgement(page).check();
+    routings.A.revision = 2; await button("Approve Production access").click();
+    await page.getByText("Current routes are loaded; review access again before saving.", { exact: false }).waitFor();
+    assert.equal(await productionAcknowledgement(page).count(), 0);
+    await openProductionReview(page); assert.equal(await productionAcknowledgement(page).isChecked(), false);
+    await productionAcknowledgement(page).check(); await button("Approve Production access").click();
+    await page.getByText("Production inbox access approved.", { exact: false }).waitFor();
+    assert.deepEqual(requests.filter(row => row.path === endpoint("/production-access")).map(row => row.input.expectedRoutingRevision), [1, 2]);
+  });
+  await scenario("Failed approval clears consent and refreshes saved routing without automatic retry", async ({ page, button, ready, fail, requests }) => {
+    await ready(); await openProductionReview(page); await productionAcknowledgement(page).check(); fail(endpoint("/production-access"), "POST");
+    await button("Approve Production access").click();
+    await page.getByText("Current routes are loaded; review access again before saving.", { exact: false }).waitFor();
+    assert.equal(await productionAcknowledgement(page).count(), 0);
+    assert.equal(requests.filter(row => row.path === endpoint("/production-access")).length, 1);
+  });
+  await scenario("Account or workspace change discards a late Production approval response", async ({ page, button, ready, hold, settle, workspaces }) => {
+    await ready(); await openProductionReview(page); await productionAcknowledgement(page).check();
+    const pending = hold(endpoint("/production-access")); await button("Approve Production access").click(); await pending.started;
+    await page.evaluate(next => window.setFixture(next), workspaces.B); await button("Replace token").waitFor(); await settle(pending);
+    assert.equal(await page.getByText("Production inbox access approved.", { exact: false }).count(), 0);
+    assert.equal(await productionAcknowledgement(page).count(), 0);
+    assert.equal(await page.getByLabel("Active Missive company route", { exact: true }).inputValue(), routeFor("B").id);
+  });
+  await scenario("Scoped admin and Production staff never receive approval controls", async ({ page, ready, workspaces }) => {
+    await ready();
+    for (const accessChange of [{ role: "admin", allCompanies: false }, { role: "operations", allCompanies: true }]) {
+      const changed = structuredClone(workspaces.A); Object.assign(changed.access, accessChange, { version: 2 });
+      await page.evaluate(next => window.setFixture(next), changed);
+      await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+      assert.equal(await page.getByRole("button", { name: /Review Production access for/ }).count(), 0);
+    }
   });
   console.log(JSON.stringify({ passed: passed.length, scope: "Actual React Settings components and authenticated backend client; synthetic workspace/Auth/API only; no live provider requests" }));
 } finally {

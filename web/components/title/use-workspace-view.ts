@@ -4,6 +4,7 @@ import type { Page } from "@/lib/title/model";
 import { allowWorkspaceNavigation } from "@/lib/title/workspace-navigation-guard";
 import {
   defaultWorkspaceView, readWorkspaceLocation, validWorkspaceView,
+  accessibleWorkspaceLocation,
   viewForPage, viewPreferenceKey, workspaceHash,
   type ViewIdentity, type WorkspaceLocation, type WorkspaceView,
 } from "@/lib/title/workspace-view";
@@ -39,16 +40,20 @@ export function useWorkspaceView(identity: ViewIdentity | undefined, demoUser: s
     } catch { /* This preference is optional when browser storage is unavailable. */ }
     const identityChanged = previousIdentity.current !== undefined && previousIdentity.current !== preferenceKey;
     previousIdentity.current = preferenceKey;
-    const initial = readWorkspaceLocation(identityChanged ? "" : window.location.hash, preferred, partner);
+    const requestedInitial = readWorkspaceLocation(identityChanged ? "" : window.location.hash, preferred, partner);
+    const initial = accessibleWorkspaceLocation(requestedInitial, identity?.role);
     current.current = initial;
     setLocation(initial);
     position.current = historyPosition() ?? 0;
     restoring.current = null;
-    window.history.replaceState(historyState(position.current), "", identityChanged ? workspaceHash(initial) : window.location.href);
+    window.history.replaceState(historyState(position.current), "", identityChanged || initial.view !== requestedInitial.view || initial.page !== requestedInitial.page ? workspaceHash(initial) : window.location.href);
     // Identity changes are authorization boundaries, never a discard decision.
     if (identityChanged) accepted.current?.();
     const read = () => {
-      const next = readWorkspaceLocation(window.location.hash, current.current.view, partner);
+      const requested = readWorkspaceLocation(window.location.hash, current.current.view, partner);
+      const next = accessibleWorkspaceLocation(requested, identity?.role);
+      if (next.view !== requested.view || next.page !== requested.page)
+        window.history.replaceState(window.history.state, "", workspaceHash(next));
       if (restoring.current !== null) {
         if (historyPosition() === restoring.current) restoring.current = null;
         return;
@@ -73,10 +78,11 @@ export function useWorkspaceView(identity: ViewIdentity | undefined, demoUser: s
     window.addEventListener("hashchange", read);
     window.addEventListener("popstate", read);
     return () => { window.removeEventListener("hashchange", read); window.removeEventListener("popstate", read); };
-  }, [preferenceKey, startingView, partner, ready]);
+  }, [preferenceKey, startingView, partner, ready, identity?.role]);
 
   function go(next: WorkspaceLocation) {
     if (partner) next = { view: "agency", page: next.page === "Settings" ? "Settings" : "Partner portal" };
+    next = accessibleWorkspaceLocation(next, identity?.role);
     if (restoring.current !== null || !allowWorkspaceNavigation()) return false;
     current.current = next;
     setLocation(next);
@@ -92,7 +98,7 @@ export function useWorkspaceView(identity: ViewIdentity | undefined, demoUser: s
   }
   function switchView(view: WorkspaceView) {
     if (partner || !go({ view, page: "Overview" })) return false;
-    try { window.localStorage.setItem(preferenceKey, view); } catch { /* Navigation still works without persistence. */ }
+    try { window.localStorage.setItem(preferenceKey, current.current.view); } catch { /* Navigation still works without persistence. */ }
     return true;
   }
   return { ...location, navigate, switchView };

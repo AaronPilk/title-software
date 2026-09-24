@@ -1,6 +1,10 @@
 # Staff access and assignment
 
-The owner manages staff in Settings → Team & access. Company permissions and the Agency/Production view preference are separate. Choosing Agency does not grant management or financial access.
+The owner manages staff in Settings → Team & access. Company permissions and the Agency/Production view preference are separate. Operations accounts are restricted to Production on the server and in navigation. Owners and administrators can use either view; choosing Production narrows their display without changing their account permissions.
+
+Operations receives company identity and permitted title files, documents, requests and Production tasks. Agency applications, ownership details, formation records, marketing materials, accounting and staff administration are withheld. Company-level correspondence and unclassified legacy tasks do not become Production records merely because they are assigned to an operations user. Original-file endpoints apply the same boundary. A task's existing scope can be reclassified only by an administrator.
+
+Whole-inbox Missive browsing requires both company access and explicit administrator approval that the inbox contains only Production correspondence. An admin invitation still grants admin permissions regardless of the preferred workspace view; prepare the operations role for staff who should not see Agency details.
 
 ## Prepare and maintain access
 
