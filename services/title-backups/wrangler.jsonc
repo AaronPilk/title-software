@@ -1,0 +1,21 @@
+{
+  "$schema": "../../web/node_modules/wrangler/config-schema.json",
+  "name": "title-backups",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-09-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  // Deliberate placeholders: approve a dedicated private bucket and account before deploying.
+  "r2_buckets": [{ "binding": "ARCHIVES", "bucket_name": "replace-with-approved-title-backup-bucket" }],
+  "vars": {
+    "BACKUP_SOURCE_ID": "REPLACE",
+    "BACKUP_DESTINATION_ID": "REPLACE",
+    "BACKUP_ACCOUNT_BOUNDARY": "unverified"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "invocation_logs": false },
+    "traces": { "enabled": true, "head_sampling_rate": 0.01 }
+  }
+}

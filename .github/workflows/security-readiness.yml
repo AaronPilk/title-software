@@ -15,20 +15,22 @@ jobs:
     env:
       TITLE_TEST_PG_BIN: /usr/lib/postgresql/16/bin
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: |
             web/package-lock.json
             services/title-scanner/package-lock.json
+            services/title-scanner-host/package-lock.json
       - name: Install locked dependencies and isolated database tools
         run: |
           npm ci --prefix web
           npm ci --prefix services/title-scanner
+          npm ci --prefix services/title-scanner-host
           sudo apt-get update
           sudo apt-get install -y postgresql-16 postgresql-client-16
           cd web && npx playwright install --with-deps chromium
@@ -36,10 +38,12 @@ jobs:
         run: |
           npm audit --prefix web --omit=dev --audit-level=high
           npm audit --prefix services/title-scanner --omit=dev --audit-level=high
+          npm audit --prefix services/title-scanner-host --omit=dev --audit-level=high
       - name: Types and lint
         run: |
           npm --prefix web run typecheck
           npm --prefix web run lint
+          npm --prefix services/title-scanner-host run typecheck
       - name: Synthetic domain, API and security regressions
         run: |
           npm --prefix web test
@@ -49,6 +53,8 @@ jobs:
           npm --prefix web run test:security:sql
           npm --prefix web run test:scanner
           npm --prefix web run test:recovery
+          npm --prefix services/title-scanner-host test
+          npm --prefix services/title-backups test
       - name: Package the Edge functions
         run: npm --prefix web run backend:build
       # This workflow deliberately has no cloud credentials or deployment job.

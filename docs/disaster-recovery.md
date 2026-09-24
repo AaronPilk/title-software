@@ -2,6 +2,8 @@
 
 `ops/recovery/recovery.mjs` provides a read-only export plan, an encrypted database/private-object archive, streaming integrity verification, a managed recovery plan and an executable isolated native PostgreSQL restore. It uses Node built-ins and PostgreSQL executables; it has no cloud deployment or key-management write capability. A passing local drill is not evidence that production disaster recovery has been completed.
 
+Prepared extensions: [encrypted offsite transfer and retrieval](offsite-backups.md), [read-only hosted recovery checks](hosted-recovery-drill.md), and the [independent assessment scope](security-assessment-scope.md). None of these tools creates a production backup schedule, restores a managed project or certifies recovery. Keep their execution evidence separate from the native fixture results.
+
 ## What is captured
 
 - A full `pg_dump --format=custom`, including Auth, memberships, workspace metadata, audit, `title_private`, JV intake/recipient records and Vault ciphertext. No decrypted-Vault view is queried. Database dumps include view definitions, not decrypted view results.

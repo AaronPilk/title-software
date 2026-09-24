@@ -1,0 +1,9 @@
+{
+  "name": "title-backups",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check src/worker.mjs && node ../../web/node_modules/wrangler/bin/wrangler.js deploy --dry-run"
+  }
+}
