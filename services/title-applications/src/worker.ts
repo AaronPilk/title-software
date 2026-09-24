@@ -34,7 +34,13 @@ export async function portalFetch(request: Request, env: Env, fetcher: typeof fe
     const body = await readRequestBytes(request, { maxBytes: action === "upload" ? 11 * 1024 * 1024 : 131_072, timeoutMs: action === "upload" ? 60_000 : 15_000 });
     const endpoint = new URL(env.JV_PUBLIC_ENDPOINT);
     if (endpoint.href !== "https://yhneskzvmtcmbsknidlt.supabase.co/functions/v1/title-jv-public") return json("Application service setup is incomplete.", 503);
-    const result = await fetcher(`${endpoint.href}/${action}`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(60_000), headers: { "Content-Type": contentType, "X-JV-Gateway-Key": env.JV_PORTAL_GATEWAY_KEY, "X-JV-Client-IP": ip }, body });
+    const result = await fetcher(`${endpoint.href}/${action}`, { method: "POST", redirect: "manual", signal: AbortSignal.timeout(60_000), headers: { "Content-Type": contentType, "X-JV-Gateway-Key": env.JV_PORTAL_GATEWAY_KEY, "X-JV-Client-IP": ip }, body });
+    // Workers' native fetch supports manual redirects; never forward the gateway
+    // credential to a Location target or return that redirect to the recipient.
+    if (result.status >= 300 && result.status < 400) {
+      void result.body?.cancel().catch(() => {});
+      return json("The application service is unavailable. Please try again.", 503);
+    }
     const headers = new Headers(policy);
     headers.set("Content-Type", result.headers.get("Content-Type") || "application/json");
     const length = result.headers.get("Content-Length");
