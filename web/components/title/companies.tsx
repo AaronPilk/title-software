@@ -555,7 +555,7 @@ export function CompanyDetail({
               </details>
             </>
           )}
-          {tab === "Onboarding" && <><JVApplicationPanel key={c.id} company={c} onDocuments={() => setTab("Documents")} /><OnboardingCasePanel company={c} /></>}
+          {tab === "Onboarding" && <><JVApplicationPanel key={c.id} company={c} onDocuments={() => setTab("Documents")} /><details className="panel business-panel"><summary className="cursor-pointer font-semibold">Company authority and launch review</summary><OnboardingCasePanel company={c} /></details></>}
           {tab === "Jurisdictions" && <CompanyJurisdictions id={id} />}{" "}
           {tab === "Members" && <CompanyMembers key={c.id} company={c} />}
           {profileCapture && canEditProfile && (profileCaptureCurrent ? <CompanyIntakeProfileEditor key={`${profileCapture.packageId}:${profileCapture.packageVersion}`} company={c} initialValues={profileCapture.values} sourceReference={`reviewed document package ${profileCapture.packageId}, version ${profileCapture.packageVersion}`} onClose={() => setProfileCapture(null)} /> : <div role="alert" className="notice warning"><p>The company, original documents or your access changed. Reopen the package before using its suggestions.</p><Button variant="outline" onClick={() => setProfileCapture(null)}>Dismiss</Button></div>)}

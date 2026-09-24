@@ -152,9 +152,9 @@ export function OnboardingHub({
                 <p className="subtle">Add the originals, then review the category and access for each file. You can add missing documents later.</p>
                 <div className="source-actions"><Button onClick={() => onOpen(c.id, "Documents")}>Open company documents <ArrowRight /></Button><Button variant="outline" onClick={() => onOpen(c.id, "Overview")}>Company details</Button></div>
               </section>
-              <JVApplicationPanel key={c.id} company={c} onDocuments={() => onOpen(c.id, "Documents")} />
-              {companyDisplayStage(c) === "Active" && evidenceVisible ? <details className="panel business-panel" key={c.id}>
-                <summary className="cursor-pointer font-semibold">Application and approval review</summary>
+              <JVApplicationPanel key={`jv-${c.id}`} company={c} onDocuments={() => onOpen(c.id, "Documents")} />
+              {evidenceVisible ? <details className="panel business-panel" key={`authority-${c.id}`}>
+                <summary className="cursor-pointer font-semibold">Company authority and launch review</summary>
                 <p className="subtle my-3">Review formation, licensing and underwriter evidence here when the records are ready. Uploading a document does not approve it.</p>
                 <OnboardingCasePanel company={c} />
               </details> : <OnboardingCasePanel key={c.id} company={c} />}
@@ -378,12 +378,12 @@ function ApplicationEditor({ company }: { company: Company }) {
   return (
     <section className="panel business-panel">
       <div className="section-heading">
-        <h2>Application workspace</h2>
+        <h2>Company approval evidence</h2>
         <Status value={getOnboarding(s, company).applicationStatus} />
       </div>
       <p className="inline-note">
-        Keep sensitive identity details in approved secure intake. This
-        workspace stores references and business contact information.
+        Keep individual identity details in the private JV application. This
+        review tracks company records, executed agreements and licensing approvals separately.
       </p>
       {!canEdit && <p className="form-note">Your role can review this application. A company administrator can update its evidence.</p>}
       <fieldset disabled={!canEdit} style={{ display: "contents" }}><div className="form-grid">
@@ -429,7 +429,7 @@ function ApplicationEditor({ company }: { company: Company }) {
             placeholder="Approved intake record ID — no identity numbers"
           />
         </FieldLabel>
-        <FieldLabel label="Signed application evidence">
+        <FieldLabel label="Executed agreement or signed vendor application">
           <Input
             value={app.signatureReference}
             onChange={(e) => change("signatureReference", e.target.value)}
@@ -499,7 +499,7 @@ function ApplicationEditor({ company }: { company: Company }) {
         </Button>
         <Button variant="outline" onClick={packet}>
           <Download />
-          Prepare application packet
+          Download company review checklist
         </Button>
       </div></fieldset>
     </section>

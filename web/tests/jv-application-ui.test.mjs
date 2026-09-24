@@ -65,3 +65,101 @@ test('close and conflict reload require confirmation before discarding dirty inp
 test('permission failure clears the private draft and never displays server error details',async()=>{await application();await page.getByLabel('Applicant name',{exact:true}).fill('Private Fictional Value');await page.evaluate(()=>window.failJv=403);await page.getByRole('button',{name:'Save draft',exact:true}).click();await page.getByRole('alert').waitFor();assert.equal(await page.getByLabel('Applicant name',{exact:true}).count(),0);assert.doesNotMatch(await page.locator('body').innerText(),/DO NOT DISPLAY|Private Fictional Value/);});
 test('workspace/user/access changes destroy drafts and ignore stale pending results',async()=>{for(const patch of [{workspaceId:'workspace-two'},{access:{userId:'staff-two'}},{access:{version:2}}]){await application();await page.getByLabel('Applicant name',{exact:true}).fill('Old Private Applicant');await page.evaluate(()=>window.holdJv=true);await page.getByRole('button',{name:'Save draft',exact:true}).click();await page.waitForFunction(()=>window.jvPending.length===1);await page.evaluate(patch=>window.changeJvContext(patch),patch);await page.getByRole('button',{name:'Open private application',exact:true}).waitFor();await page.evaluate(()=>window.jvPending.shift()());await page.waitForTimeout(20);assert.equal(await page.getByLabel('Applicant name',{exact:true}).count(),0);assert.doesNotMatch(await page.locator('body').innerText(),/Old Private Applicant/);await context.close();}});
 test('explicit submission and evidence acknowledgement record review independently of checklist completion',async()=>{await application('complete=1');await section('Review');await page.getByRole('button',{name:'Save and submit for review',exact:true}).click();await page.getByLabel('Review note',{exact:true}).fill('Compared fictional originals and complete five-year histories.');const review=page.getByRole('button',{name:'Mark application reviewed',exact:true});assert.equal(await review.isDisabled(),true);await page.getByRole('checkbox',{name:'I compared each applicant’s details and histories with the originals and reviewed the ownership election.',exact:true}).check();await review.click();await page.getByText('Recorded review',{exact:true}).waitFor();let saved=await page.evaluate(()=>window.readJvRecord());assert.equal(saved.status,'Reviewed');assert.ok(saved.payload.steps.every(step=>step.status==='Not started'));await page.getByRole('button',{name:'Reopen as draft',exact:true}).click();await page.getByRole('button',{name:'Save and submit for review',exact:true}).waitFor();saved=await page.evaluate(()=>window.readJvRecord());assert.equal(saved.status,'Draft');assert.deepEqual(Object.keys((await page.evaluate(()=>window.jvRequests.at(-1))).data),['expectedVersion']);});
+
+const jvApplicantEntryField = label => label === "Current address" ? page.getByRole("textbox", { name: label, exact: true }) : page.getByLabel(label, { exact: true });
+
+for (const entryMode of ["fill", "keyboard"]) test(`all blank applicant fields survive ${entryMode} entry, Next, save and reopen after a context switch`, async () => {
+  await application();
+  await page.evaluate(() => window.changeJvContext({ workspaceId: "workspace-two" }));
+  await page.getByRole("button", { name: "Open private application", exact: true }).click();
+  const identity = {
+    "Applicant name": "Fictional All Fields Applicant",
+    Email: "all.fields@example.test",
+    Phone: "7045550199",
+    "Date of birth": "1985-01-15",
+    "Social Security number": "123-45-6789",
+    "Driver’s license": "FICTIONAL-DL-2468",
+    "Current address": "42 Fictional Lane\nCharlotte, NC 28202",
+  };
+  for (const [label, value] of Object.entries(identity)) {
+    const input = jvApplicantEntryField(label);
+    assert.equal(await input.inputValue(), "", `${label} starts blank`);
+    if (entryMode === "fill") await input.fill(value);
+    else await input.pressSequentially(value);
+    assert.equal(await input.inputValue(), value, `${label} accepts ${entryMode} entry`);
+  }
+  // Read all fields again after the other controlled inputs have rerendered.
+  for (const [label, value] of Object.entries(identity)) assert.equal(await jvApplicantEntryField(label).inputValue(), value, `${label} survives later input edits`);
+  for (const label of ["Date of birth", "Social Security number", "Driver’s license"]) assert.equal(await page.getByLabel(label, { exact: true }).getAttribute("type"), "password");
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  for (const [label, value] of Object.entries(identity)) assert.equal(await jvApplicantEntryField(label).inputValue(), value, `${label} survives section unmount/remount`);
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await choose("Ownership election", "Own through a business");
+  await page.getByLabel("Owner business name", { exact: true }).fill("Fictional Owner LLC");
+  await choose("Owner business status", "Already formed");
+  await page.getByLabel("Formation document or filing reference", { exact: true }).fill("Fictional formation document REF-2468");
+  const histories = {
+    "Residence 1 address": "12 Fictional Old Street",
+    "Residence 1 start date": "2018-01-01",
+    "Residence 1 end date": "2022-05-31",
+    "Residence 2 address": identity["Current address"].replace("\n", ", "),
+    "Residence 2 start date": "2022-06-01",
+    "Employment 1 employer": "Fictional Old Employer",
+    "Employment 1 role": "Coordinator",
+    "Employment 1 address": "20 Fictional Office Road",
+    "Employment 1 start date": "2018-01-01",
+    "Employment 1 end date": "2022-05-31",
+    "Employment 2 employer": "Fictional Current Employer",
+    "Employment 2 role": "Manager",
+    "Employment 2 address": "30 Fictional Business Street",
+    "Employment 2 start date": "2022-06-01",
+  };
+  for (let i = 0; i < 2; i++) {
+    await page.getByRole("button", { name: "Add residence", exact: true }).click();
+    await page.getByRole("button", { name: "Add employment", exact: true }).click();
+  }
+  for (const [label, value] of Object.entries(histories)) {
+    const input = page.getByLabel(label, { exact: true });
+    if (entryMode === "keyboard" && !label.endsWith("date")) await input.pressSequentially(value);
+    else await input.fill(value);
+    assert.equal(await input.inputValue(), value, `${label} accepts entry`);
+  }
+  assert.equal(await page.getByLabel("Residence 2 end date", { exact: true }).inputValue(), "");
+  assert.equal(await page.getByLabel("Employment 2 end date", { exact: true }).inputValue(), "");
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByLabel("Logo preferences", { exact: true }).fill("Fictional green lettering");
+  await page.getByLabel("Other application information", { exact: true }).fill("Fictional context for the reviewer.");
+  await page.getByRole("checkbox", { name: "Fictional restricted original.pdf · v1", exact: true }).check();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "Save and submit for review", exact: true }).isDisabled(), false, "all required fields and five-year histories reached review state");
+  await page.getByRole("button", { name: "Save draft", exact: true }).click();
+  await page.getByText("Private application saved.", { exact: true }).waitFor();
+  const record = await page.evaluate(() => window.readJvRecord());
+  const person = record.payload.applicants[0];
+  assert.deepEqual({ name: person.name, email: person.email, phone: person.phone, dob: person.dob, ssn: person.ssn, driverLicense: person.driverLicense, currentAddress: person.currentAddress, ownershipType: person.ownershipType, businessName: person.businessName, businessStatus: person.businessStatus, businessReference: person.businessReference }, {
+    name: identity["Applicant name"], email: identity.Email, phone: identity.Phone, dob: identity["Date of birth"], ssn: "123456789", driverLicense: identity["Driver’s license"], currentAddress: identity["Current address"], ownershipType: "business", businessName: "Fictional Owner LLC", businessStatus: "existing", businessReference: "Fictional formation document REF-2468",
+  });
+  assert.deepEqual(person.residenceHistory.map(({ address, from, to }) => ({ address, from, to })), [
+    { address: histories["Residence 1 address"], from: "2018-01-01", to: "2022-05-31" },
+    { address: histories["Residence 2 address"], from: "2022-06-01", to: "" },
+  ]);
+  assert.deepEqual(person.employmentHistory.map(({ employer, role, address, from, to }) => ({ employer, role, address, from, to })), [
+    { employer: histories["Employment 1 employer"], role: "Coordinator", address: histories["Employment 1 address"], from: "2018-01-01", to: "2022-05-31" },
+    { employer: histories["Employment 2 employer"], role: "Manager", address: histories["Employment 2 address"], from: "2022-06-01", to: "" },
+  ]);
+  assert.equal(record.payload.logoPreferences, "Fictional green lettering");
+  assert.equal(record.payload.notes, "Fictional context for the reviewer.");
+  assert.deepEqual(record.payload.sourceDocumentIds, ["restricted-original"]);
+  const save = await page.evaluate(() => window.jvRequests.find(request => request.action === "save"));
+  assert.equal(save.context.workspaceId, "workspace-two");
+  assert.equal(save.data.expectedVersion, 0);
+  assert.equal(await page.evaluate(() => window.workspaceWrites), 0);
+  await page.getByRole("button", { name: "Close application", exact: true }).click();
+  await page.getByRole("button", { name: "Open private application", exact: true }).click();
+  for (const [label, value] of Object.entries(identity)) assert.equal(await jvApplicantEntryField(label).inputValue(), label === "Social Security number" ? "123456789" : value, `${label} roundtrips through saved load`);
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  for (const [label, value] of Object.entries(histories)) assert.equal(await jvApplicantEntryField(label).inputValue(), value, `${label} roundtrips through saved load`);
+  assert.equal(await page.getByLabel("Owner business name", { exact: true }).inputValue(), "Fictional Owner LLC");
+  assert.equal(await page.getByLabel("Formation document or filing reference", { exact: true }).inputValue(), "Fictional formation document REF-2468");
+});
