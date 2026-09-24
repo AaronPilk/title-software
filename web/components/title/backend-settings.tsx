@@ -69,7 +69,7 @@ function BackendSettingsContent({ section }: { section: BackendSettingsSection }
     }
   }
   if (!connection) return null;
-  if (admin && section === "Security") return <SecurityCenter workspaceId={workspaceId} userId={connection.access.userId} />;
+  if (admin && section === "Security") return <SecurityCenter workspaceId={workspaceId} userId={connection.access.userId} companies={s.companies} />;
   if (admin && section === "Team & access") return <TeamAccess workspaceId={workspaceId} companies={s.companies} access={connection.access} refreshWorkspace={connection.refresh} />;
   return (
     <section className="panel backend-settings">

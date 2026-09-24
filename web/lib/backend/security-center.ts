@@ -23,6 +23,9 @@ export type AccessReviewMember = {
   restricted: boolean; active: boolean; version: number; partnerAssignmentsDigest: string;
 };
 export type AccessReviewSnapshot = { companyIds: string[]; members: AccessReviewMember[] };
+/** Display-only directory labels, deliberately outside persisted review/event types. */
+export type SecurityMemberLabel = { userId: string; email: string | null };
+export type SecurityCompanyLabel = { id: string; name: string };
 export type AccessReview = {
   id: string; createdAt: string; actorId: string; snapshotDigest: string;
   memberCount: number; note: string; current: boolean;

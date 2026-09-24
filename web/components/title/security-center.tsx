@@ -1,15 +1,18 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../ui/button";
-import { exportSecurityEvents, listSecurityEvents, loadSecurityCenter, recordAccessReview } from "@/lib/backend/security-center-client";
-import { securityReadiness, type SecurityCenterSummary, type SecurityEventPage } from "@/lib/backend/security-center";
+import { exportSecurityEvents, listSecurityEvents, loadSecurityCenter, loadSecurityMemberLabels, recordAccessReview } from "@/lib/backend/security-center-client";
+import { securityReadiness, type SecurityCenterSummary, type SecurityEventPage, type SecurityMemberLabel, type SecurityCompanyLabel } from "@/lib/backend/security-center";
 
-export function SecurityCenter({ workspaceId, userId }: { workspaceId: string; userId: string }) {
-  return <SecurityCenterSession key={`${workspaceId}:${userId}`} workspaceId={workspaceId} userId={userId} />;
+type SecurityCenterProps = { workspaceId: string; userId: string; companies?: readonly SecurityCompanyLabel[] };
+export function SecurityCenter({ workspaceId, userId, companies }: SecurityCenterProps) {
+  return <SecurityCenterSession key={`${workspaceId}:${userId}`} workspaceId={workspaceId} userId={userId} companies={companies} />;
 }
-function SecurityCenterSession({ workspaceId, userId }: { workspaceId: string; userId: string }) {
+function SecurityCenterSession({ workspaceId, userId, companies }: SecurityCenterProps) {
   const [summary, setSummary] = useState<SecurityCenterSummary | null>(null);
   const [events, setEvents] = useState<SecurityEventPage | null>(null);
+  const [memberLabels, setMemberLabels] = useState<SecurityMemberLabel[]>([]);
+  const [labelsUnavailable, setLabelsUnavailable] = useState(false);
   const [note, setNote] = useState(""), [acknowledged, setAcknowledged] = useState(false);
   const [error, setError] = useState(""), [notice, setNotice] = useState(""), [busy, setBusy] = useState(true);
   const identity = `${workspaceId}:${userId}`;
@@ -19,12 +22,21 @@ function SecurityCenterSession({ workspaceId, userId }: { workspaceId: string; u
     const current = ++generation.current;
     setBusy(true); setError(""); setAcknowledged(false);
     try {
-      const [nextSummary, nextEvents] = await Promise.all([loadSecurityCenter(workspaceId, userId), listSecurityEvents(workspaceId, userId)]);
+      const [nextSummary, nextEvents, nextLabels] = await Promise.all([
+        loadSecurityCenter(workspaceId, userId), listSecurityEvents(workspaceId, userId),
+        loadSecurityMemberLabels(workspaceId, userId).then(labels => ({ labels, unavailable: false })).catch((error: unknown) => {
+          // Authorization or identity failures must clear all evidence. A label
+          // service outage may fall back to explicit IDs, never guessed names.
+          const status = (error as { status?: number } | null)?.status;
+          if (status === 401 || status === 403) throw error;
+          return { labels: [], unavailable: true };
+        }),
+      ]);
       if (current !== generation.current) return;
-      setLoadedIdentity(identity); setSummary(nextSummary); setEvents(nextEvents);
+      setLoadedIdentity(identity); setSummary(nextSummary); setEvents(nextEvents); setMemberLabels(nextLabels.labels); setLabelsUnavailable(nextLabels.unavailable);
     } catch (e) {
       if (current !== generation.current) return;
-      setSummary(null); setEvents(null); setError(e instanceof Error ? e.message : "Unable to load security evidence.");
+      setSummary(null); setEvents(null); setMemberLabels([]); setError(e instanceof Error ? e.message : "Unable to load security evidence.");
     } finally { if (current === generation.current) setBusy(false); }
   }, [workspaceId, userId, identity]);
   const cancelRequests = useCallback(() => { generation.current++; }, []);
@@ -65,6 +77,8 @@ function SecurityCenterSession({ workspaceId, userId }: { workspaceId: string; u
     finally { if (current === generation.current) setBusy(false); }
   }
   const stamp = (value: string) => new Date(value).toLocaleString();
+  const emails = new Map(memberLabels.map(member => [member.userId, member.email]));
+  const companyNames = new Map(companies?.map(company => [company.id, company.name]));
   return <section aria-label="Security center" className="space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Security center</h2><p className="text-sm text-muted-foreground">Review access and retained security evidence. This screen does not certify compliance.</p></div><Button variant="outline" disabled={busy} onClick={() => void refresh()}>Refresh security evidence</Button></div>
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
@@ -74,9 +88,10 @@ function SecurityCenterSession({ workspaceId, userId }: { workspaceId: string; u
       <p className="text-xs text-muted-foreground">Evidence checked {stamp(visible.checkedAt)}</p>
       <div className="grid gap-3 md:grid-cols-2">{securityReadiness(visible).map(control => <article key={control.id} className="rounded-lg border p-4"><h3 className="font-medium">{control.label}</h3><p className="text-xs uppercase text-muted-foreground">{control.status.replaceAll("_", " ")}</p><p className="mt-2 text-sm">{control.detail}</p></article>)}</div>
       {visible.documentScanning && <article className="rounded-lg border p-4"><h3 className="font-medium">Document scanning</h3><p className="text-sm">{visible.documentScanning.policy === "pending_setup" ? "Needs review — NOT ACTIVATED. Hosted scanner setup and policy activation are required. Uploads can currently enter without a clean scan." : "New uploads require a clean scan before ingestion; scanner failure blocks ingestion."}</p><p className="text-sm">Connected configuration: {visible.documentScanning.configured ? "present" : "missing"}. Originals without scan evidence: {visible.documentScanning.legacyUnscannedCount}. Configuration presence does not verify scanner health.</p></article>}
-      <article className="space-y-3 rounded-lg border p-4"><h3 className="font-medium">Review staff access</h3><p className="text-sm">Review every account’s role, company scope, restricted-record access and membership version. Account IDs identify the staff accounts in the access directory.</p>
+      <article className="space-y-3 rounded-lg border p-4"><h3 className="font-medium">Review staff access</h3><p className="text-sm">Review every account’s role, company scope, restricted-record access and membership version. Email labels come from the current staff directory; the saved review contains account IDs.</p>
+        {labelsUnavailable && <p className="text-sm text-muted-foreground">Member labels are unavailable. Refresh to retry, or use the account IDs to check the staff directory.</p>}
         {visible.latestReview && <p className="text-sm">Last review: {stamp(visible.latestReview.createdAt)} by {visible.latestReview.actorId}. {visible.latestReview.current ? "Snapshot still matches." : "Review is stale; access or company scope changed."}<br />Note: {visible.latestReview.note}</p>}
-        <div className="overflow-x-auto"><table className="w-full text-left text-xs"><caption className="sr-only">Current membership snapshot</caption><thead><tr>{["Account ID", "Role", "Companies", "Restricted records", "Status", "Version"].map(heading => <th key={heading} className="p-2">{heading}</th>)}</tr></thead><tbody>{visible.snapshot.members.map(member => <tr key={member.userId} className="border-t"><td className="p-2 font-mono">{member.userId}</td><td className="p-2">{member.role}</td><td className="p-2">{member.allCompanies ? "All companies" : member.companyIds.join(", ") || "None"}</td><td className="p-2">{member.restricted ? "Allowed" : "Not allowed"}</td><td className="p-2">{member.active ? "Active" : "Inactive"}</td><td className="p-2">{member.version}</td></tr>)}</tbody></table></div>
+        <div className="overflow-x-auto"><table className="w-full text-left text-xs"><caption className="sr-only">Current membership snapshot</caption><thead><tr>{["Staff account", "Role", "Companies", "Restricted records", "Status", "Version"].map(heading => <th key={heading} className="p-2">{heading}</th>)}</tr></thead><tbody>{visible.snapshot.members.map(member => <tr key={member.userId} className="border-t"><td className="p-2"><span className="block text-sm">{emails.get(member.userId) ?? "Email unavailable"}</span><span className="block font-mono text-[11px] text-muted-foreground">{member.userId}</span></td><td className="p-2">{member.role}</td><td className="p-2">{member.allCompanies ? "All companies" : member.companyIds.length ? member.companyIds.map(companyId => <span className="block" key={companyId}>{companyNames.get(companyId) || "Company name unavailable"}<span className="ml-1 font-mono text-[11px] text-muted-foreground">({companyId})</span></span>) : "None"}</td><td className="p-2">{member.restricted ? "Allowed" : "Not allowed"}</td><td className="p-2">{member.active ? "Active" : "Inactive"}</td><td className="p-2">{member.version}</td></tr>)}</tbody></table></div>
         <label className="block text-sm">Review note<textarea aria-label="Review note" className="mt-1 block w-full rounded-md border p-2" value={note} onChange={event => { setNote(event.target.value); setNotice(""); }} maxLength={1000} rows={3} disabled={busy} placeholder="Record the review outcome and follow-up owner; omit client data, credentials and secrets." /></label>
         <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={acknowledged} disabled={busy} onChange={event => setAcknowledged(event.target.checked)} />I reviewed the displayed account permissions and recorded any follow-up needed.</label>
         <Button disabled={busy || !acknowledged || !note.trim()} onClick={() => void review()}>Record access review</Button><p className="text-xs text-muted-foreground">Recording a review does not grant or revoke access. Membership changes invalidate this acknowledgement.</p>
