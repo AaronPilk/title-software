@@ -19,6 +19,8 @@ before(async () => {
       createRoot(document.getElementById('root')).render(view==='setup'?<OnboardingHub onOpen={(id,tab)=>window.statusOpens.push({id,tab})} onNew={()=>{}}/>:view==='partner'?<PartnerPortal/>:<Overview navigate={()=>{}} newOrder={()=>{}} openOrder={()=>{}} openCompany={()=>{}}/>);
     ` },
     plugins: [{ name: "company-status-fixture", setup(builder) {
+      builder.onResolve({ filter: /^@\/lib\/backend\/client$/ }, () => ({ path: "private-client", namespace: "fixture" }));
+      builder.onLoad({ filter: /^private-client$/, namespace: "fixture" }, () => ({ contents: "export const activeWorkspace=()=>'';export const backendRequest=async()=>{throw Error('Unexpected private application request');};" }));
       builder.onResolve({ filter: /^@\/lib\/title\/store$/ }, () => ({ path: "store", namespace: "fixture" }));
       builder.onLoad({ filter: /^store$/, namespace: "fixture" }, () => ({ loader: "tsx", resolveDir: web, contents: `
         import {createSeed} from './lib/title/model';
@@ -35,6 +37,7 @@ before(async () => {
         window.statusState=()=>structuredClone(s);window.statusWrites=[];window.statusOpens=[];
         export const useWorkspace=()=>({s,connection,update:async()=>{window.statusWrites.push('unexpected update');throw Error('Unexpected state write');}});
         export const download=()=>{throw Error('Unexpected download');};export const exportCsv=download,exportFullBackup=download,parseBackupFile=download;
+        export const getAsset=async()=>{throw Error('Unexpected private asset read');};export const saveAsset=async()=>{throw Error('Unexpected asset write');};
       ` }));
       builder.onResolve({ filter: /^\.\/(backend-settings|partner-documents|close-suite|staff-assignment-picker)$/ }, () => ({ path: "unused-children", namespace: "fixture-child" }));
       builder.onLoad({ filter: /.*/, namespace: "fixture-child" }, () => ({ contents: "export const BackendSettings=()=>null,PartnerDocuments=()=>null,PartnerStatements=()=>null,StaffAssignmentPicker=()=>null;" }));
