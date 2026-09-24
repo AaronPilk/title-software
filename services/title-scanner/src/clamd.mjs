@@ -57,6 +57,15 @@ function versionMetadata(value, now, maxSignatureAgeMs) {
   return { engineVersion: `ClamAV ${match[1]}`, signatureVersion: match[2], signatureUpdatedAt: new Date(stamp).toISOString() };
 }
 
+/** Authenticated readiness exposes engine health only, never document content or identifiers. */
+export async function inspectClamd(config, signal) {
+  const before = await clamdCommand(config.socketPath, 'VERSION', null, signal);
+  const metadata = versionMetadata(before, Date.now(), config.maxSignatureAgeMs);
+  if (await clamdCommand(config.socketPath, 'PING', null, signal) !== 'PONG' ||
+      await clamdCommand(config.socketPath, 'VERSION', null, signal) !== before) throw new Error('scanner_unavailable');
+  return { status: 'ready', ...metadata };
+}
+
 export async function scanWithClamd(bytes, config, signal) {
   await assertInspectableArchive(bytes, signal);
   const before = await clamdCommand(config.socketPath, 'VERSION', null, signal);

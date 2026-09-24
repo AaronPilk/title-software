@@ -1,0 +1,35 @@
+name: Scanner image verification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: scanner-image-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  real-engine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22'
+      - name: Build pinned Linux image
+        run: docker build --platform linux/amd64 -t title-scanner:verify services/title-scanner
+      - name: Test private scanner with official signatures and synthetic files
+        shell: bash
+        run: |
+          set -euo pipefail
+          export TITLE_SCANNER_TOKEN
+          TITLE_SCANNER_TOKEN="$(openssl rand -hex 32)"
+          export TITLE_SCANNER_URL=http://127.0.0.1:18080
+          trap 'docker rm -f title-scanner-verify >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name title-scanner-verify \
+            --memory=6g --cpus=1 --pids-limit=128 --cap-drop=ALL \
+            --security-opt=no-new-privileges --ulimit core=0 \
+            -p 127.0.0.1:18080:8080 --env TITLE_SCANNER_TOKEN title-scanner:verify
+          node --experimental-strip-types services/title-scanner/scripts/verify-container.mjs
+      # No cloud credentials, registry publication, deployment, or customer data.

@@ -1,9 +1,10 @@
 import https from 'node:https';
+import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { scanWithClamd } from './clamd.mjs';
+import { scanWithClamd, inspectClamd } from './clamd.mjs';
 
 export const MAX_BYTES = 52428800;
 function integer(raw, fallback, min, max) {
@@ -13,13 +14,15 @@ function integer(raw, fallback, min, max) {
 }
 export function scannerConfig(env = process.env) {
   const token = env.TITLE_SCANNER_TOKEN;
-  if (!token || !/^[\x21-\x7e]{32,512}$/.test(token) || !env.CLAMD_SOCKET || !isAbsolute(env.CLAMD_SOCKET) ||
-      !env.TITLE_SCANNER_TLS_CERT || !env.TITLE_SCANNER_TLS_KEY) throw new Error('invalid_scanner_configuration');
+  const transport = env.TITLE_SCANNER_TRANSPORT ?? 'https';
+  if (!['https', 'cloudflare-private-http'].includes(transport) ||
+      !token || !/^[\x21-\x7e]{32,512}$/.test(token) || !env.CLAMD_SOCKET || !isAbsolute(env.CLAMD_SOCKET)) throw new Error('invalid_scanner_configuration');
   const host = env.TITLE_SCANNER_HOST ?? '127.0.0.1';
-  if (!['127.0.0.1', '::1'].includes(host)) throw new Error('invalid_scanner_configuration');
+  if (!(transport === 'https' ? ['127.0.0.1', '::1'] : ['127.0.0.1', '0.0.0.0']).includes(host) ||
+      (transport === 'https' && (!env.TITLE_SCANNER_TLS_CERT || !env.TITLE_SCANNER_TLS_KEY))) throw new Error('invalid_scanner_configuration');
   return {
-    token, host, port: integer(env.TITLE_SCANNER_PORT, 9443, 1, 65535), socketPath: env.CLAMD_SOCKET,
-    cert: readFileSync(env.TITLE_SCANNER_TLS_CERT), key: readFileSync(env.TITLE_SCANNER_TLS_KEY),
+    token, host, transport, port: integer(env.TITLE_SCANNER_PORT, 9443, 1, 65535), socketPath: env.CLAMD_SOCKET,
+    ...(transport === 'https' ? { cert: readFileSync(env.TITLE_SCANNER_TLS_CERT), key: readFileSync(env.TITLE_SCANNER_TLS_KEY) } : {}),
     maxBytes: integer(env.TITLE_SCANNER_MAX_BYTES, MAX_BYTES, 1, MAX_BYTES),
     timeoutMs: integer(env.TITLE_SCANNER_TIMEOUT_MS, 25000, 1000, 30000),
     maxConcurrent: integer(env.TITLE_SCANNER_CONCURRENCY, 2, 1, 4),
@@ -42,13 +45,29 @@ function send(res, status, payload) {
 }
 
 /** Exposed for in-process local tests; CLI always uses validated env configuration and the real engine. */
-export function createScannerServer(config, scan = scanWithClamd) {
+export function createScannerServer(config, scan = scanWithClamd, health = inspectClamd) {
   let active = 0;
   const handler = async (req, res) => {
     // No logs of URLs, headers, filenames, content, hashes, or raw engine errors.
-    if (req.method !== 'POST' || req.url !== '/v1/scan') return send(res, 404, { error: 'not_found' });
+    const healthRequest = req.method === 'GET' && req.url === '/v1/health';
+    if (!healthRequest && (req.method !== 'POST' || req.url !== '/v1/scan')) return send(res, 404, { error: 'not_found' });
     if (!authorized(req.headers.authorization, config.token)) return send(res, 401, { error: 'unauthorized' });
     if (active >= config.maxConcurrent) return send(res, 503, { error: 'scanner_busy' });
+    if (healthRequest) {
+      if (req.headers['transfer-encoding'] || (req.headers['content-length'] && req.headers['content-length'] !== '0'))
+        return send(res, 400, { error: 'invalid_request' });
+      active += 1;
+      const controller = new AbortController();
+      let timer;
+      try {
+        const result = await Promise.race([health(config, controller.signal), new Promise((_, reject) => {
+          timer = setTimeout(() => { controller.abort(); reject(new Error()); }, 3000);
+        })]);
+        send(res, 200, { protocolVersion: 1, checkedAt: new Date().toISOString(), ...result });
+      } catch { send(res, 503, { error: 'scanner_unavailable' }); }
+      finally { clearTimeout(timer); controller.abort(); active -= 1; }
+      return;
+    }
     const length = req.headers['content-length'];
     const sha256 = req.headers['x-content-sha256'];
     const requestId = req.headers['x-scan-request-id'];
@@ -87,7 +106,11 @@ export function createScannerServer(config, scan = scanWithClamd) {
     } catch { send(res, controller.signal.aborted ? 504 : 503, { error: controller.signal.aborted ? 'scanner_timeout' : 'scanner_unavailable' }); }
     finally { clearTimeout(timer); res.off('close', closed); active -= 1; }
   };
-  const server = https.createServer({ cert: config.cert, key: config.key, minVersion: 'TLSv1.2', maxHeaderSize: 8192, handshakeTimeout: 5000, connectionsCheckingInterval: 1000 }, handler);
+  // Plain HTTP is opt-in for the private Cloudflare Container port only. The Worker terminates external TLS.
+  // Never publish this port directly or use this mode for the standalone loopback service.
+  const server = config.transport === 'cloudflare-private-http'
+    ? http.createServer({ maxHeaderSize: 8192, connectionsCheckingInterval: 1000 }, handler)
+    : https.createServer({ cert: config.cert, key: config.key, minVersion: 'TLSv1.2', maxHeaderSize: 8192, handshakeTimeout: 5000, connectionsCheckingInterval: 1000 }, handler);
   server.headersTimeout = 5000;
   server.requestTimeout = config.timeoutMs;
   server.keepAliveTimeout = 1000;

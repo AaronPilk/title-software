@@ -1,0 +1,20 @@
+{
+  "name": "title-scanner-host",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "types": "wrangler types",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs",
+    "dry-run": "wrangler deploy --dry-run --containers-rollout=none --outdir .local/build",
+    "verify:hosted": "node --experimental-strip-types scripts/verify-hosted.mjs"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "0.3.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "typescript": "5.9.3",
+    "wrangler": "4.136.3"
+  }
+}

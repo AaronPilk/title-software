@@ -1,6 +1,8 @@
 # Document malware scanning operations
 
-The scanner is a private, authenticated HTTPS adapter to a local ClamAV daemon. No upload is sent to a public malware-analysis service. It is not deployed or connected to customer documents by this change. Host selection, data location, network access, secrets, and activation are operator decisions.
+The scanner is a private, authenticated adapter to a local ClamAV daemon. No upload is sent to a public malware-analysis service. It is not deployed or connected to customer documents by this change. Host selection, data location, network access, secrets, and activation are operator decisions. The prepared [Cloudflare hosting package](scanner-hosting.md) terminates public HTTPS at an authenticated Worker and forwards over the private container connection. The standalone service retains loopback HTTPS as its default.
+
+On September 24, the owner approved preparation and testing **without starting paid hosting**. Do not deploy the container package or activate required scanning under that decision. The image verification workflow builds and tests synthetic files on a temporary GitHub runner; it does not provision a scanner host or establish production coverage.
 
 ## Receipt and release contract
 
@@ -14,7 +16,7 @@ The integration uses an operator-controlled database rollout policy. `pending_se
 
 ## Bounded service
 
-Run Node 22.13 or newer. Install the locked dependency with `npm --prefix services/title-scanner ci`. The service listens only on loopback and terminates TLS itself. An approved private ingress/proxy may reach that listener; keep request bodies, authorization headers, names, hashes, and content out of proxy, tracing, error, and access logs. Do not expose `clamd` or its unauthenticated TCP protocol. The adapter only connects to its configured local Unix socket and sends `INSTREAM`, never customer filenames or filesystem paths.
+Run Node 22.13 or newer. Install the locked dependency with `npm --prefix services/title-scanner ci`. In standalone mode the service listens only on loopback and terminates TLS itself. The explicit container mode is limited to the prepared private ingress architecture described in the hosting runbook; never publish its HTTP port directly. Keep request bodies, authorization headers, names, hashes, and content out of proxy, tracing, error, and access logs. Do not expose `clamd` or its unauthenticated TCP protocol. The adapter only connects to its configured local Unix socket and sends `INSTREAM`, never customer filenames or filesystem paths.
 
 | Setting | Default / limit |
 | --- | --- |

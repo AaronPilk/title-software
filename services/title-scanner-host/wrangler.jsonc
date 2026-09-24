@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "title-document-scanner",
+  "account_id": "9c332c75b96cc642621dad5d86d4bf18",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  // PREPARED ONLY. Deployment provisions paid resources; do not deploy before hosting approval.
+  // Change to true only during the approved hosted verification/activation procedure.
+  "vars": { "TITLE_SCANNER_ENABLED": "false" },
+  "durable_objects": { "bindings": [{ "name": "TITLE_SCANNER", "class_name": "TitleScanner" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TitleScanner"] }],
+  "containers": [{
+    "class_name": "TitleScanner",
+    "name": "title-document-scanner",
+    "image": "../title-scanner/Dockerfile",
+    "image_build_context": "../title-scanner",
+    "instance_type": "standard-2",
+    "max_instances": 1,
+    "constraints": { "regions": ["ENAM"] },
+    "ssh": { "enabled": false }
+  }],
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "limits": { "cpu_ms": 5000 },
+  "observability": {
+    "enabled": true,
+    "redact_query_string": true,
+    "logs": { "enabled": true, "invocation_logs": false },
+    "traces": { "enabled": true, "head_sampling_rate": 0.01 }
+  }
+}
