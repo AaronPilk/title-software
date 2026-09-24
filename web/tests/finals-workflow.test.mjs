@@ -4,12 +4,13 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
 const bundle = await build({
-  stdin: { contents: `export * from './lib/title/finals-queue'; export * from './lib/title/production'; export * from './lib/title/business'; export {createSeed} from './lib/title/model'; export {captureCommands} from './lib/title/command-log';`, resolveDir: fileURLToPath(new URL("../", import.meta.url)), loader: "ts" },
+  stdin: { contents: `export * from './lib/title/finals-queue'; export * from './lib/title/production'; export * from './lib/title/business'; export {suggestSourceFields} from './lib/title/field-extraction'; export {createSeed} from './lib/title/model'; export {captureCommands} from './lib/title/command-log';`, resolveDir: fileURLToPath(new URL("../", import.meta.url)), loader: "ts" },
   bundle: true, write: false, format: "esm", platform: "node", target: "es2022",
 });
 const api = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString("base64")}`);
 const { createSeed, finalsQueue, filterFinalsQueue, nextReadyFinal,
   finalReadiness, reviewCommitment, addReferencedSource, reviewReferencedSource,
+  neededFields, replaceSourceFields, suggestSourceFields,
   referencedSourceStatus, commitmentProblems, commitmentFingerprint,
   referencedSourcesShapeValid,
   validateBusinessMutation, captureCommands, closeFingerprint, newClose, refreshClose,
@@ -42,6 +43,71 @@ function readyFixture() {
   assert.equal(finalReadiness(s, o).ready, true);
   return { s, o };
 }
+
+test("matching extracted currency amounts preserve evidence and still require source review", () => {
+  for (const securityInstrument of ["Deed of trust", "Mortgage"]) for (const amount of ["$320,000.00", "$ 320,000.00", "USD 320000.00", "USD320,000", "US$320,000.00", "US$ 320000", "320000", "320,000.00"]) {
+    const { s, o } = readyFixture();
+    const doc = s.documents.find(d => d.orderId === o.id && d.sourceRole === "Deed of trust");
+    o.production.securityInstrument = securityInstrument; doc.sourceRole = securityInstrument;
+    const defs = neededFields(o).filter(def => def.role === doc.sourceRole);
+    const values = Object.fromEntries(defs.map(def => [def.id, o.fields.find(field => field.id === def.id).sourceValue]));
+    const text = `Loan amount: ${amount}`;
+    const [suggestion] = suggestSourceFields([{ id: "loanAmount", label: "Loan amount" }], [{ page: 2, method: "pdf-text", text }]);
+    assert.equal(suggestion.status, "suggested", amount);
+    const candidate = suggestion.candidates[0];
+    values.loanAmount = candidate.rawValue;
+    replaceSourceFields(s, o.id, doc.id, values, "PDF page 2", {
+      documentVersion: doc.version, assetId: doc.assetId || "", sourceRole: doc.sourceRole, orderVersion: o.production.version,
+      fields: { loanAmount: { page: "PDF page 2", method: candidate.method, quote: candidate.quote, suggestedValue: candidate.rawValue } },
+    });
+    const captured = o.fields.find(field => field.id === "loanAmount");
+    assert.equal(captured.sourceValue, amount); assert.equal(captured.proposed, amount);
+    assert.equal(captured.captureEvidence.quote, text); assert.equal(captured.captureEvidence.suggestedValue, amount);
+    assert.equal(captured.captureEvidence.corrected, false);
+    assert.equal(captured.reviewed, false); assert.equal(finalReadiness(s, o).ready, false);
+    assert.equal(finalReadiness(s, o).loanMismatch, false, amount);
+    o.fields.forEach(field => { field.reviewed = true; });
+    reviewCommitment(s, o, "Currency and original source reviewed.");
+    assert.equal(finalReadiness(s, o).ready, true, amount);
+    s.documents = s.documents.filter(d => d.id !== doc.id);
+    assert.equal(finalReadiness(s, o).ready, false);
+    assert.equal(captured.sourceValue, amount); assert.equal(o.production.loanAmount, 320000);
+  }
+});
+
+test("valid currency amounts with a different principal remain blocked", () => {
+  for (const amount of ["$320,000.01", "USD 319999.99", "US$325,000.00", "319999"]) {
+    const { s, o } = readyFixture();
+    const [suggestion] = suggestSourceFields([{ id: "loanAmount", label: "Loan amount" }], [{ page: 1, method: "pdf-text", text: `Loan amount: ${amount}` }]);
+    assert.equal(suggestion.status, "suggested", amount);
+    o.fields.find(field => field.id === "loanAmount").proposed = suggestion.candidates[0].rawValue;
+    assert.equal(finalReadiness(s, o).loanMismatch, true, amount);
+    assert.equal(finalReadiness(s, o).ready, false, amount);
+    assert.equal(o.production.loanAmount, 320000);
+  }
+});
+
+test("malformed source amounts cannot pass readiness through numeric coercion", () => {
+  for (const amount of ["3,20,000", "320,,000", "320 000", "320000.0", "3.2e5", "0x4e200", "320000-325000", "-320000", "+320000", "$32O,000.00", "USD 320,00.00", "US$320000 or 325000", "", "NaN", "Infinity"]) {
+    const { s, o } = readyFixture();
+    const [suggestion] = suggestSourceFields([{ id: "loanAmount", label: "Loan amount" }], [{ page: 1, method: "pdf-text", text: `Loan amount: ${amount}` }]);
+    assert.equal(suggestion.status, "missing", amount);
+    o.fields.find(field => field.id === "loanAmount").proposed = amount;
+    assert.equal(finalReadiness(s, o).loanMismatch, true, amount);
+    assert.equal(finalReadiness(s, o).ready, false, amount);
+    assert.equal(o.production.loanAmount, 320000);
+  }
+});
+
+test("cash readiness does not require a source loan amount", () => {
+  const { s, o } = readyFixture();
+  o.production.financing = "Cash"; o.production.loanAmount = 0;
+  o.fields = o.fields.filter(field => field.id !== "loanAmount");
+  s.documents = s.documents.filter(doc => doc.orderId !== o.id || doc.sourceRole !== "Deed of trust");
+  reviewCommitment(s, o, "Cash final reviewed without financing.");
+  assert.equal(finalReadiness(s, o).loanMismatch, false);
+  assert.equal(finalReadiness(s, o).ready, true);
+});
 
 test("finals exclude initial-only, issued, rejected and cross-company requests", () => {
   const s = fixture(), [initial, final, issued, rejected, wrongCompany] = s.orders;

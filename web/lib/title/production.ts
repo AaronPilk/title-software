@@ -1,5 +1,6 @@
 import { traceMutation, commandUuid } from "./command-log";
 import type { Field, Order, VaultDoc, Workspace } from "./model";
+import { parseSourceAmount } from "./source-amount";
 
 export type SourceRole =
   | "Final opinion"
@@ -489,11 +490,10 @@ export function finalReadiness(s: Workspace, order: Order) {
   ];
   const sourceLoan =
     order.fields.find((f) => f.id === "loanAmount")?.proposed || "";
-  const parsedLoan = Number(sourceLoan.replace(/[$,\s]/g, ""));
+  const parsedLoan = parseSourceAmount(sourceLoan.trim());
   const loanMismatch =
     p.financing === "Financed" &&
-    (!sourceLoan.trim() ||
-      !Number.isFinite(parsedLoan) ||
+    (parsedLoan === null ||
       Math.abs(parsedLoan - p.loanAmount) > 0.005);
   const unresolved = p.requirements.filter(
     (r) =>

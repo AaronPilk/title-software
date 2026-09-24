@@ -1,4 +1,6 @@
 /** Bounded, source-grounded label and narrative suggestions. Never changes or approves a field. */
+import { parseSourceAmount } from "./source-amount";
+
 export type SourceFieldPage = {
   page: number;
   text: string;
@@ -131,7 +133,7 @@ function checkDate(raw: string): { valid: boolean; ambiguous?: string } {
 export function checkSourceValue(kind: SourceValueKind, value: string): { valid: boolean; ambiguous?: string } {
   if (!value || value.length > FIELD_EXTRACTION_LIMITS.valueCharacters || /^(?:grantee|grantor|borrower|lender|trustee|n\/?a|none|unknown|tbd|see attached|not provided|not available|blank|[-_]+)$/i.test(value)) return { valid: false };
   if (kind === "date") return checkDate(value);
-  if (kind === "amount") return { valid: /^(?:(?:USD|US\$)\s*|\$\s*)?(?:\d{1,12}|\d{1,3}(?:,\d{3}){1,3})(?:\.\d{2})?$/.test(value) };
+  if (kind === "amount") return { valid: parseSourceAmount(value) !== null };
   if (kind === "time") {
     const time = /^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM|A\.M\.|P\.M\.))?$/i.exec(value);
     if (!time || +time[2] > 59 || (time[3] !== undefined && +time[3] > 59)) return { valid: false };
