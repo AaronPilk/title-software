@@ -1,4 +1,5 @@
 import { ApiError, executeCommands, type Access } from "./workspace";
+import { requireMissiveGrant, type MissiveIntakeGrant } from "./missive-intake-grant";
 import { missiveReader, type MissiveConfig } from "./missive";
 import type { Workspace, Mail } from "../title/model";
 import { productionLocked } from "../title/production";
@@ -75,7 +76,10 @@ export async function listMissiveMessages(config: MissiveConfig, workspaceId: st
 }
 export async function readMissiveMessage(config: MissiveConfig, workspaceId: string, access: Access, mapping: MissiveMapping, messageId: string, fetcher: typeof fetch = fetch): Promise<MissiveMessage> {
   const read = missiveReader(config, workspaceId, access, fetcher);
-  const m = obj((await read(`/v1/messages/${providerId(messageId)}`)).messages);
+  return parseMissiveMessage(await read(`/v1/messages/${providerId(messageId)}`), mapping, messageId);
+}
+export function parseMissiveMessage(payload: Record<string, unknown>, mapping: MissiveMapping, messageId: string): MissiveMessage {
+  const m = obj(payload.messages);
   if (m.id !== messageId || m.type !== "email" || m.draft === true || m.author != null) fail("Only received email records can be reviewed here.", 409);
   const conversationId = scope(m.conversation, mapping);
   const sender = obj(m.from_field), email = str(sender.address, 320);
@@ -118,8 +122,9 @@ export function existingMissiveImport(s: Workspace, organizationId: string, mess
     fail("This Missive message was already imported to another destination. Its original routing is preserved.", 409);
   return existing;
 }
-export async function importMissiveText(before: Workspace, access: Access, mapping: MissiveMapping, message: MissiveMessage, orderId: string, kind: Mail["kind"], fingerprint: string, requestId: string): Promise<Workspace> {
-  if (access.role !== "owner" && !(access.role === "admin" && access.allCompanies)) fail("Organization-wide administrator access is required.", 403);
+export async function importMissiveText(before: Workspace, access: Access, mapping: MissiveMapping, message: MissiveMessage, orderId: string, kind: Mail["kind"], fingerprint: string, requestId: string, grant?: MissiveIntakeGrant): Promise<Workspace> {
+  if (grant) requireMissiveGrant(grant, before, access, mapping, orderId);
+  else if (access.role !== "owner" && !(access.role === "admin" && access.allCompanies)) fail("Organization-wide administrator access is required.", 403);
   if (!["Revision", "Finals", "Commitment"].includes(kind || "")) fail("Choose the request type.", 400);
   if (message.organizationId !== mapping.organizationId || message.teamId !== mapping.teamId) fail("Message scope changed.", 409);
   const preview = await previewMissiveMessage(message);

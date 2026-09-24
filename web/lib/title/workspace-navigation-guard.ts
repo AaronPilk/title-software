@@ -1,6 +1,6 @@
 "use client";
 
-/** Navigation guards hold status only. Private application values stay in their component. */
+/** Navigation guards hold status only. Private form values stay in their component. */
 export type WorkspaceNavigationScope = "workspace" | "company-detail";
 export type WorkspaceNavigationState = { dirty: boolean; busy: boolean };
 const guards = new Map<symbol, { scope: WorkspaceNavigationScope; state: () => WorkspaceNavigationState }>();
@@ -26,5 +26,5 @@ export function registerWorkspaceNavigationGuard(scope: WorkspaceNavigationScope
 export function allowWorkspaceNavigation(scope?: WorkspaceNavigationScope) {
   const current = states(scope);
   if (current.some(state => state.busy)) return false;
-  return !current.some(state => state.dirty) || window.confirm("Discard unsaved application changes? Save them first to keep your work.");
+  return !current.some(state => state.dirty) || window.confirm("Discard unsaved changes? Save them first to keep your work.");
 }

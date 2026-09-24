@@ -146,6 +146,7 @@ function Workspace() {
   const [docId, setDocId] = useState("");
   const [docTarget, setDocTarget] = useState<{ identity: string; page: number } | null>(null);
   const [newOrder, setNewOrder] = useState(false);
+  const [newOrderCompany, setNewOrderCompany] = useState<string | undefined>();
   const [newCompany, setNewCompany] = useState(false);
   const [uploadCompany, setUploadCompany] = useState<string | null>(null);
   const [uploadDestination, setUploadDestination] = useState<"company" | "title">("company");
@@ -395,6 +396,8 @@ function Workspace() {
         <ProductionInbox
           view={view}
           onSettings={() => navigate("Settings")}
+          onOpenFile={openReview}
+          onCreateFile={(companyId?: string) => { setNewOrderCompany(companyId); setNewOrder(true); }}
           onReview={openReview}
           onCommitment={(id) => {
             setPolicyId(id);
@@ -705,7 +708,7 @@ function Workspace() {
           </div>
         </SheetContent>
       </Sheet>
-      {newOrder && <NewOrder open onClose={() => setNewOrder(false)} />}{" "}
+      {newOrder && <NewOrder open initialCompanyId={newOrderCompany} onClose={() => { setNewOrder(false); setNewOrderCompany(undefined); }} />}{" "}
       {newCompany && <NewCompany open onClose={() => setNewCompany(false)} />}{" "}
       {orderId && (
         <OrderDetail

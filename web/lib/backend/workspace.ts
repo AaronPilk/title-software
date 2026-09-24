@@ -7,6 +7,8 @@ import type { Workspace, Company, Order, VaultDoc } from "../title/model";
 import { createSeed } from "../title/model";
 import * as B from "../title/business";
 import * as P from "../title/production";
+import * as FP from "../title/final-preparation";
+import { fieldReviewHistoryShapeValid, recordFieldReviewChanges } from "../title/field-review-history";
 import * as M from "../title/materials";
 import * as F from "../title/followups";
 import * as S from "../title/statement-delivery";
@@ -249,6 +251,8 @@ function checkScope(before: Workspace, after: Workspace, a: Access) {
   }
 }
 function ensureShape(s: Workspace) {
+  if (s.orders.some(o => !fieldReviewHistoryShapeValid(o.fieldReviewHistory))) fail("Invalid source field review history.");
+  if (s.orders.some(o => o.finalPreparation !== undefined && !FP.finalPreparationShapeValid(o.finalPreparation))) fail("Invalid final preparation worksheet.");
   if (s.orders.some(o => !P.referencedSourcesShapeValid(o.production?.referencedSources))) fail("Invalid referenced-source checklist.");
   for (const table of recordTables) {
     const list = collection(s, table),
@@ -1180,7 +1184,7 @@ function validateWorkflowCommand(cmd: WorkspaceCommand) {
     }
   }
 }
-const handlers = { ...B, ...P, ...M, ...F, ...S, ...T, ...D, ...O, ...OR, executeRules };
+const handlers = { ...B, ...P, ...FP, ...M, ...F, ...S, ...T, ...D, ...O, ...OR, executeRules };
 function dispatch(name: string, state: Workspace, args: unknown[]) {
   const handler = handlers[name as keyof typeof handlers];
   if (typeof handler !== "function") fail("Unknown action.");
@@ -1261,6 +1265,23 @@ export function executeCommands(
         const targeted = ["reviewExternalProposal", "recordExternalOutcome"].includes(cmd.name);
         if (cmd.args.length !== (targeted ? 2 : 1)) fail("Invalid orchestration arguments.");
         workflowError(() => dispatch(cmd.name, next, structuredClone(cmd.args)));
+      } else if (["saveFinalPreparation", "reviewFinalPreparation", "prepareFinalHandoff"].includes(cmd.name)) {
+        permit(a, "production");
+        const count = cmd.name === "saveFinalPreparation" || cmd.name === "reviewFinalPreparation" ? 4 : 3;
+        if (cmd.args.length !== count || typeof cmd.args[0] !== "string") fail("Invalid final preparation arguments.");
+        const visible = projectWorkspace(next, a);
+        const order = visible.orders.find(o => o.id === cmd.args[0]);
+        if (!order || !canCompany(a, order.companyId)) fail("This title file is outside your access.", 403);
+        if (cmd.name === "saveFinalPreparation") {
+          const input = cmd.args[1];
+          if (!FP.finalPreparationInputShapeValid(input)) fail("Invalid final preparation worksheet.");
+          for (const id of [input.issuingCompanyId, input.referringCompanyId])
+            if (id && !visible.companies.some(c => c.id === id)) fail("This company is outside your access.", 403);
+          for (const product of input.products)
+            if (!visible.business?.policies.some(p => p.id === product.policyId && p.orderId === order.id))
+              fail("Choose a policy product belonging to this title file.", 403);
+        }
+        workflowError(() => dispatch(cmd.name, next, structuredClone(cmd.args)));
       } else if (cmd.name === "loadDemoScenario") {
         permitWorkspaceAdmin(a);
         B.loadDemoScenario(next);
@@ -1331,7 +1352,9 @@ export function executeCommands(
         if (!previous) task.createdAt = timestamp;
         else if (task.createdAt !== previous.createdAt) fail("Task creation time cannot be changed.");
       }
+      workflowError(() => recordFieldReviewChanges(prior, next, a.email, timestamp));
       B.validateBusinessMutation(prior, next);
+      workflowError(() => FP.validateFinalPreparationMutation(prior, next));
       immutableHistory(prior, next);
       ensureShape(next);
       checkScope(prior, next, a);
@@ -1457,6 +1480,10 @@ export function projectWorkspace(source: Workspace, a: Access): Workspace {
     }));
   }
   const hidden = new Set<string>();
+  for (const order of s.orders) {
+    const input = order.finalPreparation?.input;
+    if (input && [input.issuingCompanyId, input.referringCompanyId].some(id => id && !canCompany(a, id))) hidden.add(order.id);
+  }
   if (productionOnlyRole(a.role)) {
     s.companies = s.companies.map(productionCompany);
     s.documents = s.documents.filter(document => productionDocument(s, document));

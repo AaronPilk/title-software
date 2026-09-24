@@ -4,6 +4,7 @@ import { chooseStaffAssignment, useStaffDirectory } from "./use-staff-directory"
 import { businessDay, nextWeekday } from "@/lib/title/business-date";
 import { canManageProduction } from "@/lib/title/workspace-capabilities";
 import { BufferedInput } from "./buffered-input";
+import { allowWorkspaceNavigation } from "@/lib/title/workspace-navigation-guard";
 import {
   recordOrderOutcome,
   recoveryStage,
@@ -71,6 +72,9 @@ import {
 } from "@/lib/title/production";
 import { FinalSources, TitleFileDetails } from "./final-intake";
 import { ReferencedSources } from "./referenced-sources";
+import { FinalPreparationWorkspace } from "./final-preparation-workspace";
+import { PolicyList } from "./production-suite";
+import { FieldReviewHistory } from "./field-review-history";
 import { finalsQueue, filterFinalsQueue, nextReadyFinal } from "@/lib/title/finals-queue";
 export const statuses: OrderStatus[] = [
   "New",
@@ -229,22 +233,25 @@ export function Orders({
 export function NewOrder({
   open,
   onClose,
+  initialCompanyId,
 }: {
   open: boolean;
   onClose: () => void;
+  initialCompanyId?: string;
 }) {
   const { s, update: save, connection } = useWorkspace();
   const canEdit = canManageProduction(connection);
   const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
-  const [company, setCompany] = useState(s.companies[0]?.id || "");
+  const initialCompany = s.companies.find(c => c.id === initialCompanyId) || s.companies[0];
+  const [company, setCompany] = useState(initialCompany?.id || "");
   const [owner, setOwner] = useState(connection?.access.userId || "Tyler");
   const directory = useStaffDirectory(company, "order");
   const chosenAssignee = directory.staff.find(member => member.userId === owner);
   const [type, setType] = useState("Purchase");
   const [underwriter, setUnderwriter] = useState("WFG");
   const [state, setState] = useState(
-    s.companies[0]?.operatingStates?.[0] ||
-      s.companies[0]?.jurisdiction ||
+    initialCompany?.operatingStates?.[0] ||
+      initialCompany?.jurisdiction ||
       "NC",
   );
   const operatingStates = s.companies.find((c) => c.id === company)
@@ -358,7 +365,7 @@ export function NewOrder({
                 value={underwriter}
                 onChange={setUnderwriter}
                 label="Underwriter"
-                options={["WFG", "Commonwealth"]}
+                options={["WFG", "Commonwealth", "First American"]}
               />
             </FieldLabel>
             <FieldLabel label="Assigned to">
@@ -420,7 +427,7 @@ export function PolicyWorkbench({
   const [company, setCompany] = useState("all");
   const [assignee, setAssignee] = useState("all");
   const [q, setQ] = useState("");
-  const [tab, setTab] = useState("Document review");
+  const [tab, setTab] = useState("Prepare final");
   const [attorney, setAttorney] = useState(false);
   const [attorneyRef, setAttorneyRef] = useState("");
   const backlog = finalsQueue(s);
@@ -448,7 +455,9 @@ export function PolicyWorkbench({
     setAttorneyRef("");
   }
   const currentCompany = order ? companyById(s, order.companyId) : undefined;
+  const isWfg = !!order && ["wfg", "wfg national", "wfg national title insurance company"].includes(order.underwriter.trim().toLowerCase());
   function select(id: string) {
+    if (!allowWorkspaceNavigation("workspace")) return;
     onSelect(id);
     setAttorney(false);
     setAttorneyRef("");
@@ -545,18 +554,18 @@ export function PolicyWorkbench({
             <span>{rows.length}</span>
           </div>
           <div className="queue-filters">
-            <SearchBox value={q} onChange={setQ} placeholder="Find a final file…" />
-            <Picker value={company} onChange={setCompany} label="Finals company" options={[
+            <SearchBox value={q} onChange={value => { if (allowWorkspaceNavigation("workspace")) setQ(value); }} placeholder="Find a final file…" />
+            <Picker value={company} onChange={value => { if (allowWorkspaceNavigation("workspace")) setCompany(value); }} label="Finals company" options={[
               { value: "all", label: "All companies" },
               ...s.companies.map(c => ({ value: c.id, label: c.name })),
             ]} />
-            <Picker value={assignee} onChange={setAssignee} label="Finals assignee" options={[
+            <Picker value={assignee} onChange={value => { if (allowWorkspaceNavigation("workspace")) setAssignee(value); }} label="Finals assignee" options={[
               { value: "all", label: "All assignees" },
               ...[...new Set(backlog.map(r => r.order.owner))].sort().map(owner => ({ value: owner || "__unassigned", label: owner || "Unassigned" })),
             ]} />
             <Picker
               value={filter}
-              onChange={setFilter}
+              onChange={value => { if (allowWorkspaceNavigation("workspace")) setFilter(value); }}
               label="Finals readiness"
               options={[
                 "All finals",
@@ -617,21 +626,31 @@ export function PolicyWorkbench({
               {outsideQueue?.id === order.id && <p className="notice">This file is outside the finals backlog. Attach its final opinion or capture a Finals request to add it to the queue.</p>}
               <Segments
                 value={tab}
-                onChange={setTab}
+                onChange={next => { if (next === tab || allowWorkspaceNavigation("workspace")) setTab(next); }}
                 items={[
+                  "Prepare final",
                   "Source package",
                   "Document review",
                   "File details",
+                  "Policy products",
                   "Policy lifecycle",
                   "Notes",
                 ]}
               />
+              {tab === "Prepare final" && (
+                <FinalPreparationWorkspace key={order.id} order={order}
+                  onReviewSources={() => setTab("Source package")}
+                  onReviewFields={() => setTab("Document review")}
+                  onReviewDetails={() => setTab("File details")}
+                  onReviewProducts={() => setTab("Policy products")} />
+              )}
+              {tab === "Policy products" && <fieldset disabled={!canEdit} style={{ display: "contents" }}><PolicyList order={order} finalMode onReview={() => setTab("Document review")} /></fieldset>}
               {tab === "Source package" && (
                 <fieldset disabled={!canEdit} style={{ display: "contents" }}><FinalSources key={order.id} order={order} /><ReferencedSources key={`${order.id}:references`} order={order} /></fieldset>
               )}
               {tab === "File details" && (
                 <fieldset disabled={!canEdit} style={{ display: "contents" }}><TitleFileDetails
-                  key={order.id + ":" + titleFile(order).version}
+                  key={order.id}
                   order={order}
                 /></fieldset>
               )}
@@ -799,7 +818,10 @@ export function PolicyWorkbench({
                           </div>
                         </div>
                       )}
-                      <div className="review-approval">
+                      {isWfg ? <div className="review-approval">
+                        <p>Continue with the policy choices and WFG preparation checks once the source facts are reviewed.</p>
+                        <Button onClick={() => setTab("Prepare final")}>Continue to final preparation <ArrowRight size={16} /></Button>
+                      </div> : <div className="review-approval">
                         <label>
                           <Checkbox
                             checked={attorney}
@@ -836,7 +858,7 @@ export function PolicyWorkbench({
                             Prepare review package
                           </Button>
                         </div>
-                      </div>
+                      </div>}
                     </>
                   ) : (
                     <Empty
@@ -849,6 +871,7 @@ export function PolicyWorkbench({
                       }
                     />
                   )}
+                  <FieldReviewHistory order={order} />
                 </>
               )}
               {tab === "Policy lifecycle" && (

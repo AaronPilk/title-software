@@ -64,7 +64,7 @@ before(async () => {
         window.setDailyRole=role=>{snapshot={...snapshot,connection:access(role)};emit();};
         export function useWorkspace(){const current=useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>snapshot);return {...current,update:async(fn,title)=>{const next=structuredClone(snapshot.s);fn(next);snapshot={...snapshot,s:next};window.dailyUpdates.push(title);emit();return true;}};}
         export const download=(name,value)=>window.dailyDownloads.push({name,value});export const exportCsv=(name,value)=>window.dailyDownloads.push({name,value});
-        export const saveAsset=()=>{throw Error('Unexpected asset write');};export const getAsset=()=>{throw Error('Unexpected asset read');};
+        export const saveAsset=()=>{throw Error('Unexpected asset write');};export const getAsset=()=>{throw Error('Unexpected asset read');};export const getAssetForDocument=()=>{throw Error('Unexpected bound asset read');};
       ` }));
     } }],
   });

@@ -68,6 +68,7 @@ jobs:
           npm --prefix web run test:missive:sql
           npm --prefix web run test:missive:ui
           npm --prefix web run test:document-allocation
+          npm --prefix web run test:final-preparation
       - name: Package the Edge functions
         run: npm --prefix web run backend:build
       # This workflow deliberately has no cloud credentials or deployment job.

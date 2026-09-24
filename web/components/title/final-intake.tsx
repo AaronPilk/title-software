@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import {
   FileText,
   Plus,
@@ -25,7 +25,7 @@ import { uid, type Order, type VaultDoc } from "@/lib/title/model";
 import {
   sourceRoles,
   fieldDefinitions,
-  commitmentSnapshot,
+  currentCommitmentReview,
   reviewCommitment,
   titleFile,
   orderSources,
@@ -46,6 +46,7 @@ import { AttorneyFollowups } from "./followups";
 import { createFollowup } from "@/lib/title/followups";
 import { businessDay } from "@/lib/title/business-date";
 import { PackageReviewButton, type PackageCaptureValue } from "./package-review";
+import { useWorkspaceNavigationGuard } from "./use-workspace-navigation-guard";
 
 export function FinalSources({ order }: { order: Order }) {
   const { s, update, connection } = useWorkspace();
@@ -490,15 +491,19 @@ export function TitleFileDetails({ order }: { order: Order }) {
   const { s, update } = useWorkspace();
   const original = titleFile(order);
   const [file, setFile] = useState<TitleFile>(() => structuredClone(original));
+  const [openedVersion, setOpenedVersion] = useState(() => original.version);
   const [dirty, setDirty] = useState(false);
-  const [confirmed, setConfirmed] = useState(
-    !!original.commitmentReview &&
-      original.commitmentReview.snapshot === commitmentSnapshot(s, order),
-  );
+  const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const saving = useRef(false), mounted = useRef(false);
+  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useWorkspaceNavigationGuard("workspace", { dirty, busy });
+  const [confirmed, setConfirmed] = useState(() => currentCommitmentReview(s, order));
   const [reviewNote, setReviewNote] = useState(
     original.commitmentReview?.note || "",
   );
   function change<K extends keyof TitleFile>(key: K, value: TitleFile[K]) {
+    setSaveError("");
     setFile((p) => ({
       ...p,
       [key]: value,
@@ -508,11 +513,13 @@ export function TitleFileDetails({ order }: { order: Order }) {
     setDirty(true);
   }
   async function save() {
-    if (
-      await update(
+    if (saving.current) return;
+    saving.current = true; setBusy(true); setSaveError("");
+    try {
+      const saved = await update(
         (s) => {
           const o = s.orders.find((o) => o.id === order.id)!;
-          if (titleFile(o).version !== original.version)
+          if (titleFile(o).version !== openedVersion)
             throw new Error(
               "This file changed. Reopen File details to load the latest values.",
             );
@@ -525,7 +532,7 @@ export function TitleFileDetails({ order }: { order: Order }) {
           o.production = {
             ...file,
             commitmentReview: undefined,
-            version: original.version + 1,
+            version: openedVersion + 1,
           };
           if (confirmed) reviewCommitment(s, o, reviewNote);
           o.fields.forEach((f) => (f.reviewed = false));
@@ -533,9 +540,17 @@ export function TitleFileDetails({ order }: { order: Order }) {
         },
         "Title file details saved",
         order.id,
-      )
-    )
-      setDirty(false);
+      );
+      if (mounted.current) {
+        if (saved) { setDirty(false); setOpenedVersion(openedVersion + 1); }
+        else setSaveError("The file details save was not confirmed. Your edits remain here; try again after checking the current workspace.");
+      }
+    } catch (reason) {
+      if (mounted.current) setSaveError(reason instanceof Error ? reason.message : "File details could not be saved. Your edits remain here.");
+    } finally {
+      saving.current = false;
+      if (mounted.current) setBusy(false);
+    }
   }
   return (
     <div className="file-details">
@@ -546,11 +561,12 @@ export function TitleFileDetails({ order }: { order: Order }) {
             For {order.id}. Provider identities and legal text require review.
           </p>
         </div>
-        <Button onClick={save} disabled={!dirty || productionLocked(s, order)}>
-          Save details
+        <Button onClick={save} disabled={!dirty || busy || productionLocked(s, order)}>
+          {busy ? "Saving details…" : "Save details"}
         </Button>
       </div>
-      <fieldset disabled={productionLocked(s, order)}>
+      {saveError && <p className="notice warning" role="alert">{saveError}</p>}
+      <fieldset disabled={busy || productionLocked(s, order)}>
         <div className="form-grid">
           <FieldLabel label="Financing">
             <Picker

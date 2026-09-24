@@ -23,13 +23,13 @@ before(async () => {
       import React from 'react';import {createRoot} from 'react-dom/client';
       import {MissiveLiveInbox} from './components/title/missive-live-inbox';
       const q=new URLSearchParams(location.search),role=q.get('role')||'operations';
-      window.fixtureWorkspace='fictional-workspace';window.settingsOpens=0;
-      window.liveFixture={s:{companies:[{id:'cedar',name:'Cedar Title'},{id:'oak',name:'Oak Title'}]},connection:q.has('demo')?undefined:{workspaceId:'fictional-workspace',access:{userId:'fictional-user',role,version:1,allCompanies:!q.has('scoped'),companyIds:['cedar','oak'],restricted:false}}};
-      createRoot(document.getElementById('root')).render(<MissiveLiveInbox onSettings={()=>window.settingsOpens++}/>);
+      window.fixtureWorkspace='fictional-workspace';window.settingsOpens=0;window.openedFile=null;window.createdCompany=null;window.refreshed=0;
+      window.liveFixture={s:{companies:[{id:'cedar',name:'Cedar Title'},{id:'oak',name:'Oak Title'}]},connection:q.has('demo')?undefined:{workspaceId:'fictional-workspace',refresh:async()=>{window.refreshed++;return true},access:{userId:'fictional-user',role,version:1,allCompanies:!q.has('scoped'),companyIds:['cedar','oak'],restricted:false}}};
+      createRoot(document.getElementById('root')).render(<MissiveLiveInbox onSettings={()=>window.settingsOpens++} onOpenFile={id=>window.openedFile=id} onCreateFile={id=>window.createdCompany=id}/>);
     ` },
     plugins: [{ name: "fictional-live-inbox", setup(builder) {
       builder.onResolve({ filter: /^@\/lib\/title\/store$/ }, () => ({ path: "workspace", namespace: "fixture" }));
-      builder.onLoad({ filter: /^workspace$/, namespace: "fixture" }, () => ({ loader: "tsx", resolveDir: web, contents: `import {useState} from 'react';export function useWorkspace(){const [state,setState]=useState(window.liveFixture);window.changeLiveAccess=patch=>setState(current=>({...current,connection:{...current.connection,access:{...current.connection.access,...patch}}}));return state;}` }));
+      builder.onLoad({ filter: /^workspace$/, namespace: "fixture" }, () => ({ loader: "tsx", resolveDir: web, contents: `import {useSyncExternalStore} from 'react';const listeners=new Set();window.changeLiveAccess=patch=>{window.liveFixture={...window.liveFixture,connection:{...window.liveFixture.connection,access:{...window.liveFixture.connection.access,...patch}}};listeners.forEach(fn=>fn())};export function useWorkspace(){return useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>window.liveFixture)}` }));
       builder.onResolve({ filter: /^@\/lib\/backend\/client$/ }, () => ({ path: "client", namespace: "fixture" }));
       builder.onLoad({ filter: /^client$/, namespace: "fixture" }, () => ({ contents: `export const activeWorkspace=()=>window.fixtureWorkspace;export async function backendRequest(path,data,method,timeout,workspace,user,pinned){const response=await fetch('/synthetic-api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,data,method,timeout,workspace,user,pinned})});const value=await response.json();if(!response.ok)throw Object.assign(new Error(value.error),{status:response.status});return value;}` }));
       builder.onResolve({ filter: /^\.\/missive-route-setup$/ }, () => ({ path: "route-setup", namespace: "fixture" }));
@@ -73,6 +73,14 @@ async function open(query = "", options = {}) {
       if (control.failBody) { control.expected403 = true; return route.fulfill({ status: 403, json: { error: "This email is no longer available." } }); }
       if (control.holdBody) await new Promise(resolve => { control.release = resolve; });
       result = { ...base, conversation: conversation(input.conversationId, `${prefix} property update`, 200), message: { ...summary(input.messageId, prefix), body: `${prefix.toUpperCase()} PRIVATE EMAIL TEXT\nLiteral <img src="https://provider.invalid/tracker" onerror="alert(1)">\nPlease review.`, to: [{ name: "Test Recipient", address: "recipient@example.test" }], cc: [] } };
+    } else if (request.path === "/missive-intake/preview") {
+      result = { revision: 12, routingRevision: 7, companyId: prefix, attachmentDownloadEnabled: !control.attachmentsDisabled, existingOrderId: null,
+        files: control.noFiles ? [] : [{ id: `${prefix}-file`, address: "123 Synthetic Lane", client: "Synthetic Client", suggested: true }],
+        message: { ...summary(input.messageId, prefix), conversationId: input.conversationId, body: "Immutable reviewed source <img src='https://provider.invalid/never-load'>", fingerprint: "a".repeat(64) } };
+    } else if (request.path === "/missive-intake/save-source" || request.path === "/missive-intake/save-attachment") {
+      if (control.holdSave) await new Promise(resolve => { control.release = resolve; });
+      if (request.path.endsWith("save-attachment") && control.failAttachment) { control.expected403 = true; return route.fulfill({ status: 403, json: { error: "Attachment save could not be confirmed." } }); }
+      result = { saved: true, orderId: input.orderId, revision: request.path.endsWith("save-source") ? 13 : 14 };
     } else { errors.push(`Unexpected API operation ${request.path}`); return route.fulfill({ status: 400, json: { error: "Unexpected operation" } }); }
     return route.fulfill({ json: result });
   });
@@ -204,3 +212,47 @@ for (const [status, heading] of [["token_required", "Connect Missive to see inco
     assert.equal(await page.getByRole("button", { name: "Open connection settings", exact: true }).count(), 0);
   });
 }
+
+
+async function intakeReview() {
+  await ready(); await messageButton().click(); await page.getByRole("button", {name:"Save to title file",exact:true}).click();
+  await page.getByRole("combobox",{name:"Existing title file"}).waitFor();
+}
+async function chooseFile() {
+  await page.getByRole("combobox",{name:"Existing title file"}).selectOption("cedar-file");
+  await page.getByRole("checkbox",{name:/I reviewed this email/}).check();
+}
+test("intake requires explicit file and confirmation, keeps immutable source plain text, then opens saved file",async()=>{
+  await open(); await intakeReview();
+  assert.equal(await page.getByRole("combobox",{name:"Existing title file"}).inputValue(),"");
+  assert.equal(await page.getByRole("button",{name:"Save reviewed email",exact:true}).isDisabled(),true);
+  assert.equal(await page.locator("img").count(),0);
+  assert.equal(requests.some(r=>r.path.endsWith("save-source")),false);
+  await chooseFile(); await page.getByRole("button",{name:"Save reviewed email",exact:true}).click();
+  await page.getByText(/Email source saved to cedar-file/).waitFor();
+  const saved=requests.find(r=>r.path.endsWith("save-source"));
+  assert.equal(saved.data.orderId,"cedar-file"); assert.equal(saved.data.fingerprint,"a".repeat(64));assert.equal(saved.data.expectedRevision,12);assert.equal(saved.workspace,"fictional-workspace");assert.equal(saved.user,"fictional-user");assert.equal(saved.pinned,true);
+  assert.equal(requests.some(r=>r.path.endsWith("save-attachment")),false);
+  await page.getByRole("button",{name:"Open title file",exact:true}).click();assert.equal(await page.evaluate(()=>window.openedFile),"cedar-file");
+});
+test("attachment failure reports persisted source, retries same request identity and does not repeat source save",async()=>{
+  await open("",{failAttachment:true});await intakeReview();await chooseFile();
+  await page.getByRole("checkbox",{name:/Closing package.pdf/}).check();
+  await page.getByRole("button",{name:"Save reviewed email",exact:true}).click();
+  await page.getByText(/Not confirmed — retry/).waitFor();assert.match(await page.getByRole("region",{name:"Review email for title file"}).innerText(),/Email source saved to cedar-file. 0 of 1/);
+  control.failAttachment=false;await page.getByRole("button",{name:"Retry remaining attachments",exact:true}).click();
+  await page.getByText(/1 of 1 selected attachments saved/).waitFor();
+  const saves=requests.filter(r=>r.path.endsWith("save-attachment"));assert.equal(saves.length,2);assert.equal(saves[0].data.requestId,saves[1].data.requestId);assert.equal(saves[0].data.expectedRevision,13);assert.equal(saves[1].data.expectedRevision,13);assert.equal(requests.filter(r=>r.path.endsWith("save-source")).length,1);
+});
+test("first file empty state opens manual creation with selected company",async()=>{
+  await open("",{noFiles:true});await ready();await messageButton().click();await page.getByRole("button",{name:"Save to title file",exact:true}).click();
+  await page.getByRole("button",{name:"Create title file",exact:true}).click();assert.equal(await page.evaluate(()=>window.createdCompany),"cedar");assert.equal(requests.some(r=>r.path.includes("save-source")),false);
+});
+test("unconfigured attachment storage permits source review but no selected attachment",async()=>{
+  await open("",{attachmentsDisabled:true});await intakeReview();assert.equal(await page.getByRole("checkbox",{name:/Closing package.pdf/}).isDisabled(),true);await chooseFile();await page.getByRole("button",{name:"Save reviewed email",exact:true}).click();await page.getByText(/Email source saved/).waitFor();assert.equal(requests.some(r=>r.path.endsWith("save-attachment")),false);
+});
+test("switching company while source save is pending never starts attachment writes or opens stale file",async()=>{
+  await open("",{holdSave:true});await intakeReview();await chooseFile();await page.getByRole("checkbox",{name:/Closing package.pdf/}).check();await page.getByRole("button",{name:"Save reviewed email",exact:true}).click();
+  await page.waitForFunction(()=>document.body.innerText.includes("Saving…"));await page.getByRole("combobox",{name:"Live email company",exact:true}).selectOption("oak");
+  control.release();await ready();await page.waitForTimeout(50);assert.equal(requests.some(r=>r.path.endsWith("save-attachment")),false);assert.equal(await page.evaluate(()=>window.openedFile),null);assert.equal(await page.getByRole("region",{name:"Review email for title file"}).count(),0);
+});

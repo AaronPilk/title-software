@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const bundle=await build({stdin:{contents:"export * from './lib/backend/document-packages'; export { emptyWorkspace } from './lib/backend/workspace'; export { analyzeTitleDocuments } from './lib/title/document-intelligence';",resolveDir:fileURLToPath(new URL('../',import.meta.url))},write:false,bundle:true,format:'esm',platform:'node',target:'es2022'});
 const {verifyPackageTransition,documentPackageRequest,emptyWorkspace,analyzeTitleDocuments}=await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text + '\n//# sourceURL=document-packages-test-bundle.mjs').toString('base64')}`);
 const hash=async text=>Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text))).toString('hex');
-const source=(id='D1',companyId='C1')=>({documentId:id,assetId:`A-${id}`,version:1,name:`${id}.pdf`,mime:'application/pdf',companyId,visibility:'Internal',sha256:'a'.repeat(64),bytes:100});
+const source=(id='D1',companyId='C1')=>({documentId:id,assetId:`A-${id}`,version:1,name:`${id}.pdf`,mime:'application/pdf',companyId,orderId:`O-${companyId}`,visibility:'Internal',sha256:'a'.repeat(64),bytes:100});
 const accessIdentity='W1:user-1:1';
 const receipt=async page=>({page:page.page,method:page.method,textSha256:await hash(page.text),characters:page.text.length,lines:page.text.split(/\r\n|\r|\n/).length,...(page.confidence===undefined?{}:{confidence:page.confidence}),...(page.rotation===undefined?{}:{rotation:page.rotation})});
 const checkpoint=(sources,status='reading')=>({version:1,accessIdentity,sources,status});
@@ -17,7 +17,8 @@ const page=(number,text=`Page ${number}`,method='pdf-text')=>({page:number,text,
 function context(data=saved()){
  const state=emptyWorkspace();state.companies=[{id:'C1',name:'Cedar Example',initials:'CE',color:'blue',contact:'Example',email:'example@example.test',location:'Charlotte',jurisdiction:'NC',stage:'Onboarding',steps:[],members:[]}];
  state.companies=[...new Set(data.sources.map(item=>item.companyId))].map(id=>({...state.companies[0],id}));
- state.documents=data.sources.map(item=>({id:item.documentId,name:item.name,companyId:item.companyId,version:item.version,assetId:item.assetId,mime:item.mime,visibility:item.visibility,category:'Title',date:'2026-09-23',size:'100 bytes'}));
+ state.orders=state.companies.map(company=>({id:`O-${company.id}`,companyId:company.id,address:'123 Synthetic Lane',client:'Fictional Buyer',type:'Purchase',underwriter:'WFG',owner:'Operator',jurisdiction:'NC',status:'New',due:'2026-09-24',premium:0,rate:0,month:'2026-09',fields:[],notes:'',exception:'',delivered:false,remitted:false}));
+ state.documents=data.sources.map(item=>({id:item.documentId,name:item.name,companyId:item.companyId,orderId:item.orderId,version:item.version,assetId:item.assetId,mime:item.mime,visibility:item.visibility,category:'Title',date:'2026-09-23',size:'100 bytes'}));
  const calls=[];const ctx={workspaceId:'W1',access:{userId:'user-1',email:'operator@example.test',role:'operations',companyIds:['C1'],allCompanies:false,restricted:false,version:1,partnerMembers:[]},state,revision:4,assets:data.sources.map(item=>({id:item.assetId,document_id:item.documentId,company_id:item.companyId,sha256:item.sha256,byte_size:item.bytes,mime:item.mime})),rpc:async args=>{calls.push(args);if(['open','load'].includes(args.p_action))return data;return {version:2,decisions:args.p_input.decisions??[]};}};
  return {ctx,calls};
 }
@@ -105,4 +106,11 @@ test('sequential review submissions preserve other decisions and replace only th
  await record(loan.id);assert.equal(data.decisions.length,1);
  await record(trustee.id);assert.equal(data.decisions.length,2);assert.deepEqual(new Set(data.decisions.map(item=>item.fieldId)),new Set(['loanAmount','trustee']));
  await record(loan.id,'corrected','$250,900.00');assert.equal(data.decisions.length,2);assert.equal(data.decisions.find(item=>item.fieldId==='loanAmount').reviewedValue,'$250,900.00');assert.equal(data.decisions.find(item=>item.fieldId==='trustee').reviewedValue,'Example Trustee, Inc.');
+});
+
+
+test('operations packages require an available same-company title file and never include agency-only originals',async()=>{
+ for(const [mutation,status] of [[ctx=>delete ctx.state.documents[0].orderId,403],[ctx=>ctx.state.orders=[],400],[ctx=>ctx.state.documents[0].orderId='OTHER',400],[ctx=>ctx.state.documents[0].category='Applications',403]]){
+  const {ctx,calls}=context();mutation(ctx);await assert.rejects(()=>documentPackageRequest('open',{documentIds:['D1']},ctx),error=>error.status===status);assert.equal(calls.length,0);
+ }
 });

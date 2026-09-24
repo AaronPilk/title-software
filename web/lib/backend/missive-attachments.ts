@@ -1,6 +1,7 @@
 import { ApiError, executeCommands, projectWorkspace, normalizeWorkspace, type Access } from "./workspace";
-import { missiveReader, type MissiveConfig } from "./missive";
-import { providerId, readMissiveMessage, requireMissiveDestination, type MissiveMapping } from "./missive-import";
+import { requireMissiveGrant, type MissiveIntakeGrant } from "./missive-intake-grant";
+import { missiveReader, missiveReadTransport, type MissiveConfig } from "./missive";
+import { providerId, parseMissiveMessage, previewMissiveMessage, requireMissiveDestination, type MissiveMapping } from "./missive-import";
 import type { Workspace, VaultDoc } from "../title/model";
 import { documentByteProblem } from "../shared/document-bytes";
 
@@ -43,11 +44,12 @@ export function missiveAttachmentsEnabled(config: MissiveAttachmentConfig): bool
   return Array.isArray(config.attachmentOrigins) && config.attachmentOrigins.length > 0 &&
     config.attachmentOrigins.length <= 20 && config.attachmentOrigins.every(value => !!origin(value));
 }
-function source(s: Workspace, access: Access, mapping: MissiveMapping, messageId: string, attachmentId: string) {
-  administrator(access); providerId(messageId); providerId(attachmentId);
+function source(s: Workspace, access: Access, mapping: MissiveMapping, messageId: string, attachmentId: string, grant?: MissiveIntakeGrant) {
+  if (grant) requireMissiveGrant(grant, s, access, mapping); else administrator(access); providerId(messageId); providerId(attachmentId);
   const visible = projectWorkspace(s, access);
   const mail = visible.inbox.find(m => m.missive?.organizationId === mapping.organizationId && m.missive.messageId === messageId);
   if (!mail?.missive) fail("Import and review this message before saving an attachment.", 409);
+  if (grant) requireMissiveGrant(grant, s, access, mapping, mail.orderId);
   const saved = mail.missive;
   if (mail.companyId !== mapping.companyId || saved.companyId !== mapping.companyId ||
       saved.orderId !== mail.orderId || saved.teamId !== mapping.teamId)
@@ -58,8 +60,8 @@ function source(s: Workspace, access: Access, mapping: MissiveMapping, messageId
   if (!attachment) fail("Choose an attachment from the imported message manifest.", 409);
   return { mail, saved, snapshot, attachment };
 }
-export function existingMissiveAttachment(s: Workspace, access: Access, mapping: MissiveMapping, messageId: string, attachmentId: string): VaultDoc | undefined {
-  const { mail } = source(s, access, mapping, messageId, attachmentId);
+export function existingMissiveAttachment(s: Workspace, access: Access, mapping: MissiveMapping, messageId: string, attachmentId: string, grant?: MissiveIntakeGrant): VaultDoc | undefined {
+  const { mail } = source(s, access, mapping, messageId, attachmentId, grant);
   const existing = s.documents.find(d => d.providerSource?.provider === "Missive" &&
     d.providerSource.organizationId === mapping.organizationId && d.providerSource.messageId === messageId &&
     d.providerSource.attachmentId === attachmentId);
@@ -87,16 +89,17 @@ async function sha256(bytes: Uint8Array) {
 
 /** The only download URL comes from a fresh authorized Missive response, never browser input. */
 export async function downloadMissiveAttachment(config: MissiveAttachmentConfig, workspaceId: string, access: Access,
-  mapping: MissiveMapping, state: Workspace, messageId: string, attachmentId: string, fetcher: typeof fetch = fetch): Promise<MissiveAttachmentArtifact> {
-  const { mail, saved, attachment } = source(state, access, mapping, messageId, attachmentId);
+  mapping: MissiveMapping, state: Workspace, messageId: string, attachmentId: string, fetcher: typeof fetch = fetch, grant?: MissiveIntakeGrant): Promise<MissiveAttachmentArtifact> {
+  const { mail, saved, attachment } = source(state, access, mapping, messageId, attachmentId, grant);
   requireMissiveDestination(state, mapping, mail.orderId);
   checkMetadata(attachment);
   if (!missiveAttachmentsEnabled(config))
     fail("Attachment download is not configured. An administrator must approve the Missive attachment storage origin on the server.", 409);
-  const payload = await missiveReader(config, workspaceId, access, fetcher)(`/v1/messages/${providerId(messageId)}`);
+  const payload = await (grant ? missiveReadTransport(config, workspaceId, fetcher) : missiveReader(config, workspaceId, access, fetcher))(`/v1/messages/${providerId(messageId)}`);
   // Reuse the existing complete message validator against this same bounded response.
-  const message = await readMissiveMessage(config, workspaceId, access, mapping, messageId,
-    async () => new Response(JSON.stringify(payload), { headers: { "Content-Type": "application/json" } }));
+  const message = parseMissiveMessage(payload, mapping, messageId);
+  if (grant && (await previewMissiveMessage(message)).fingerprint !== saved.fingerprint)
+    fail("The email source changed after review. Reopen the message before saving attachments.", 409);
   const fresh = message.attachments.find(a => a.id === attachmentId);
   if (!fresh || fresh.name !== attachment.name || fresh.mime !== attachment.mime || fresh.bytes !== attachment.bytes ||
       message.conversationId !== saved.conversationId)
@@ -158,14 +161,14 @@ export async function downloadMissiveAttachment(config: MissiveAttachmentConfig,
 
 /** Called only after private asset storage succeeds; the route commits this state with a revision/access/mapping CAS. */
 export async function attachMissiveAttachment(state: Workspace, access: Access, mapping: MissiveMapping,
-  artifact: MissiveAttachmentArtifact, requestId: string): Promise<Workspace> {
+  artifact: MissiveAttachmentArtifact, requestId: string, grant?: MissiveIntakeGrant): Promise<Workspace> {
   const p = artifact.providerSource;
-  const prior = existingMissiveAttachment(state, access, mapping, p.messageId, p.attachmentId);
+  const prior = existingMissiveAttachment(state, access, mapping, p.messageId, p.attachmentId, grant);
   if (prior) {
     if (prior.providerSource?.sha256 !== artifact.sha256) fail("The saved attachment contents are immutable.", 409);
     return structuredClone(state);
   }
-  const { mail, saved, attachment, snapshot } = source(state, access, mapping, p.messageId, p.attachmentId);
+  const { mail, saved, attachment, snapshot } = source(state, access, mapping, p.messageId, p.attachmentId, grant);
   requireMissiveDestination(state, mapping, mail.orderId); checkMetadata(attachment);
   const identity = await sha256(new TextEncoder().encode(`${saved.organizationId}:${p.messageId}:${p.attachmentId}`));
   if (artifact.documentId !== `missive:attachment:${identity}` || artifact.assetId !== `missive:asset:${identity}` ||

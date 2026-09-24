@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import {
   Plus,
   FileText,
@@ -63,6 +63,8 @@ import {
 import { TitleFileDetails } from "./final-intake";
 import { ReferencedSources } from "./referenced-sources";
 import { UploadDocument, DocumentPreview } from "./documents";
+import { useWorkspaceNavigationGuard } from "./use-workspace-navigation-guard";
+import { allowWorkspaceNavigation } from "@/lib/title/workspace-navigation-guard";
 
 export function ProductionSuite({
   mode,
@@ -161,7 +163,7 @@ export function ProductionSuite({
             <button
               key={o.id}
               className={order?.id === o.id ? "selected" : ""}
-              onClick={() => setSelected(o.id)}
+              onClick={() => { if (allowWorkspaceNavigation("workspace")) setSelected(o.id); }}
             >
               <strong>{o.address}</strong>
               <span>
@@ -185,20 +187,20 @@ export function ProductionSuite({
                     {order.jurisdiction} · {order.underwriter} · {order.type}
                   </p>
                 </div>
-                <Button variant="outline" onClick={() => onReview(order.id)}>
+                <Button variant="outline" onClick={() => { if (allowWorkspaceNavigation("workspace")) onReview(order.id); }}>
                   Final review
                   <ArrowRight />
                 </Button>
               </div>
               <Segments
                 value={tab}
-                onChange={setTab}
+                onChange={next => { if (next === tab || allowWorkspaceNavigation("workspace")) setTab(next); }}
                 items={["Preparation", "File details", "Source documents"]}
               />
               {tab === "File details" ? (
                 <section className="panel business-panel">
                   <TitleFileDetails
-                    key={`${order.id}-${titleFile(order).version}`}
+                    key={order.id}
                     order={order}
                   />
                 </section>
@@ -500,7 +502,7 @@ function CommitmentEditor({ order }: { order: Order }) {
     </section>
   );
 }
-function PolicyList({
+export function PolicyList({
   order,
   finalMode,
   onReview,
@@ -566,7 +568,7 @@ function PolicyList({
       )}{" "}
       {ps.map((p) => (
         <PolicyEditor
-          key={`${p.id}-${p.version}`}
+          key={p.id}
           policy={p}
           order={order}
           finalMode={finalMode}
@@ -587,8 +589,10 @@ function PolicyEditor({
   finalMode: boolean;
   onReview?: () => void;
 }) {
-  const { s, update } = useWorkspace();
+  const { s, update: save } = useWorkspace();
   const [p, setP] = useState(() => structuredClone(policy));
+  const policySnapshot = JSON.stringify(policy);
+  const [syncedPolicySnapshot, setSyncedPolicySnapshot] = useState(policySnapshot);
   const [dirty, setDirty] = useState(false),
     [upload, setUpload] = useState(false),
     [reference, setReference] = useState(""),
@@ -596,11 +600,37 @@ function PolicyEditor({
     [month, setMonth] = useState(new Date().toISOString().slice(0, 7)),
     [recipient, setRecipient] = useState(titleFile(order).attorneyEmail),
     [deliveryRef, setDeliveryRef] = useState("");
+  const [busy, setBusy] = useState(false), [error, setError] = useState("");
+  // Keep a draft's original version so a concurrent edit fails the domain save
+  // check. Clean editors follow both new versions and same-version lifecycle changes.
+  if (!dirty && !busy && syncedPolicySnapshot !== policySnapshot) {
+    setP(structuredClone(policy));
+    setSyncedPolicySnapshot(policySnapshot);
+  }
+  const mounted = useRef(false), working = useRef(false);
+  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useWorkspaceNavigationGuard("workspace", { dirty, busy });
+  const update: typeof save = async (...args) => {
+    if (working.current) return false;
+    working.current = true; setBusy(true); setError("");
+    try {
+      const saved = await save(...args);
+      if (!saved && mounted.current) setError("The policy update was not saved. Your current edits are still here.");
+      return saved;
+    } catch (reason) {
+      if (mounted.current) setError(reason instanceof Error ? reason.message : "The policy update could not be saved.");
+      return false;
+    } finally {
+      working.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  };
   const locked = ["Issued", "Delivered"].includes(policy.status);
   const ready = finalReadiness(s, order).ready;
   const change = (k: keyof PolicyProduct, v: string | number) => {
     setP((x) => ({ ...x, [k]: v }));
     setDirty(true);
+    setError("");
   };
   const docs = orderSources(s, order.id).filter(
     (d) =>
@@ -624,6 +654,7 @@ function PolicyEditor({
             <Button
               variant="ghost"
               size="sm"
+              disabled={busy}
               onClick={async () =>
                 await update(
                   (d) => voidDraftPolicy(d, p.id),
@@ -637,7 +668,8 @@ function PolicyEditor({
           )}
         </div>
       </div>
-      <fieldset disabled={locked} className="form-stack">
+      {error && <p className="notice warning" role="alert">{error}</p>}
+      <fieldset disabled={locked || busy} className="form-stack">
         <div className="form-grid">
           <FieldLabel
             label={
@@ -821,7 +853,7 @@ function PolicyEditor({
                   (d) => savePolicy(d, p),
                   "Policy details saved",
                   order.id,
-                )
+                ) && mounted.current
               )
                 setDirty(false);
             }}
@@ -852,7 +884,7 @@ function PolicyEditor({
             this product.
           </span>
           {onReview && (
-            <Button variant="link" onClick={onReview}>
+            <Button variant="link" disabled={busy} onClick={() => { if (allowWorkspaceNavigation("workspace")) onReview(); }}>
               Open final review
             </Button>
           )}
@@ -868,18 +900,21 @@ function PolicyEditor({
           <div className="form-grid">
             <Input
               aria-label="Policy number"
+              disabled={busy}
               placeholder="Policy / jacket number"
               value={reference}
               onChange={(e) => setReference(e.target.value)}
             />
             <Input
               aria-label="Policy issuance month"
+              disabled={busy}
               type="month"
               value={month}
               onChange={(e) => setMonth(e.target.value)}
             />
             <Picker
               label="Final policy document"
+              disabled={busy}
               value={documentId}
               onChange={setDocument}
               options={[
@@ -889,11 +924,12 @@ function PolicyEditor({
             />
           </div>
           <div className="source-actions">
-            <Button variant="outline" onClick={() => setUpload(true)}>
+            <Button variant="outline" disabled={busy} onClick={() => setUpload(true)}>
               <Upload />
               Upload final policy
             </Button>
             <Button
+              disabled={busy}
               onClick={async () =>
                 await update(
                   (d) => issuePolicy(d, p.id, { reference, documentId, month }),
@@ -918,18 +954,21 @@ function PolicyEditor({
               <div className="form-grid">
                 <Input
                   aria-label="Policy delivery recipient"
+                  disabled={busy}
                   type="email"
                   value={recipient}
                   onChange={(e) => setRecipient(e.target.value)}
                 />
                 <Input
                   aria-label="Policy delivery evidence"
+                  disabled={busy}
                   value={deliveryRef}
                   onChange={(e) => setDeliveryRef(e.target.value)}
                   placeholder="Delivery evidence / confirmation reference"
                 />
               </div>
               <Button
+                disabled={busy}
                 onClick={async () =>
                   await update(
                     (d) => deliverPolicy(d, p.id, recipient, deliveryRef),

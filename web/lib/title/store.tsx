@@ -9,9 +9,11 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
-import { createSeed, uid, type Workspace } from "./model";
+import { createSeed, uid, type Workspace, type VaultDoc } from "./model";
 import { decodeBackupAssets, validateBackupReferences, safeDocumentMime, MAX_BACKUP_FILE_BYTES, MAX_ASSETS, MAX_ASSET_BYTES, MAX_DECODED_BYTES } from "./backup-assets";
 import { referencedSourcesShapeValid } from "./production";
+import { finalPreparationShapeValid, validateFinalPreparationMutation } from "./final-preparation";
+import { fieldReviewHistoryShapeValid, recordFieldReviewChanges } from "./field-review-history";
 import { enrichWorkspace } from "./production";
 import { enrichBusiness, validateBusinessMutation } from "./business";
 import { isValidStatementDeliveryWorkspace } from "./statement-delivery";
@@ -74,7 +76,7 @@ function isWorkspaceShape(data: unknown): data is Workspace {
     WORKSPACE_ARRAY_KEYS.every((k) =>
       Array.isArray((data as Record<string, unknown>)[k]),
     ) &&
-    (data as Workspace).orders.every(o => !!o && referencedSourcesShapeValid(o.production?.referencedSources)) &&
+    (data as Workspace).orders.every(o => !!o && referencedSourcesShapeValid(o.production?.referencedSources) && (o.finalPreparation === undefined || finalPreparationShapeValid(o.finalPreparation)) && fieldReviewHistoryShapeValid(o.fieldReviewHistory)) &&
     isValidOptionalMaterials((data as { materials?: unknown }).materials) &&
     isValidStatementDeliveryWorkspace(data) &&
     isValidDeliveries((data as { deliveries?: unknown }).deliveries) &&
@@ -218,6 +220,7 @@ function ConnectedWorkspaceProvider({
     try {
       commands = captureCommands(next, fn);
       validateBusinessMutation(before.state, next);
+      validateFinalPreparationMutation(before.state, next);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Check this change.");
       return false;
@@ -383,7 +386,9 @@ function LocalWorkspaceProvider({ children }: { children: ReactNode }) {
     const next = structuredClone(latest.current);
     try {
       fn(next);
+      recordFieldReviewChanges(latest.current, next, next.user);
       validateBusinessMutation(latest.current, next);
+      validateFinalPreparationMutation(latest.current, next);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -516,6 +521,19 @@ export async function getAsset(id: string, namespace?: string): Promise<Blob> {
     };
   });
 }
+/** Read one already-selected original without following an account/workspace switch. */
+export async function getAssetForDocument(doc: VaultDoc, binding: { expectedWorkspaceId: string; expectedUserId?: string }): Promise<Blob> {
+  if (!doc.assetId) throw new Error("This document has no uploaded original.");
+  const changed = () => new Error("Your workspace changed. Reopen the original before downloading.");
+  if (activeWorkspace() !== binding.expectedWorkspaceId) throw changed();
+  if (binding.expectedWorkspaceId) return downloadRemoteAsset(doc.assetId, binding);
+  const namespace = localAssetNamespace();
+  const blob = await getAsset(doc.assetId, namespace);
+  if (activeWorkspace() || localAssetNamespace() !== namespace) throw changed();
+  if (blob.size > MAX_ASSET_BYTES) throw new Error("Original exceeds the 50 MB download limit.");
+  return blob;
+}
+
 export function download(
   name: string,
   content: Blob | string,

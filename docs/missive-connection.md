@@ -59,7 +59,7 @@ Use `https://<project-ref>.supabase.co/functions/v1/title-missive-events` as the
 
 ## Server enforcement
 
-Connection management and reviewed import endpoints require current organization-wide administrator access. The separate live feed permits owners, administrators and operations accounts within their assigned companies; operations additionally requires explicit approval that the entire inbox contains only Production mail. Provider reads use fixed HTTPS API destinations, no redirects, bounded response sizes/time and sanitized errors. Directory pagination completeness is reported. Preview and import re-fetch scope and compare the reviewed fingerprint; stale reviews must be repeated.
+Connection management and the legacy Settings importer require current organization-wide administrator access. The connected Production intake uses a separate explicit route capability for owners, administrators and permitted operations staff. The separate live feed permits owners, administrators and operations accounts within their assigned companies; operations additionally requires explicit approval that the entire inbox contains only Production mail. Provider reads use fixed HTTPS API destinations, no redirects, bounded response sizes/time and sanitized errors. Directory pagination completeness is reported. Preview and import re-fetch scope and compare the reviewed fingerprint; stale reviews must be repeated.
 
 Atomic database transactions recheck membership, workspace revision, selected route, routing revision and company before saving. Request receipts bind input and actor; imports and queue completion either commit together or roll back. The same provider message cannot silently move to a different company/file. Attachment commits retain immutable metadata and private asset identity. Credential rotation/disconnection pauses routes so work started with an earlier connection cannot proceed under an unreviewed destination.
 
@@ -81,7 +81,7 @@ In Production → Inbox, an administrator can review exact company/inbox matches
 
 General company inboxes are available to permitted owners/administrators. Before allowing operations staff to read a complete inbox, an administrator must explicitly approve its Production-only content in Missive Settings. Mixed agency/Production inboxes should remain administrator-only; use reviewed requests tied to title files for staff. Shared inboxes serving multiple companies, including paused routes, are excluded from the live feed.
 
-The feed displays incoming message text and attachment names. It never marks messages read, moves/archives threads, creates provider drafts, sends replies or downloads attachment bytes. Message HTML is converted to plain text without remote image loads. Route, membership and credential versions are rechecked after provider reads; changed access clears the view. Originals and reviewed request imports remain separate workflows.
+The feed displays incoming message text and attachment names. It never marks messages read, moves/archives threads, creates provider drafts, sends replies or downloads attachment bytes. Message HTML is converted to plain text without remote image loads. Route, membership and credential versions are rechecked after provider reads; changed access clears the view. Opening email performs no local import. The explicit **Save to title file** action opens the connected source review described below.
 
 ## Connection and review recovery
 
@@ -92,3 +92,18 @@ Message acknowledgement is tied to the workspace revision and an open file belon
 Saved incoming events and route pausing remain usable without decrypting a token or reaching Missive. A shared inbox retains all configured company context while individual routes are paused; only active routes are offered for review. Pausing one JV does not assign its incoming work to the surviving JV.
 
 Run `npm run test:api`, `npm run test:missive:ui`, and `npm run test:workspace:ui` for the new handler/component/provider regressions. These use synthetic transport and cannot replace one approved live staff walkthrough. See the [follow-up regression report](testing/release-regressions-2026-09-14.md).
+
+
+## Connected Production intake (local implementation, September 24)
+
+An incoming email can be reviewed directly from **Production → Inbox → Live email → Save to title file**. The reviewer explicitly selects an existing, visible, open title file in the inbox company and confirms the immutable email source. File number/address suggestions are only suggestions; even a unique match is never selected automatically. If the company has no open files, **Create title file** opens the existing manual file-entry workflow with that company selected.
+
+**Save reviewed email** stores the full normalized source snapshot and a plain-text request linked to the selected file. It then saves only selected attachments, one at a time. The interface reports saved source and attachment counts independently, retains successful saves when a later attachment fails, and retries deterministic attachment identities. **Open title file** returns to the file workbench. Saving an original does not classify it as title evidence or change reviewed fields.
+
+The three local `/missive-intake` actions are preview, save-source and save-attachment. Each validates actual account/company visibility, current approved route and connection, parent conversation scope, immutable body/header/manifest fingerprint, and explicit existing file selection. Operations accounts additionally require `productionOnly: true`. General and shared inboxes cannot grant operations intake access; paused routes still count toward shared-company ambiguity. Legacy administrator importer checks remain intact.
+
+The new service-only `title_commit_missive_intake` transaction verifies current membership, route/mapping/credential versions, open file, workspace revision, immutable existing records and narrow additive source/attachment state. Attachment bytes use the existing scan policy, bounded stream/type checks and private `title-documents` ingestion. Failed registry insertion removes only the new unregistered object. A registered but unlinked asset is retained for safe retry if final CAS fails, since a concurrent successful retry may already reference that asset; unlinked assets are not available through staff document access.
+
+Provider requests remain GET-only: no sends, drafts, read flags, archive actions, automatic orders or provider notes. Attachment saving remains unavailable until the server has an explicitly approved `MISSIVE_ATTACHMENT_ORIGINS` value. The module/handler/browser tests use fictional email and private storage fixtures; this implementation does not itself establish a live email import or deployment.
+
+Focused regressions: `node --test tests/missive-intake.test.mjs tests/missive-intake-http.test.mjs`, `node --test --test-concurrency=1 tests/missive-live-inbox-ui.test.mjs`, and `npm run test:missive:sql` from `web/`.

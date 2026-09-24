@@ -5,9 +5,11 @@ import { Segments } from "./shared";
 import { InboxView } from "./operations";
 import { MissiveLiveInbox } from "./missive-live-inbox";
 
-export function ProductionInbox({ view, onSettings, ...actions }: {
+export function ProductionInbox({ view, onSettings, onOpenFile, onCreateFile, ...actions }: {
   view: "agency" | "production";
   onSettings: () => void;
+  onOpenFile?: (orderId: string) => void;
+  onCreateFile?: (companyId?: string) => void;
   onReview: (id: string) => void;
   onRevision: (id: string) => void;
   onCommitment: (id: string) => void;
@@ -20,6 +22,6 @@ export function ProductionInbox({ view, onSettings, ...actions }: {
     <div className="toolbar" style={{ marginBottom: 24 }}>
       <Segments value={section} onChange={setSection} items={["Live email", "Saved requests"]} />
     </div>
-    {section === "Live email" ? <MissiveLiveInbox key={`${connection.workspaceId}:${connection.access.userId}:${view}`} onSettings={onSettings} /> : <InboxView {...actions} />}
+    {section === "Live email" ? <MissiveLiveInbox key={`${connection.workspaceId}:${connection.access.userId}:${view}`} onSettings={onSettings} onOpenFile={onOpenFile} onCreateFile={onCreateFile} /> : <InboxView {...actions} />}
   </>;
 }

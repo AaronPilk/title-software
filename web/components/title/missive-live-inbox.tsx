@@ -8,11 +8,12 @@ import type { MissiveFeedConversation, MissiveFeedMessage, MissiveFeedMessageSum
 import { useWorkspace } from "@/lib/title/store";
 import type { Company } from "@/lib/title/model";
 import { Empty } from "./shared";
+import { MissiveProductionIntake, type MissiveFileActions } from "./missive-production-intake";
 import { MissiveRouteSetup } from "./missive-route-setup";
 import styles from "./missive-live-inbox.module.css";
 
 type Setup = { status: "ready" | "token_required" | "routing_required" | "paused"; revision: number; routes: MissiveFeedRoute[]; blockedSharedInboxes: boolean; readOnly: true };
-type Identity = { workspaceId: string; userId: string };
+type Identity = MissiveFileActions & { workspaceId: string; userId: string };
 type RouteIdentity = Identity & { route: MissiveFeedRoute; revision: number };
 class StaleEmailResponse extends Error {}
 
@@ -45,7 +46,7 @@ function appendRows<T extends { id: string }>(previous: T[], next: T[]) {
   return [...new Map([...previous, ...next].map(row => [row.id, row])).values()];
 }
 
-export function MissiveLiveInbox({ onSettings }: { onSettings?: () => void }) {
+export function MissiveLiveInbox({ onSettings, onOpenFile, onCreateFile }: MissiveFileActions & { onSettings?: () => void }) {
   const { s, connection } = useWorkspace();
   const access = connection?.access;
   if (!connection || !access) return <section className={styles.surface}><Empty title="Connect a shared workspace" text="Live email is available in a connected workspace with an approved Missive inbox." /></section>;
@@ -56,7 +57,7 @@ export function MissiveLiveInbox({ onSettings }: { onSettings?: () => void }) {
   // No email from the previous identity survives even for the next effect frame.
   const identity = JSON.stringify([connection.workspaceId, access.userId, access.role, access.version, access.allCompanies, access.restricted, [...access.companyIds].sort(), companies.map(company => company.id).sort()]);
   const canConfigure = access.role === "owner" || (access.role === "admin" && access.allCompanies);
-  return <ConnectedInbox key={identity} workspaceId={connection.workspaceId} userId={access.userId} companies={companies} canConfigure={canConfigure} onSettings={canConfigure ? onSettings : undefined} />;
+  return <ConnectedInbox onOpenFile={onOpenFile} onCreateFile={onCreateFile} key={identity} workspaceId={connection.workspaceId} userId={access.userId} companies={companies} canConfigure={canConfigure} onSettings={canConfigure ? onSettings : undefined} />;
 }
 
 function ConnectedInbox({ companies, canConfigure, onSettings, ...identity }: Identity & { companies: Company[]; canConfigure: boolean; onSettings?: () => void }) {
@@ -250,6 +251,7 @@ function MessageBody({ conversationId, messageId, onReadError, ...identity }: Ro
       <p className={styles.address}>To: {message.to.map(address => address.name ? `${address.name} <${address.address}>` : address.address).join(", ") || "No recipients listed"}</p>
       {message.cc.length > 0 && <p className={styles.address}>Cc: {message.cc.map(address => address.address).join(", ")}</p>}
       <pre>{message.body || "(Message body is empty.)"}</pre>
+      <MissiveProductionIntake {...identity} routeId={routeId} companyId={companyId} conversationId={conversationId} messageId={messageId} />
       {message.attachments.length > 0 && <div className={styles.attachments}><h5><Paperclip size={14} aria-hidden="true" />Attachments</h5><ul>{message.attachments.map(attachment => <li key={attachment.id}>{attachment.name}</li>)}</ul><p>Attachment names only. Files remain in Missive.</p></div>}
     </>}
   </article>;

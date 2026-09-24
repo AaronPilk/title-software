@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { readRequestBytes, readRequestText } from "../shared/request-body";
 import type { Workspace } from "../title/model";
 import type { Access } from "./workspace";
 import { recoveryIntent } from "./recovery-intent";
@@ -120,25 +121,38 @@ export async function uploadRemoteAsset(
   if (!response.ok) throw responseError(result, "Upload failed.");
   return result;
 }
-export async function downloadRemoteAsset(id: string): Promise<Blob> {
-  if (!supabase || !workspaceId)
-    throw new Error("Open a connected workspace first.");
+export type AssetReadBinding = { expectedWorkspaceId?: string; expectedUserId?: string };
+export async function downloadRemoteAsset(id: string, expected: AssetReadBinding = {}): Promise<Blob> {
+  const pinnedWorkspace = workspaceId;
+  const changed = () => Object.assign(new Error("Your account or workspace changed. Reopen the document before downloading."), { status: 403 });
+  const assertWorkspace = () => {
+    if (workspaceId !== pinnedWorkspace || (expected.expectedWorkspaceId !== undefined && expected.expectedWorkspaceId !== pinnedWorkspace))
+      throw changed();
+  };
+  assertWorkspace();
+  if (!supabase || !pinnedWorkspace) throw new Error("Open a connected workspace first.");
   const { data } = await supabase.auth.getSession();
+  assertWorkspace();
   if (!data.session) throw new Error("Sign in to download.");
+  const pinnedUser = data.session.user.id;
+  if (expected.expectedUserId !== undefined && expected.expectedUserId !== pinnedUser) throw changed();
+  const signal = AbortSignal.timeout(30000);
   const response = await fetch(
-    `${url}/functions/v1/title-api/assets/download?workspaceId=${encodeURIComponent(workspaceId)}&id=${encodeURIComponent(id)}`,
-    {
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${data.session.access_token}`,
-      },
-      cache: "no-store",
-      signal: AbortSignal.timeout(30000),
-    },
+    `${url}/functions/v1/title-api/assets/download?workspaceId=${encodeURIComponent(pinnedWorkspace)}&id=${encodeURIComponent(id)}`,
+    { headers: { apikey: key, Authorization: `Bearer ${data.session.access_token}` }, cache: "no-store", signal },
   );
+  if (workspaceId !== pinnedWorkspace) { void response.body?.cancel().catch(() => {}); throw changed(); }
+  const body = { body: response.body, headers: response.headers, signal };
   if (!response.ok) {
-    const result: unknown = await response.json();
+    let result: unknown;
+    try { result = JSON.parse(await readRequestText(body, { maxBytes: 16_384 })); }
+    catch { throw new Error("Download failed."); }
     throw responseError(result, "Download failed.");
   }
-  return response.blob();
+  const bytes = await readRequestBytes(body, { maxBytes: 52_428_800, timeoutMs: 30000, tooLargeMessage: "Original exceeds the 50 MB download limit." });
+  assertWorkspace();
+  const current = await supabase.auth.getSession();
+  assertWorkspace();
+  if (current.data.session?.user.id !== pinnedUser) throw changed();
+  return new Blob([bytes], { type: response.headers.get("Content-Type") || "application/octet-stream" });
 }

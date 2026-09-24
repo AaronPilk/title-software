@@ -401,9 +401,15 @@ export function validateReferencedSourcesMutation(before: Workspace, after: Work
     }
   }
 }
+// PostgreSQL JSONB may reorder nested object keys, including requirements and
+// source reviews. Array order and every JSON value remain part of the review.
+const commitmentJson = (value: unknown) => JSON.stringify(value, (_key, item) =>
+  item && typeof item === "object" && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+
 export function commitmentSnapshot(s: Workspace, o: Order) {
   const p = titleFile(o);
-  return JSON.stringify({
+  return commitmentJson({
     ...(p.referencedSources?.length ? { referencedSources: p.referencedSources } : {}),
     sources: orderSources(s, o.id)
       .filter((d) => !outputRoles.includes(d.sourceRole!))
@@ -416,6 +422,16 @@ export function commitmentSnapshot(s: Workspace, o: Order) {
     loan: p.loanAmount,
     county: p.county,
   });
+}
+export function currentCommitmentReview(s: Workspace, order: Order) {
+  const saved = titleFile(order).commitmentReview?.snapshot;
+  if (typeof saved !== "string" || !saved) return false;
+  const current = commitmentSnapshot(s, order);
+  if (saved === current) return true;
+  // Older reviews used JSON.stringify with insertion-order object keys. Keep
+  // their original actor/time/stamp; semantic equality does not reapprove them.
+  try { return commitmentJson(JSON.parse(saved)) === current; }
+  catch { return false; }
 }
 export function reviewCommitment(s: Workspace, o: Order, note: string) {
   return traceMutation(s, "reviewCommitment", [o, note], () => {
@@ -481,7 +497,7 @@ export function finalReadiness(s: Workspace, order: Order) {
     ...(!p.attorney.trim() ? ["attorney"] : []),
     ...(!p.commitmentReference.trim() ? ["commitment reference"] : []),
     ...(!p.commitmentReview?.note.trim() ||
-    p.commitmentReview.snapshot !== commitmentSnapshot(s, order)
+    !currentCommitmentReview(s, order)
       ? ["commitment review"]
       : []),
     ...(p.financing === "Financed" && (!p.lender.trim() || p.loanAmount <= 0)

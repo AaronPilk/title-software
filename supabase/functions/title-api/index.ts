@@ -14,6 +14,7 @@ import { parseHelpScreen } from "../../../web/lib/assistant/help-guides.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.116.0";
 import { accountSecurity, requireAccountReady } from "../../../web/lib/backend/account-security.ts";
 import { checkMissiveConnection } from "../../../web/lib/backend/missive.ts";
+import { missiveIntakeRequest } from "../../../web/lib/backend/missive-intake.ts";
 import { missiveFeedRequest } from "../../../web/lib/backend/missive-feed-http.ts";
 import { proposeMissiveCompanyRoutes } from "../../../web/lib/backend/missive-company-routes.ts";
 import { credentialStatus, credentialChange, workspaceMissiveConfig, verifyCredentialChange } from "../../../web/lib/backend/missive-credentials.ts";
@@ -804,6 +805,60 @@ Deno.serve(async (req) => {
         p_target: uuid(input.userId), p_expected: expectedVersion(input.expectedVersion),
       }));
       return response(result);
+    }
+    if (pathname.startsWith("/missive-intake/")) {
+      const w = await workspace(wid);
+      const integration = checked(await service.from("title_integrations").select("config,status").eq("workspace_id", wid).eq("provider", "missive").maybeSingle());
+      const bootstrap = checked(await service.from("title_bootstrap").select("workspace_id").eq("singleton", true).maybeSingle());
+      return response(await missiveIntakeRequest(pathname, req.method, input, {
+        workspaceId: wid, access: a, state: w.state, revision: w.revision, integration,
+        fallback: { token: Deno.env.get("MISSIVE_API_TOKEN"), workspaceId: Deno.env.get("MISSIVE_WORKSPACE_ID") || bootstrap?.workspace_id },
+        attachmentOrigins: (Deno.env.get("MISSIVE_ATTACHMENT_ORIGINS") || "").split(",").map(v => v.trim()).filter(Boolean),
+        credential: async (routeId, revision, decrypt) => {
+          const result = await service.rpc("title_missive_feed_context", { p_workspace: wid, p_actor: user.id,
+            p_access_version: a.version, p_route_id: routeId, p_routing_revision: revision, p_decrypt: decrypt });
+          if (result.error) error(result.error.code === "42501" ? "Your email access changed. Refresh your workspace." :
+            "Email access or routing changed. Refresh the inbox list.", result.error.code === "42501" ? 403 : result.error.code === "PT503" ? 503 : 409);
+          return result.data;
+        },
+        receipt: async (requestId, hash) => {
+          const receipt = checked(await service.from("title_command_receipts").select("actor_id,payload_hash").eq("workspace_id", wid).eq("request_id", requestId).maybeSingle());
+          if (receipt && (receipt.actor_id !== user.id || receipt.payload_hash !== hash)) error("This request ID already represents a different change.", 409);
+          return !!receipt;
+        },
+        persistAsset: async artifact => {
+          let asset = checked(await service.from("title_assets").select("*").eq("workspace_id", wid).eq("id", artifact.assetId).maybeSingle());
+          if (!asset) {
+            const objectPath = `${wid}/${crypto.randomUUID()}`;
+            const bytes = await scanUpload({ path: objectPath, bytes: artifact.bytes, workspaceId: wid, companyId: artifact.companyId });
+            checked(await service.storage.from("title-documents").upload(objectPath, bytes, { contentType: artifact.mime, upsert: false }));
+            const inserted = await service.from("title_assets").insert({ workspace_id: wid, id: artifact.assetId,
+              company_id: artifact.companyId, document_id: artifact.documentId, object_path: objectPath, mime: artifact.mime,
+              filename: artifact.filename, byte_size: artifact.bytes.length, sha256: artifact.sha256, uploaded_by: user.id });
+            if (inserted.error) {
+              await service.storage.from("title-documents").remove([objectPath]);
+              if (inserted.error.code !== "23505") checked(inserted);
+            }
+            asset = checked(await service.from("title_assets").select("*").eq("workspace_id", wid).eq("id", artifact.assetId).single());
+          }
+          if (asset.sha256 !== artifact.sha256 || asset.company_id !== artifact.companyId || asset.document_id !== artifact.documentId ||
+              asset.byte_size !== artifact.bytes.length || asset.filename !== artifact.filename || asset.mime !== artifact.mime)
+            error("The stored attachment does not match its immutable source.", 409);
+          // A registered asset is retained if CAS fails: a concurrent successful
+          // retry may reference it. Unlinked assets remain inaccessible to staff.
+        },
+        commit: async (next, details) => {
+          await checkAssets(next, wid);
+          const result = await service.rpc("title_commit_missive_intake", { p_workspace: wid, p_actor: user.id, p_email: user.email,
+            p_access_version: a.version, p_expected: details.expectedRevision, p_request: details.requestId, p_hash: details.hash, p_state: next,
+            p_mapping_version: details.mappingVersion, p_company: details.companyId, p_routing_revision: details.routingRevision,
+            p_mapping_id: details.routeId, p_credential_revision: details.credentialRevision, p_order: details.orderId,
+            p_message: details.messageId, p_action: details.action });
+          if (result.error) error(result.error.code === "42501" ? "Your Production email access changed. Refresh your workspace." :
+            "The source, title file, or email routing changed. Reopen the review before saving.", result.error.code === "42501" ? 403 : 409);
+          return { revision: result.data.revision };
+        },
+      }));
     }
     if (pathname === "/missive-feed" || pathname.startsWith("/missive-feed/")) {
       const w = await workspace(wid);

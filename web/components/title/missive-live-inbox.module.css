@@ -48,3 +48,14 @@
 @media (max-width: 700px) { .heading { align-items: start; flex-wrap: wrap; }.selectors { grid-template-columns: minmax(0, 1fr); gap: 13px; padding: 16px; }.layout { grid-template-columns: minmax(0, 1fr); }.conversations { max-height: 340px; overflow-y: auto; }.queueMeta { flex-wrap: wrap; }.body { padding: 20px; }.readerHeading { padding: 19px; } }
 @media (prefers-reduced-motion: reduce) { .conversation, .message { transition: none; } }
 @media (prefers-reduced-transparency: reduce) { .surface { background: #f6f9fd; border-color: #d0dce9; -webkit-backdrop-filter: none; backdrop-filter: none; } }
+
+.intake { margin: 20px 0; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--background); }
+.intake > p, .intake fieldset p { font-size: 13px; color: var(--muted-foreground); }
+.intake > label:not(.check) { display: grid; gap: 8px; margin: 14px 0; font-size: 13px; font-weight: 600; }
+.intake select { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--background); }
+.intake details { margin: 16px 0; }
+.intake details pre { max-height: 260px; overflow: auto; }
+.intake fieldset { border: 0; padding: 0; margin: 16px 0; }
+.check { display: flex; align-items: flex-start; gap: 10px; margin: 12px 0; font-size: 13px; }
+.check input { margin-top: 3px; }
+.intakeActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }

@@ -1,3 +1,5 @@
+import type { FieldReviewEvent } from "./field-review-history";
+import type { FinalPreparationWorksheet } from "./final-preparation";
 import { commandUuid } from "./command-log";
 import type { CompanyIntakeSource } from "./company-intake";
 import type { OperatingConfirmation } from "./company-operating-status";
@@ -99,6 +101,8 @@ export type Order = {
     actor: string;
   }[];
   production?: TitleFile;
+  finalPreparation?: FinalPreparationWorksheet;
+  fieldReviewHistory?: FieldReviewEvent[];
   id: string;
   companyId: string;
   address: string;

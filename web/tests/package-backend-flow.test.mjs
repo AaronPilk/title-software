@@ -116,11 +116,12 @@ test("PostgreSQL jsonb object-key reordering survives authenticated open, scan s
   const jsonb = value => Array.isArray(value) ? value.map(jsonb) : value && typeof value === "object"
     ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.length - b.length || a.localeCompare(b)).reverse().map(([key, item]) => [key, jsonb(item)])) : value;
   const inputs = [
-    { document: { ...document("original-z"), orderId: undefined }, blob: fixture(2) },
-    { document: { ...document("original-A"), orderId: undefined }, blob: fixture(25, page => page === 1 ? "" : page === 2 ? "DEED OF TRUST\nLoan amount: $275,000.00\nTrustee: Example Trustee, Inc." : `Fictional page ${page}`) },
+    { document: { ...document("original-z"), sourceRole: undefined }, blob: fixture(2) },
+    { document: { ...document("original-A"), sourceRole: undefined }, blob: fixture(25, page => page === 1 ? "" : page === 2 ? "DEED OF TRUST\nLoan amount: $275,000.00\nTrustee: Example Trustee, Inc." : `Fictional page ${page}`) },
   ];
   const state = emptyWorkspace();
   state.companies = [{ id: "company-A", name: "Fictional Package Title", initials: "FP", color: "blue", contact: "Example", email: "fictional@example.test", location: "Charlotte", jurisdiction: "NC", stage: "Onboarding", steps: [], members: [] }];
+  state.orders = [{ id: "order-A", companyId: "company-A", address: "123 Synthetic Lane", client: "Fictional Buyer", type: "Purchase", underwriter: "WFG", owner: "Operator", jurisdiction: "NC", status: "New", due: "2026-09-24", premium: 0, rate: 0, month: "2026-09", fields: [], notes: "", exception: "", delivered: false, remitted: false }];
   state.documents = inputs.map(({ document: doc, blob }) => ({ ...doc, category: "Title", date: "2026-09-23", size: `${blob.size} bytes` }));
   const assets = await Promise.all(inputs.map(async ({ document: doc, blob }) => ({ id: doc.assetId, document_id: doc.id, company_id: doc.companyId, sha256: await packageSha256(blob), byte_size: blob.size, mime: blob.type })));
   let row = null, loads = 0, sourceHash;
