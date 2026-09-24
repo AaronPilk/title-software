@@ -1,6 +1,7 @@
 import { invitationEmailRedirect, sendInvitationEmail, invitationDeliveryMessage } from "../../../web/lib/backend/invitation-email.ts";
 import { vendorRequest } from "../../../web/lib/backend/vendor-integrations.ts";
 import { documentPackageRequest } from "../../../web/lib/backend/document-packages.ts";
+import { jvIntakeRequest } from "../../../web/lib/backend/jv-intake.ts";
 import { feedbackSubmission, feedbackUpdate, feedbackList } from "../../../web/lib/backend/feedback-validation.ts";
 import { readRequestFormData, readRequestText, RequestBodyError } from "../../../web/lib/shared/request-body.ts";
 import { documentByteProblem } from "../../../web/lib/shared/document-bytes.ts";
@@ -96,8 +97,8 @@ function invitationGrant(input: any) {
   return { p_recipient: input.email.trim().toLowerCase(), p_role: input.role, p_companies: companies,
     p_all_companies: input.allCompanies, p_restricted: input.restricted, p_partner_members: partners };
 }
-async function body(req: Request, maxBytes = 8_000_000) {
-  const raw = await readRequestText(req, { maxBytes, tooLargeMessage: maxBytes === 8_000_000 ? "Request exceeds 8 MB." : "Feedback request exceeds 32 KiB." });
+async function body(req: Request, maxBytes = 8_000_000, tooLargeMessage?: string) {
+  const raw = await readRequestText(req, { maxBytes, tooLargeMessage: tooLargeMessage || (maxBytes === 8_000_000 ? "Request exceeds 8 MB." : "Feedback request exceeds 32 KiB.") });
   let value;
   try {
     value = JSON.parse(raw);
@@ -368,6 +369,7 @@ Deno.serve(async (req) => {
         ? Object.fromEntries(new URL(req.url).searchParams)
         : pathname === "/assets/upload"
           ? null
+          : pathname.startsWith("/jv-intake/") ? await body(req, 131_072, "Application request exceeds 128 KiB.")
           : await body(req, pathname.startsWith("/integrations/vendors") ? 32_768 : 8_000_000);
     if (pathname === "/assets/upload" && req.method === "POST") {
       const form = await readRequestFormData(req, { maxBytes: 52_500_000, timeoutMs: 120_000, tooLargeMessage: "Upload exceeds 50 MB." });
@@ -450,10 +452,27 @@ Deno.serve(async (req) => {
       }
       return response({ id, sha256: hash, bytes: file.size });
     }
-    if (pathname.startsWith("/integrations/vendors") && (!input || typeof input !== "object" || Array.isArray(input)))
+    if ((pathname.startsWith("/integrations/vendors") || pathname.startsWith("/jv-intake/")) && (!input || typeof input !== "object" || Array.isArray(input)))
       error("Invalid connection request.");
     const wid = uuid(input.workspaceId),
       a = await access(wid, user);
+    if (pathname.startsWith("/jv-intake/")) {
+      if (req.method !== "POST") error("Application requests support POST only.", 405);
+      const w = await workspace(wid);
+      return response(await jvIntakeRequest(pathname.slice("/jv-intake/".length), input, {
+        workspaceId: wid, access: a, state: w.state,
+        rpc: async args => {
+          let result;
+          try { result = await service.rpc("title_jv_intake", args); }
+          catch { error("The private application service is unavailable. Try again.", 503); }
+          if (result.error) error(result.error.code === "42501" ? "Application access changed. Sign in again or contact your administrator." :
+            ["PT409", "40001"].includes(result.error.code) ? "This application or its documents changed. Reload before saving." :
+            "The private application could not be saved or loaded. Try again or contact your developer.",
+            result.error.code === "42501" ? 403 : ["PT409", "40001"].includes(result.error.code) ? 409 : 500);
+          return result.data;
+        },
+      }));
+    }
     if (pathname.startsWith("/document-packages/") && req.method === "POST") {
       if (!["owner", "admin", "operations", "onboarding"].includes(a.role)) error("Your account cannot read document packages.", 403);
       const w = await workspace(wid);

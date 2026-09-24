@@ -5264,3 +5264,34 @@ input::placeholder, textarea::placeholder { color: #63788c; opacity: 1; }
   .panel, .metric, .company-card, .integration-card, .automation-card { border-color: CanvasText; }
   :is(button, a, input, textarea, select, summary, [tabindex]):focus-visible { outline-color: Highlight; }
 }
+
+/* The JV intake inherits the existing Liquid Glass surfaces and keeps long forms legible. */
+.jv-panel { margin-block: 16px; padding: clamp(18px, 2.5vw, 30px); }
+.jv-header, .jv-heading, .jv-actions, .jv-applicant-bar, .jv-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.jv-heading { align-items: flex-start; }
+.jv-header h2 { font-size: 22px; line-height: 1.35; }
+.jv-panel p { line-height: 1.65; }
+.jv-nav { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; margin-block: 20px; border: 1px solid var(--glass-edge, #d7e2ef); border-radius: 16px; background: var(--glass-control, #edf3fa); }
+.jv-nav button { flex: 1 1 auto; min-height: 40px; white-space: normal; }
+.jv-nav button[aria-current="step"], .jv-nav button[aria-selected="true"] { background: var(--tinted-control, #00305b); color: white; }
+.jv-section { display: grid; gap: 18px; padding-block: 8px 22px; }
+.jv-section h3 { font-size: 18px; font-weight: 600; }
+.jv-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.jv-grid > *, .jv-history-row > *, .jv-private-field { min-width: 0; }
+.jv-panel select, .jv-reader select { border: 1px solid var(--glass-edge, #bdcfe2); border-radius: 9px; background: var(--glass-control, #fff); min-height: 40px; padding: 8px 10px; color: inherit; max-width: 100%; }
+.jv-private-field { display: flex; align-items: end; gap: 8px; }
+.jv-private-field > input, .jv-private-field > label { flex: 1; }
+.jv-history-row, .jv-checklist-row { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--glass-edge, #d7e2ef); border-radius: 14px; background: var(--glass-control, #f8faff); }
+.jv-history-row { margin-block: 10px; }
+.jv-document-list { display: grid; gap: 12px; }
+.jv-document-list label, .jv-check { display: flex; align-items: flex-start; gap: 10px; line-height: 1.6; }
+.jv-document-list input, .jv-check input { margin-top: 5px; flex: 0 0 auto; }
+.jv-readiness { border-left: 3px solid #b7791f; padding: 12px 18px; background: var(--glass-control, #fff9ed); border-radius: 6px 12px 12px 6px; }
+.jv-readiness ul { list-style: disc; padding-left: 20px; }
+.jv-footer { border-top: 1px solid var(--glass-edge, #d7e2ef); padding-top: 18px; margin-top: 18px; }
+.jv-reader { margin-top: 12px; padding: 16px; border: 1px solid var(--glass-edge, #d7e2ef); border-radius: 14px; }
+.jv-candidate { padding: 12px; border: 1px solid var(--glass-edge, #d7e2ef); border-radius: 10px; }
+.jv-candidate summary { cursor: pointer; font-weight: 600; }
+.jv-candidate blockquote { padding: 12px; margin: 12px 0; border-left: 3px solid #6c8dad; overflow-wrap: anywhere; white-space: pre-wrap; }
+.jv-panel :is(input, textarea, select):disabled { opacity: .65; }
+@media (max-width: 720px) { .jv-grid { grid-template-columns: minmax(0, 1fr); } .jv-nav { flex-direction: column; } .jv-header { align-items: flex-start; } }

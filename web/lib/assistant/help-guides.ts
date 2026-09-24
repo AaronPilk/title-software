@@ -54,6 +54,18 @@ const allViews: HelpScreen["view"][] = [...staffViews, "partner"];
 
 const catalog: CatalogGuide[] = [
   {
+    id: "help:jv-application", title: "Set up a new joint venture", page: "Onboarding", views: ["agency"],
+    roles: companyEditors, surfaces: ["company"], question: "Where do I complete a new joint venture application?",
+    summary: "The JV application collects each applicant's details and tracks Ballantyne's 17 setup steps.",
+    steps: [
+      "Add the company with its basic details, then open Agency → Onboarding and select that company. The company record's Onboarding tab opens the same application.",
+      "Open the private JV application. Add each applicant, choose individual or business ownership, and record five years of residence and employment history. Save your draft before leaving.",
+      "Upload originals to the company's Documents as Applications / Restricted. In the application, Read an uploaded application offers labeled suggestions to compare with the original before using them.",
+      "Complete the readiness items, submit for internal review, then record the review note. Use Setup checklist to track each of the 17 steps, its responsible person, dates and evidence reference.",
+    ],
+    note: "A connected workspace, company access, an owner/admin/onboarding role and restricted evidence access are required. Applicant details are stored separately from general workspace records and exports. Reviewing the application or completing a checklist does not license a company, grant authority, send a vendor application or approve launch. Existing companies can continue with basic details and documents.",
+  },
+  {
     id: "help:navigation", title: "Find your way around", page: "Overview", views: staffViews,
     roles: staff, question: "What is the difference between Agency and Production?",
     summary: "Agency organizes companies and business operations. Production organizes title files and requests.",

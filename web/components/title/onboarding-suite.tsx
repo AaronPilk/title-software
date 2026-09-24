@@ -1,5 +1,6 @@
 "use client";
 import { StaffAssignmentPicker } from "./staff-assignment-picker";
+import { JVApplicationPanel } from "./jv-application";
 import { canCreateCompany, canManageCompanies, canViewOnboardingEvidence, canManageOnboardingEvidence } from "@/lib/title/workspace-capabilities";
 import { companyDisplayStage } from "@/lib/title/company-operating-status";
 import { useState } from "react";
@@ -151,6 +152,7 @@ export function OnboardingHub({
                 <p className="subtle">Add the originals, then review the category and access for each file. You can add missing documents later.</p>
                 <div className="source-actions"><Button onClick={() => onOpen(c.id, "Documents")}>Open company documents <ArrowRight /></Button><Button variant="outline" onClick={() => onOpen(c.id, "Overview")}>Company details</Button></div>
               </section>
+              <JVApplicationPanel key={c.id} company={c} onDocuments={() => onOpen(c.id, "Documents")} />
               {companyDisplayStage(c) === "Active" && evidenceVisible ? <details className="panel business-panel" key={c.id}>
                 <summary className="cursor-pointer font-semibold">Application and approval review</summary>
                 <p className="subtle my-3">Review formation, licensing and underwriter evidence here when the records are ready. Uploading a document does not approve it.</p>
