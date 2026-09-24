@@ -501,16 +501,22 @@ export function CompanyDetail({
             </>
           )}
           {tab === "Documents" && (
-            <>
-              <div className="section-heading">
-                <h3>Company documents</h3>
-                <PackageReviewButton documents={companyDocs} onOpenOriginal={onDoc} onCompanyCapture={c.intake && canEditProfile ? capture => setProfileCapture({ ...capture, companySnapshot: JSON.stringify(c) }) : undefined} />
-                <Button size="sm" onClick={() => onUpload(id)}>
+            <section className="company-documents" aria-label="Company documents">
+              <div className="company-documents-heading">
+                <div>
+                  <h3>Company documents</h3>
+                  <p>{companyDocs.length ? `${companyDocs.length} ${companyDocs.length === 1 ? "file" : "files"}` : "No files yet"}</p>
+                </div>
+                <Button onClick={() => onUpload(id)}>
                   <Plus />
                   Upload
                 </Button>
               </div>
-              <p className="subtle my-3">Files about {c.name}: formation records, applications, agreements, disclosures and logos. The package reader above uses these company documents.</p>
+              <p className="company-documents-description">Formation records, applications, agreements, disclosures and logos for {c.name}.</p>
+              {!!companyDocs.length && <div className="company-documents-reader">
+                <PackageReviewButton documents={companyDocs} onOpenOriginal={onDoc} onCompanyCapture={c.intake && canEditProfile ? capture => setProfileCapture({ ...capture, companySnapshot: JSON.stringify(c) }) : undefined} />
+              </div>}
+              <div className="company-documents-files">
               {companyDocs.map((d) => (
                 <button
                   key={d.id}
@@ -529,19 +535,20 @@ export function CompanyDetail({
                 </button>
               ))}
               {!companyDocs.length && (
-                <Empty
+                  <Empty
                   title="Add your company files"
-                  text="Start with what you have. Choose Upload, add the originals, then review a category for each file. Choose Logo / branding for a logo."
+                  text="Choose Upload to add your originals, then pick a category for each file. You can start with just a logo."
                 />
               )}
-              {!!titleDocs.length && <details className="mt-6 border-t pt-5">
+              </div>
+              {!!titleDocs.length && <details className="company-documents-disclosure">
                 <summary className="cursor-pointer text-sm font-semibold">Title-file documents ({titleDocs.length})</summary>
                 <p className="subtle my-3">These originals belong to property files. Read and review them from that title file’s Final sources.</p>
                 {titleDocs.map(d => <button className="doc-list-row" key={d.id} onClick={() => onDoc(d)}>
                   <FolderClosed size={20} /><div className="grow"><strong>{d.name}</strong><small>{d.orderId} · {s.orders.find(order => order.id === d.orderId)?.address || "Title file"} · {d.sourceRole || "Type not assigned"}</small></div><Status value={d.visibility} /><ChevronRight size={15} />
                 </button>)}
               </details>}
-              <details className="mt-6 border-t pt-5">
+              <details className="company-documents-disclosure">
                 <summary className="cursor-pointer text-sm font-semibold">
                   Requests and approvals
                 </summary>
@@ -553,7 +560,7 @@ export function CompanyDetail({
                 </p>
                 <CompanyMaterials key={c.id} companyId={c.id} onDoc={onDoc} embedded />
               </details>
-            </>
+            </section>
           )}
           {tab === "Onboarding" && <><JVApplicationPanel key={c.id} company={c} onDocuments={() => setTab("Documents")} /><details className="panel business-panel"><summary className="cursor-pointer font-semibold">Company authority and launch review</summary><OnboardingCasePanel company={c} /></details></>}
           {tab === "Jurisdictions" && <CompanyJurisdictions id={id} />}{" "}
