@@ -1,8 +1,10 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Activity, Archive, ArrowDownToLine, Check, ChevronDown, FileSearch, Info, RefreshCw, ShieldCheck, Users } from "lucide-react";
 import { Button } from "../ui/button";
+import styles from "./security-center.module.css";
 import { exportSecurityEvents, listSecurityEvents, loadSecurityCenter, loadSecurityMemberLabels, recordAccessReview } from "@/lib/backend/security-center-client";
-import { securityReadiness, type SecurityCenterSummary, type SecurityEventPage, type SecurityMemberLabel, type SecurityCompanyLabel } from "@/lib/backend/security-center";
+import type { SecurityCenterSummary, SecurityEventPage, SecurityMemberLabel, SecurityCompanyLabel, SecurityEventType } from "@/lib/backend/security-center";
 
 type SecurityCenterProps = { workspaceId: string; userId: string; companies?: readonly SecurityCompanyLabel[] };
 export function SecurityCenter({ workspaceId, userId, companies }: SecurityCenterProps) {
@@ -76,30 +78,97 @@ function SecurityCenterSession({ workspaceId, userId, companies }: SecurityCente
     } catch (e) { if (current === generation.current) setError(e instanceof Error ? e.message : "Unable to export events."); }
     finally { if (current === generation.current) setBusy(false); }
   }
-  const stamp = (value: string) => new Date(value).toLocaleString();
+  const stamp = (value: string) => new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
   const emails = new Map(memberLabels.map(member => [member.userId, member.email]));
   const companyNames = new Map(companies?.map(company => [company.id, company.name]));
-  return <section aria-label="Security center" className="space-y-5">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Security center</h2><p className="text-sm text-muted-foreground">Review access and retained security evidence. This screen does not certify compliance.</p></div><Button variant="outline" disabled={busy} onClick={() => void refresh()}>Refresh security evidence</Button></div>
-    {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-    {notice && <p role="status" className="text-sm">{notice}</p>}
-    {!visible && busy && <p role="status">Loading security evidence…</p>}
+  const reviewCurrent = visible?.latestReview?.current;
+  return <section aria-label="Security center" className={styles.root}>
+    <header className={styles.header}>
+      <div className={styles.headingGroup}>
+        <span className={styles.heroIcon}><ShieldCheck size={26} strokeWidth={1.6} aria-hidden="true" /></span>
+        <div><h2>Security center</h2><p>Manage access. Keep a clear record.</p></div>
+      </div>
+      <div className={styles.refreshGroup}>
+        <Button className={styles.button} variant="outline" disabled={busy} onClick={() => void refresh()} aria-label="Refresh security evidence"><RefreshCw size={15} aria-hidden="true" />Refresh</Button>
+        {visible && <span className={styles.checked}>Updated {stamp(visible.checkedAt)}</span>}
+      </div>
+    </header>
+    {error && <p role="alert" className={styles.error}>{error}</p>}
+    {notice && <p role="status" className={styles.notice}><Check size={17} aria-hidden="true" />{notice}</p>}
+    {!visible && busy && <p role="status" className={styles.loading}>Loading security evidence…</p>}
     {visible && <>
-      <p className="text-xs text-muted-foreground">Evidence checked {stamp(visible.checkedAt)}</p>
-      <div className="grid gap-3 md:grid-cols-2">{securityReadiness(visible).map(control => <article key={control.id} className="rounded-lg border p-4"><h3 className="font-medium">{control.label}</h3><p className="text-xs uppercase text-muted-foreground">{control.status.replaceAll("_", " ")}</p><p className="mt-2 text-sm">{control.detail}</p></article>)}</div>
-      {visible.documentScanning && <article className="rounded-lg border p-4"><h3 className="font-medium">Document scanning</h3><p className="text-sm">{visible.documentScanning.policy === "pending_setup" ? "Needs review — NOT ACTIVATED. Hosted scanner setup and policy activation are required. Uploads can currently enter without a clean scan." : "New uploads require a clean scan before ingestion; scanner failure blocks ingestion."}</p><p className="text-sm">Connected configuration: {visible.documentScanning.configured ? "present" : "missing"}. Originals without scan evidence: {visible.documentScanning.legacyUnscannedCount}. Configuration presence does not verify scanner health.</p></article>}
-      <article className="space-y-3 rounded-lg border p-4"><h3 className="font-medium">Review staff access</h3><p className="text-sm">Review every account’s role, company scope, restricted-record access and membership version. Email labels come from the current staff directory; the saved review contains account IDs.</p>
-        {labelsUnavailable && <p className="text-sm text-muted-foreground">Member labels are unavailable. Refresh to retry, or use the account IDs to check the staff directory.</p>}
-        {visible.latestReview && <p className="text-sm">Last review: {stamp(visible.latestReview.createdAt)} by {visible.latestReview.actorId}. {visible.latestReview.current ? "Snapshot still matches." : "Review is stale; access or company scope changed."}<br />Note: {visible.latestReview.note}</p>}
-        <div className="overflow-x-auto"><table className="w-full text-left text-xs"><caption className="sr-only">Current membership snapshot</caption><thead><tr>{["Staff account", "Role", "Companies", "Restricted records", "Status", "Version"].map(heading => <th key={heading} className="p-2">{heading}</th>)}</tr></thead><tbody>{visible.snapshot.members.map(member => <tr key={member.userId} className="border-t"><td className="p-2"><span className="block text-sm">{emails.get(member.userId) ?? "Email unavailable"}</span><span className="block font-mono text-[11px] text-muted-foreground">{member.userId}</span></td><td className="p-2">{member.role}</td><td className="p-2">{member.allCompanies ? "All companies" : member.companyIds.length ? member.companyIds.map(companyId => <span className="block" key={companyId}>{companyNames.get(companyId) || "Company name unavailable"}<span className="ml-1 font-mono text-[11px] text-muted-foreground">({companyId})</span></span>) : "None"}</td><td className="p-2">{member.restricted ? "Allowed" : "Not allowed"}</td><td className="p-2">{member.active ? "Active" : "Inactive"}</td><td className="p-2">{member.version}</td></tr>)}</tbody></table></div>
-        <label className="block text-sm">Review note<textarea aria-label="Review note" className="mt-1 block w-full rounded-md border p-2" value={note} onChange={event => { setNote(event.target.value); setNotice(""); }} maxLength={1000} rows={3} disabled={busy} placeholder="Record the review outcome and follow-up owner; omit client data, credentials and secrets." /></label>
-        <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={acknowledged} disabled={busy} onChange={event => setAcknowledged(event.target.checked)} />I reviewed the displayed account permissions and recorded any follow-up needed.</label>
-        <Button disabled={busy || !acknowledged || !note.trim()} onClick={() => void review()}>Record access review</Button><p className="text-xs text-muted-foreground">Recording a review does not grant or revoke access. Membership changes invalidate this acknowledgement.</p>
+      <div className={styles.metrics}>
+        <article className={styles.metric}>
+          <div className={styles.metricHeading}><span className={styles.icon}><Users size={19} aria-hidden="true" /></span><h3>Access review</h3><span className={styles.badge} data-tone={reviewCurrent ? "neutral" : "amber"}>{reviewCurrent ? "Recorded" : "Needs review"}</span></div>
+          <strong className={styles.metricValue}>{visible.snapshot.members.length}<span>staff {visible.snapshot.members.length === 1 ? "account" : "accounts"}</span></strong>
+          <p>{reviewCurrent ? "Current permissions match the last review." : visible.latestReview ? "Permissions have changed. Review access again." : "Confirm each person has the right access."}</p>
+          <a className={styles.textAction} href="#security-access-review" onClick={event => { event.preventDefault(); document.getElementById("security-access-review")?.focus(); }}>Review staff access <span aria-hidden="true">→</span></a>
+        </article>
+        <article className={styles.metric}>
+          <div className={styles.metricHeading}><span className={styles.icon}><Activity size={19} aria-hidden="true" /></span><h3>Security activity</h3></div>
+          <strong className={styles.metricValue}>{visible.evidence.eventCount}<span>recorded {visible.evidence.eventCount === 1 ? "event" : "events"}</span></strong>
+          <p>{visible.evidence.lastEventAt ? `Latest activity ${stamp(visible.evidence.lastEventAt)}.` : "Events appear here as activity is recorded."}</p>
+          <span className={styles.metricFoot}>Event counts do not measure monitoring coverage.</span>
+        </article>
+        <article className={styles.metric}>
+          <div className={styles.metricHeading}><span className={styles.icon}><Archive size={19} aria-hidden="true" /></span><h3>Recovery points</h3></div>
+          <strong className={styles.metricValue}>{visible.evidence.backupCount}<span>workspace {visible.evidence.backupCount === 1 ? "snapshot" : "snapshots"}</span></strong>
+          <p>{visible.evidence.lastBackupAt ? `Latest snapshot ${stamp(visible.evidence.lastBackupAt)}.` : "Create a recovery point in Settings → Recovery."}</p>
+          <span className={styles.metricFoot}>Original-file recovery needs a separate restore test.</span>
+        </article>
+      </div>
+      {visible.documentScanning && <article className={styles.scanning} data-pending={visible.documentScanning.policy === "pending_setup"} aria-label="Document scanning">
+        <span className={styles.scanIcon}><FileSearch size={23} strokeWidth={1.7} aria-hidden="true" /></span>
+        <div className={styles.scanContent}>
+          <div className={styles.scanHeading}><h3>Document scanning</h3><span className={styles.badge} data-tone={visible.documentScanning.policy === "pending_setup" ? "amber" : "neutral"}>{visible.documentScanning.policy === "pending_setup" ? "NOT ACTIVATED" : "Required for new uploads"}</span></div>
+          <p>{visible.documentScanning.policy === "pending_setup" ? "Uploads can currently enter without a clean scan. Hosted scanner setup and activation are still needed." : "New uploads require a clean scan. If the scanner is unavailable, ingestion is blocked."}</p>
+          <details className={styles.details}><summary>Scanning details<ChevronDown size={14} aria-hidden="true" /></summary><div className={styles.detailBody}><p>Originals without scan evidence: {visible.documentScanning.legacyUnscannedCount}</p><p>Scanner configuration: {visible.documentScanning.configured ? "present" : "missing"}. Configuration presence does not verify scanner health.</p></div></details>
+        </div>
+      </article>}
+      <article className={styles.panel}>
+        <div className={styles.panelHeader}><div><span className={styles.eyebrow}>PEOPLE & PERMISSIONS</span><h3 id="security-access-review" tabIndex={-1}>Review staff access</h3><p>Check roles, company access, and who can open restricted records.</p></div><span className={styles.count}>{visible.snapshot.members.length} {visible.snapshot.members.length === 1 ? "account" : "accounts"}</span></div>
+        {labelsUnavailable && <p className={styles.inlineNote}>Member labels are unavailable. Refresh to retry, or use the account IDs to check the staff directory.</p>}
+        {visible.latestReview && <div className={styles.previousReview}><span className={styles.badge} data-tone={reviewCurrent ? "neutral" : "amber"}>{reviewCurrent ? "Current review" : "Review needed"}</span><p>Last reviewed {stamp(visible.latestReview.createdAt)} by {emails.get(visible.latestReview.actorId) || visible.latestReview.actorId}. {reviewCurrent ? "Snapshot still matches." : "Review is stale; access or company scope changed."}</p><p className={styles.reviewNote}>{visible.latestReview.note}</p></div>}
+        <div className={styles.tableWrap}><table className={styles.table} role="table"><caption className={styles.srOnly}>Current membership snapshot</caption><thead><tr role="row">{["Staff account", "Role", "Company access", "Restricted records", "Status"].map(heading => <th scope="col" role="columnheader" key={heading}>{heading}</th>)}</tr></thead><tbody>{visible.snapshot.members.map(member => <tr role="row" key={member.userId}>
+          <td role="cell" className={styles.accountCell}><div className={styles.account}><span className={styles.avatar} aria-hidden="true">{(emails.get(member.userId) || "?").slice(0, 1).toUpperCase()}</span><div className={styles.accountInfo}><span className={styles.email}>{emails.get(member.userId) || "Email unavailable"}</span><details className={styles.details}><summary>Account details<ChevronDown size={12} aria-hidden="true" /></summary><div className={styles.detailBody}><span className={styles.id}>{member.userId}</span><span>Membership version {member.version}</span><span>Company IDs: {member.allCompanies ? "All companies" : member.companyIds.join(", ") || "None"}</span></div></details></div></div></td>
+          <td role="cell" data-label="Role"><span className={styles.role}>{member.role}</span></td>
+          <td role="cell" data-label="Company access">{member.allCompanies ? "All companies" : member.companyIds.length ? member.companyIds.map(companyId => <span className={styles.company} key={companyId}>{companyNames.get(companyId) || `Company ${companyId}`}</span>) : <span className={styles.muted}>None</span>}</td>
+          <td role="cell" data-label="Restricted records">{member.restricted ? "Allowed" : "Not allowed"}</td>
+          <td role="cell" data-label="Status"><span className={styles.memberStatus} data-active={member.active}><span aria-hidden="true" />{member.active ? "Active" : "Inactive"}</span></td>
+        </tr>)}</tbody></table></div>
+        <div className={styles.reviewForm}>
+          <div className={styles.formIntro}><h4>Record your review</h4><p>Save a note once you’ve checked everyone’s permissions.</p></div>
+          <label className={styles.field}>Review note<textarea aria-label="Review note" value={note} onChange={event => { setNote(event.target.value); setNotice(""); }} maxLength={1000} rows={3} disabled={busy} placeholder="Summarize your review and any follow-up needed…" /></label>
+          <p className={styles.fieldHint}>Leave out client information, passwords, and other secrets.</p>
+          <label className={styles.acknowledgement}><input type="checkbox" checked={acknowledged} disabled={busy} onChange={event => setAcknowledged(event.target.checked)} /><span>I reviewed the displayed account permissions and recorded any follow-up needed.</span></label>
+          <div className={styles.formActions}><p>This records a review without changing permissions. Changes to access require a new review.</p><Button className={styles.button} disabled={busy || !acknowledged || !note.trim()} onClick={() => void review()}><ShieldCheck size={16} aria-hidden="true" />Record access review</Button></div>
+        </div>
       </article>
-      <article className="space-y-3 rounded-lg border p-4"><div className="flex flex-wrap justify-between gap-2"><h3 className="font-medium">Recent security events</h3><Button variant="outline" disabled={busy} onClick={() => void exportPage()}>Export latest 100 events</Button></div><p className="text-xs text-muted-foreground">Metadata only: no document content, filenames, credentials or raw errors. Event history begins when collection is deployed.</p>
-        {!events?.items.length ? <p className="text-sm">No security events have been recorded.</p> : <ul className="space-y-2">{events.items.map(event => <li key={event.id} className="border-t pt-2 text-sm"><span className="font-medium">{event.eventType}</span> · {event.outcome} · {stamp(event.createdAt)}<div className="break-all text-xs text-muted-foreground">Actor {event.actorId ?? "background or recipient service"}{event.companyId ? ` · Company ${event.companyId}` : ""}{event.recordId ? ` · ${event.recordType} ${event.recordId}` : ""}{event.count !== null ? ` · Count ${event.count}` : ""}</div></li>)}</ul>}
-        {events?.nextCursor && <Button variant="outline" disabled={busy} onClick={() => void older()}>Older security events</Button>}
+      <article className={styles.panel}>
+        <div className={styles.panelHeader}><div><span className={styles.eyebrow}>AUDIT TRAIL</span><h3>Recent security events</h3><p>Document access, recovery points, and permission reviews.</p></div><Button className={styles.button} variant="outline" disabled={busy} onClick={() => void exportPage()} aria-label="Export latest 100 events"><ArrowDownToLine size={16} aria-hidden="true" />Export latest 100</Button></div>
+        {!events?.items.length ? <div className={styles.empty}><Activity size={28} strokeWidth={1.5} aria-hidden="true" /><p>No security events have been recorded.</p></div> : <ul className={styles.events}>{events.items.map(event => <li key={event.id}>
+          <span className={styles.eventIcon}><Activity size={17} aria-hidden="true" /></span>
+          <div className={styles.eventContent}><div className={styles.eventHeading}><strong>{eventLabels[event.eventType] ?? event.eventType}</strong><span className={styles.badge} data-tone={event.outcome === "success" ? "neutral" : "amber"}>{event.outcome === "success" ? "Recorded" : event.outcome === "denied" ? "Denied" : "Failed"}</span></div>
+            <p>{event.actorId ? emails.get(event.actorId) || "Staff account" : "Background or recipient service"}{event.companyId && companyNames.has(event.companyId) ? ` · ${companyNames.get(event.companyId)}` : ""}</p>
+            <details className={styles.details}><summary>Event details<ChevronDown size={12} aria-hidden="true" /></summary><dl className={styles.metadata}><div><dt>Event</dt><dd>{event.eventType}</dd></div><div><dt>Actor</dt><dd>{event.actorId ?? "Background or recipient service"}</dd></div>{event.companyId && <div><dt>Company ID</dt><dd>{event.companyId}</dd></div>}{event.recordId && <div><dt>{event.recordType} ID</dt><dd>{event.recordId}</dd></div>}{event.count !== null && <div><dt>Count</dt><dd>{event.count}</dd></div>}<div><dt>Recorded at</dt><dd>{stamp(event.createdAt)}</dd></div></dl></details>
+          </div><time dateTime={event.createdAt} className={styles.eventTime}>{stamp(event.createdAt)}</time>
+        </li>)}</ul>}
+        <div className={styles.eventFooter}><p>Metadata only. No document contents, filenames, or credentials are included. History starts when event collection is deployed.</p>{events?.nextCursor && <Button className={styles.button} variant="outline" disabled={busy} onClick={() => void older()}>Older security events</Button>}</div>
       </article>
+      <aside className={styles.operations}><Info size={20} aria-hidden="true" /><div><h3>Security is an ongoing practice</h3><p>Access reviews and event history are part of the process. An incident contact, recovery exercises, monitoring, and vendor obligations still need operational review. This screen does not certify compliance.</p></div></aside>
     </>}
   </section>;
 }
+
+const eventLabels: Record<SecurityEventType, string> = {
+  "file.download": "Original document opened",
+  "workspace.export": "Workspace exported",
+  "backup.created": "Recovery point created",
+  "backup.restored": "Recovery point restored",
+  "authorization.denied": "Access request denied",
+  "security.events_exported": "Security events exported",
+  "access.reviewed": "Staff access reviewed",
+  "document.scan_clean": "Document scan cleared",
+  "document.scan_blocked": "Document scan blocked",
+  "document.scan_unavailable": "Document scanner unavailable",
+};
