@@ -1,5 +1,6 @@
 /** Isolated, temporary PostgreSQL only. Never uses configured or hosted database credentials. */
 import fs from 'node:fs';
+import {ownerRecordsFixture} from '../../tests/fixtures/company-records.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import assert from 'node:assert/strict';
@@ -65,6 +66,7 @@ try{
  revoke all on all functions in schema vault from public,anon,authenticated,service_role;`);
  const migration=process.env.TITLE_JV_TEST_MIGRATION||path.join(root,'supabase/migrations',fs.readdirSync(path.join(root,'supabase/migrations')).find(name=>name.endsWith('_title_jv_intake.sql')));
  sql(fs.readFileSync(migration,'utf8'));
+ sql(fs.readFileSync(path.join(root,'supabase/migrations/20260925182800_title_company_workspace_records.sql'),'utf8'));
  sql(fs.readFileSync(process.env.TITLE_JV_TEST_SQL||path.join(root,'web/tests/jv-intake.test.sql'),'utf8'));console.log('Rollback SQL access/schema/CAS/review/encrypted-envelope/audit regression fixture passed.');
  setup();await blocked(call('save',input(0)),call('save',input(0)),'concurrent initial save has one winner',/Private application changed/);assert.equal(run('load').version,1);
  const revoke=`select public.title_revoke_member('${w}','${owner}','owner@example.test',1,'${staff}',1);`;
@@ -87,5 +89,34 @@ try{
  assert.equal(run('load').version,1);assert.equal(sql('select secret from vault.secrets;'),secretBefore);
  for(const role of ['anon','authenticated','service_role'])assert.throws(()=>sql(`set role ${role};select * from public.title_jv_intakes;`),/permission denied/);
  for(const role of ['anon','authenticated'])assert.throws(()=>sql(`set role ${role};${call('load')}`),/permission denied/);
+
+ // Company records use the real encrypted-envelope functions, never a second store.
+ setup();
+ const companyRecords=ownerRecordsFixture(),extended={...p,companyRecords};
+ sql(`update public.title_workspaces set state=jsonb_set(state,'{companies,0,members}','[{"id":"member-a","name":"Fictional LLC","share":49},{"id":"member-b","name":"Fictional Other","share":51}]') where id='${w}';`);
+ assert.equal(sql(`select public.title_jv_payload_valid(${json(extended)});`).trim(),'t');
+ for(const mutate of [r=>r.companyEin=null,r=>r.companyEin='---',r=>r.owners[0].memberId=null,r=>r.owners[0].kind='individual',r=>r.owners[0].representatives[0].email='bad',r=>r.agreements[0].terms[0].percentage='100.001',r=>r.agreements[0].effectiveOn='2026-02-30',r=>r.worksheets[0].fields[0].source='applicant.ssn',r=>r.extra=true]){
+   const bad=structuredClone(extended);mutate(bad.companyRecords);assert.equal(sql(`select public.title_jv_payload_valid(${json(bad)});`).trim(),'f');
+ }
+ run('save',input(0,'Draft',extended));assert.deepEqual(run('load').payload,extended);
+ assert.doesNotMatch(sql('select secret from vault.secrets;'),/120000001|120000002|Fictional Cedar/);
+ assert.doesNotMatch(sql('select detail from public.title_audit;'),/120000001|120000002|Fictional Cedar/);
+ assert.throws(()=>run('save',input(1,'Draft',p)),/Private application changed/);
+ const orphan=structuredClone(extended);orphan.companyRecords.owners[0].memberId='foreign';assert.throws(()=>run('save',input(1,'Draft',orphan)),/Private application changed/);
+ run('save',input(1,'Ready for review',extended));run('save',input(2,'Reviewed',extended));
+ // Restore an older workspace with no optional member IDs: downgrade once and retain values for relinking.
+ sql(`update public.title_workspaces set state=jsonb_set(state,'{companies,0,members}','[{"name":"Fictional LLC","share":49},{"name":"Fictional Other","share":51}]') where id='${w}';`);
+ let restored=run('load');assert.equal(restored.status,'Draft');assert.equal(restored.sourceChanged,true);assert.equal(restored.version,4);assert.deepEqual(restored.payload,extended);assert.equal(run('load').version,4);
+ // One original can serve two purposes, but each use must still be valid before deduplication.
+ sql(`update public.title_workspaces set state=jsonb_set(state,'{companies,0,members}','[{"id":"member-a","name":"Fictional LLC","share":49},{"id":"member-b","name":"Fictional Other","share":51}]') where id='${w}';
+ update public.title_workspaces set state=jsonb_set(state,'{documents,0,category}','"Company records"') where id='${w}';`);
+ const linked=structuredClone(extended);linked.sourceDocumentIds=[];linked.companyRecords.owners[0].documentIds=['D1'];linked.companyRecords.worksheets[0].documentId='D1';
+ run('save',input(4,'Ready for review',linked));run('save',input(5,'Reviewed',linked));
+ assert.deepEqual(run('load').payload,linked);
+ sql(`update public.title_workspaces set state=jsonb_set(state,'{documents,0,category}','"Formation"') where id='${w}';`);
+ restored=run('load');assert.equal(restored.status,'Draft');assert.equal(restored.version,7);assert.equal(restored.sourceChanged,true);
+ assert.throws(()=>run('save',input(7,'Draft',linked)),/Private application access changed/);
+ linked.companyRecords.worksheets[0].documentId='';assert.equal(run('save',input(7,'Draft',linked)).version,8);
+ console.log('Company records SQL: schema parity, Vault roundtrip, private audit, member restore invalidation, purpose-bound originals and reconciliation passed.');
  console.log('JV SQL: authorization, real PostgreSQL races, source invalidation, atomic encryption-boundary writes, and role denial passed.');
 }finally{if(started)command('pg_ctl',['-D',data,'-m','immediate','-w','stop']);fs.rmSync(dir,{recursive:true,force:true});}

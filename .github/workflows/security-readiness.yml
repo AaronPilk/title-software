@@ -60,6 +60,9 @@ jobs:
           npm --prefix web run test:jv
           npm --prefix web run test:jv:portal
           npm --prefix web run test:company-status
+          npm --prefix web run test:company-workspace
+          npm --prefix web run test:jv:sql
+          npm --prefix web run test:jv:portal:sql
           npm --prefix web run test:workspace:views
           npm --prefix web run test:daily-use:ui
       - name: Production email and document boundaries

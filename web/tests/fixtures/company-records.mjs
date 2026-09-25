@@ -1,0 +1,6 @@
+// Entirely fictional entities. Never substitute client records in these fixtures.
+export const ownerRecordsFixture = () => ({
+  companyEin:'120000001',owners:[{id:'owner-a',memberId:'member-a',kind:'llc',legalName:'Fictional Cedar Holdings LLC',ein:'120000002',representatives:[{id:'rep-a',name:'Fictional Person A',email:'a@example.test',phone:'5550101'},{id:'rep-b',name:'Fictional Person B',email:'b@example.test',phone:'5550102'}],formationStatus:'Being formed',formationBy:'Agency',formationState:'NC',formationReference:'Fictional filing reference',documentIds:[]}],
+  agreements:[{id:'agreement-a',title:'Fictional agreement',effectiveOn:'2026-09-25',reference:'v1',documentIds:[],terms:[{memberId:'member-a',label:'Distributions',percentage:'70.125'}],notes:'Separate from legal ownership.'}],
+  worksheets:[{id:'worksheet-a',title:'Fictional preparation',version:'1',documentId:'',fields:[{id:'field-1',label:'Applicant entity',source:'owner.name'},{id:'field-2',label:'Contact',source:'contact.name'},{id:'field-3',label:'Email',source:'contact.email'},{id:'field-4',label:'Ownership',source:'owner.share'},{id:'field-5',label:'Owner EIN',source:'owner.ein'},{id:'field-6',label:'Company EIN',source:'company.ein'}]}]
+});

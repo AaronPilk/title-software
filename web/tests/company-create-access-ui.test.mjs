@@ -44,7 +44,7 @@ before(async () => {
         window.companyUpdates=[];
         window.readFixtureCompanyState=()=>structuredClone(snapshot.s);
         window.setFixtureCompanyAccess=(role,all)=>{snapshot={...snapshot,connection:access(role,all)};emit();};
-        export function useWorkspace(){
+        export const getAssetForDocument=async()=>{throw Error("No logo original in this fixture")}; export function useWorkspace(){
           const current=useSyncExternalStore(listener=>{listeners.add(listener);return()=>listeners.delete(listener);},()=>snapshot);
           return {...current,update:async(change,title,detail)=>{
             const next=structuredClone(snapshot.s);change(next);window.companyUpdates.push({title,detail});
@@ -145,8 +145,8 @@ test("an allowed company form still creates the company and onboarding task", as
   await add().click();
   assert.match(await page.getByRole("dialog").innerText(), /Initial setup task assigned to you: staff@example.test/);
   await page.getByLabel("Company name", {exact:true}).fill("New Synthetic Title");
-  await page.getByLabel("Primary contact", {exact:true}).fill("Test Contact");
-  await page.getByLabel("Contact email", {exact:true}).fill("contact@example.test");
+  await page.getByLabel("Company contact (optional)", {exact:true}).fill("Test Contact");
+  await page.getByLabel("Contact email (optional)", {exact:true}).fill("contact@example.test");
   await page.getByLabel("City", {exact:true}).fill("Charlotte");
   await page.getByRole("dialog").getByRole("button", {name:"Add company", exact:true}).click();
   await page.getByRole("dialog").waitFor({state:"detached"});
@@ -165,8 +165,8 @@ test("an allowed company form still creates the company and onboarding task", as
 test("local sample company creation preserves its illustrative setup owner", async () => {
   await open("demo", true);await add().click();
   await page.getByLabel("Company name", {exact:true}).fill("Fictional Demo Title");
-  await page.getByLabel("Primary contact", {exact:true}).fill("Test Contact");
-  await page.getByLabel("Contact email", {exact:true}).fill("demo@example.test");
+  await page.getByLabel("Company contact (optional)", {exact:true}).fill("Test Contact");
+  await page.getByLabel("Contact email (optional)", {exact:true}).fill("demo@example.test");
   await page.getByLabel("City", {exact:true}).fill("Charlotte");
   await page.getByRole("dialog").getByRole("button", {name:"Add company",exact:true}).click();await page.getByRole("dialog").waitFor({state:"detached"});
   const state=await page.evaluate(()=>window.readFixtureCompanyState());const company=state.companies.find(row=>row.name==="Fictional Demo Title");const task=state.tasks.find(row=>row.companyId===company.id);

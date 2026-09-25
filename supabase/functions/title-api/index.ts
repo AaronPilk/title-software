@@ -270,6 +270,12 @@ async function checkAssets(state: any, id: string) {
       )
     )
       error("A document refers to an unavailable or differently owned upload.");
+  for (const c of state.companies) if (c.desk?.logoDocumentId) {
+    const doc = state.documents.find((d: any) => d.id === c.desk.logoDocumentId);
+    const asset = assets.find((a: any) => a.id === doc?.assetId && a.document_id === doc?.id && a.company_id === c.id);
+    if (!asset || !["image/png", "image/jpeg"].includes(asset.mime) || asset.mime !== doc.mime)
+      error("Choose an uploaded PNG or JPG image for the company logo.");
+  }
 }
 
 

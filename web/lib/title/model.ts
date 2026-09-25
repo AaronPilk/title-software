@@ -1,3 +1,4 @@
+import type { CompanyDesk } from "./company-workspace";
 import type { FieldReviewEvent } from "./field-review-history";
 import type { FinalPreparationWorksheet } from "./final-preparation";
 import { commandUuid } from "./command-log";
@@ -46,6 +47,7 @@ export type AuthorityRecord = {
   reviewer: string;
 };
 export type Company = {
+  desk?: CompanyDesk;
   intake?: CompanyIntakeSource;
   /** Confirmed business operation, independent of this workspace's evidence review. */
   operatingStatus?: OperatingConfirmation | null;
@@ -62,7 +64,7 @@ export type Company = {
   authorizations?: AuthorityRecord[];
   stage: string;
   steps: boolean[];
-  members: { name: string; share: number; email?: string; phone?: string }[];
+  members: { id?: string; name: string; share: number; email?: string; phone?: string }[];
 };
 export type Field = {
   captureEvidence?: {
@@ -125,6 +127,7 @@ export type Order = {
   exception: string;
 };
 export type VaultDoc = {
+  folderId?: string;
   /** Immutable source attribution assigned only by the reviewed server importer. */
   providerSource?: {
     provider: "Missive"; organizationId: string; teamId: string; conversationId: string;

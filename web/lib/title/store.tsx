@@ -1,4 +1,5 @@
 "use client";
+import { companyWorkspaceShapeValid } from "./company-workspace";
 import {
   createContext,
   useCallback,
@@ -79,6 +80,7 @@ function isWorkspaceShape(data: unknown): data is Workspace {
     (data as Workspace).orders.every(o => !!o && referencedSourcesShapeValid(o.production?.referencedSources) && (o.finalPreparation === undefined || finalPreparationShapeValid(o.finalPreparation)) && fieldReviewHistoryShapeValid(o.fieldReviewHistory)) &&
     isValidOptionalMaterials((data as { materials?: unknown }).materials) &&
     isValidStatementDeliveryWorkspace(data) &&
+    companyWorkspaceShapeValid(data as Workspace) &&
     isValidDeliveries((data as { deliveries?: unknown }).deliveries) &&
     isValidOwnershipHistory((data as { ownershipHistory?: unknown }).ownershipHistory) &&
     isValidOrchestration((data as Workspace).orchestration) &&

@@ -1,5 +1,6 @@
 /** Isolated, temporary PostgreSQL only. Never uses configured or hosted database credentials. */
 import fs from 'node:fs';
+import {ownerRecordsFixture} from '../../tests/fixtures/company-records.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import assert from 'node:assert/strict';
@@ -69,6 +70,7 @@ try{
  sql(fs.readFileSync(path.join(root,'supabase/migrations/20260924155947_title_jv_recipient_portal.sql'),'utf8'));
  sql(fs.readFileSync(path.join(root,'supabase/migrations/20260924173821_title_security_center.sql'),'utf8'));
  sql(fs.readFileSync(path.join(root,'supabase/migrations/20260924174405_title_document_scan_gate.sql'),'utf8'));
+ sql(fs.readFileSync(path.join(root,'supabase/migrations/20260925182800_title_company_workspace_records.sql'),'utf8'));
  const hash=c=>c.repeat(64), token=hash('a'), sess=hash('b'), otp=hash('c'), ip=hash('d');
  const staffCall=(action,input={},actor=staff,company='C1')=>`select public.title_jv_portal_staff('${w}','${actor}',1,'${company}','${action}',${json(input)});`;
  const publicCall=(action,input={},credential=sess,ipHash=ip)=>`select public.title_jv_portal_public('${action}','${credential}','${ipHash}',${json(input)});`;
@@ -139,6 +141,17 @@ try{
  setupPortal();submit(1);sql(`update title_private.jv_portal_invites set expires_at=now()-interval '1 second' where id='${id}'`);assert.equal(publicRun('load').errorCode,'forbidden');assert.equal(staffRun('list').requests[0].status,'Submitted');assert.equal(staffRun('load-submission',{id}).payload.notes,payload.notes);assert.equal(staffRun('apply',{id,expectedVersion:2,expectedApplicationVersion:1}).request.status,'Submitted');const expiredChanges=staffRun('request-changes',{id,expectedVersion:2,note:'Please confirm your address.',tokenHash:hash('f')});assert.equal(expiredChanges.request.status,'Changes requested');assert.ok(Date.parse(expiredChanges.request.expiresAt)>Date.now());
  // Invitation send claim is exactly once, with explicit metadata on uncertain/failed delivery.
  setupPortal();const claimed=staffRun('send',{id,expectedVersion:1,tokenHash:hash('f')});assert.ok(claimed.job);assert.equal(claimed.request.deliveryStatus,'sending');sql(`update title_private.jv_portal_invites set delivery_at=now()-interval '3 minutes' where id='${id}'`);assert.equal(staffRun('list').requests[0].deliveryStatus,'unknown');assert.throws(()=>staffRun('send',{id,expectedVersion:1,tokenHash:hash('e')}),/Application changed/);assert.equal(staffRun('send',{id,expectedVersion:2,tokenHash:hash('e')}).job,undefined);staffRun('delivery-result',{id,jobId:claimed.job.jobId,status:'unknown'});assert.equal(staffRun('send',{id,expectedVersion:2,tokenHash:hash('e')}).request.deliveryStatus,'unknown');assert.equal(publicRun('load').errorCode,'forbidden');
+ // Recipient links never expose internal owners/EINs, and applying a submission preserves them.
+ setup();const companyRecords=ownerRecordsFixture();
+ sql(`update public.title_workspaces set state=jsonb_set(state,'{companies,0,members}','[{"id":"member-a","name":"Fictional LLC","share":100}]') where id='${w}';`);
+ run('save',input(0,'Draft',{...p,companyRecords}));id=create().request.id;start();verify();
+ assert.equal(publicRun('load').application.payload.companyRecords,undefined);
+ assert.throws(()=>publicRun('save',{expectedVersion:1,payload:{...payload,companyRecords}}),/Invalid application request/);
+ submit(1);assert.equal(staffRun('list').requests[0].needsMerge,true);
+ staffRun('apply',{id,expectedVersion:2,expectedApplicationVersion:1});
+ assert.deepEqual(run('load').payload.companyRecords,companyRecords);assert.deepEqual(run('load').payload.applicants,payload.applicants);
+ assert.doesNotMatch(JSON.stringify(publicRun('load')),/120000001|120000002|Fictional Cedar Holdings/);
+ console.log('Company records portal: private owners and EINs preserved internally and excluded from recipient reads/writes passed.');
  // Encrypted data and audit boundaries, expiry, and gateway-only privileges.
  setupPortal();publicRun('save',{expectedVersion:1,payload});assert.equal(sql(`select count(*) from vault.secrets where secret like '%FICTIONAL_PRIVATE%'`).trim(),'0');
  for(const table of ['title_private.jv_portal_events','public.title_audit'])assert.equal(sql(`select count(*) from ${table} t where row_to_json(t)::text like '%FICTIONAL_PRIVATE%' or row_to_json(t)::text like '%123456789%'`).trim(),'0');

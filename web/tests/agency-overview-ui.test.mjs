@@ -42,7 +42,7 @@ before(async () => {
     ` },
     plugins: [{ name: "synthetic-agency-workspace", setup(builder) {
       builder.onResolve({ filter: /^@\/lib\/title\/store$/ }, () => ({ path: "workspace", namespace: "fixture" }));
-      builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: "export const useWorkspace=()=>window.agencyFixture;" }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: "export const useWorkspace=()=>window.agencyFixture; export async function getAssetForDocument(){throw Error('No original requested in this fixture');}" }));
     } }],
   });
   const js = bundle.outputFiles.find((file) => file.path.endsWith(".mjs")).contents;

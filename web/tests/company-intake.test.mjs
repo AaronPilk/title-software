@@ -15,7 +15,7 @@ test("Missive scaffolds preserve names and provenance without inventing company 
   assert.deepEqual(c.operatingStates, []); assert.deepEqual(c.members, []); assert.deepEqual(c.steps, Array(7).fill(false));
   assert.equal(c.formationState, undefined); assert.equal(c.stage, "Onboarding");
   assert.deepEqual(c.intake, { ...candidate(), source: "missive", importedAt: "2026-09-23T20:00:00.000Z", importedBy: "owner@example.test", nameUnverified: true, profileStatus: "incomplete" });
-  assert.deepEqual(companyProfileMissing(c), ["primary contact", "contact email", "city", "operating state"]);
+  assert.deepEqual(companyProfileMissing(c), ["city", "operating state"]);
 });
 
 test("intake validation rejects invented actor, invalid timestamps, provider IDs, flags, and properties", () => {
@@ -61,5 +61,5 @@ test("profile readiness checks only confirmed basics and does not imply ownershi
   const company = { ...buildCompany(), contact: "Fictional Person", email: "person@example.test", location: "Charlotte", jurisdiction: "NC" };
   assert.deepEqual(companyProfileMissing(company), []);
   assert.deepEqual(company.members, []); assert.equal(company.steps.some(Boolean), false);
-  assert.deepEqual(companyProfileMissing({ ...company, email: "wrong", jurisdiction: "" }), ["contact email", "operating state"]);
+  assert.deepEqual(companyProfileMissing({ ...company, email: "wrong", jurisdiction: "" }), ["valid contact email", "operating state"]);
 });

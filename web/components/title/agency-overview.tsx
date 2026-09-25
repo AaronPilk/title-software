@@ -10,7 +10,8 @@ import { businessDay } from "@/lib/title/business-date";
 import { taskClock } from "@/lib/title/task-clock";
 import { canManageOnboardingEvidence } from "@/lib/title/workspace-capabilities";
 import { companyDisplayStage } from "@/lib/title/company-operating-status";
-import { CompanyAvatar, Empty, Heading, Metric, SectionTitle, Status } from "./shared";
+import { Empty, Heading, Metric, SectionTitle, Status } from "./shared";
+import { CompanyLogo } from "./company-logo";
 import styles from "./agency-overview.module.css";
 
 export function AgencyOverview({ navigate, newCompany, openCompany }: {
@@ -81,7 +82,7 @@ export function AgencyOverview({ navigate, newCompany, openCompany }: {
         <div className="section-heading"><h2 id="agency-next-steps">Applications</h2><Button variant="ghost" onClick={() => navigate("Onboarding")}>All applications <ArrowRight /></Button></div>
         <p className={styles.sectionNote}>{canViewApplicationEvidence ? "Choose a company. Upload its completed form, review the information found, then save." : "Application reviews are shown when your account can access their evidence."}</p>
         {openCases.slice(0, 4).map(({ company, application, current, nextStep }) => <button className={styles.caseRow} key={company.id} onClick={() => openApplication(company.id)}>
-          <CompanyAvatar company={company} />
+          <CompanyLogo company={company} />
           <span className={styles.rowCopy}><strong>{company.name}</strong>{companyDisplayStage(company) === "Active"
             ? <><span>{!canEditApplication ? "View company application access" : s.documents.some(doc => doc.companyId === company.id && !doc.orderId && doc.category === "Applications" && doc.visibility === "Restricted" && doc.assetId) ? "Open application & saved originals" : "Upload completed application"}</span><small>Existing company · already operating</small></>
             : <><span>Next: {nextStep}</span><small>{application.applicationStatus} · {current.filter(Boolean).length} / {onboardingSteps.length} evidence steps current</small></>}</span>
@@ -103,7 +104,7 @@ export function AgencyOverview({ navigate, newCompany, openCompany }: {
       <section className="panel" aria-label="Company portfolio records">
         <SectionTitle title="Your company portfolio" action="View all" onClick={() => navigate("Companies")} />
         {s.companies.slice(0, 5).map((company) => <button key={company.id} className={styles.portfolioRow} onClick={() => openProfile(company.id)}>
-          <CompanyAvatar company={company} />
+          <CompanyLogo company={company} />
           <span className={styles.rowCopy}><strong>{company.name}</strong><small>{(company.operatingStates || [company.jurisdiction]).join(" · ")} · {company.members.length ? `${company.members.length} ownership ${company.members.length === 1 ? "member" : "members"}` : "Ownership not entered"}</small></span>
           <Status value={companyDisplayStage(company)} /><ChevronRight size={16} aria-hidden="true" />
         </button>)}

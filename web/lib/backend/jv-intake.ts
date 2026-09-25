@@ -1,3 +1,4 @@
+import { companyRecordSources } from "../title/company-records";
 import type { Workspace } from "../title/model";
 import { ApiError, canCompany, type Access } from "./workspace";
 import {
@@ -44,10 +45,10 @@ function record(raw: unknown, companyId: string): JVRecord {
     reviewedAt: raw.reviewedAt as string | null, reviewedBy: raw.reviewedBy as string | null, sourceChanged: raw.sourceChanged === true };
 }
 function verifySources(application: JVApplication, companyId: string, context: JVIntakeContext) {
-  for (const id of application.sourceDocumentIds) {
+  for (const { id, categories } of [...application.sourceDocumentIds.map(id => ({ id, categories: ["Applications"] })), ...companyRecordSources(application.companyRecords)]) {
     const doc = context.state.documents.find(item => item.id === id);
     if (!doc || doc.companyId !== companyId || doc.orderId || doc.visibility !== "Restricted" ||
-        doc.category !== "Applications" || !Number.isSafeInteger(doc.version) || doc.version < 1 || typeof doc.assetId !== "string" || !doc.assetId)
+        !categories.includes(doc.category) || !Number.isSafeInteger(doc.version) || doc.version < 1 || typeof doc.assetId !== "string" || !doc.assetId)
       fail("Choose an available restricted application original for this company.", 403);
   }
 }
@@ -86,6 +87,10 @@ export async function jvIntakeRequest(action: string, input: Record<string, unkn
   if (saved.version !== input.expectedVersion) fail("The private application changed. Reload before continuing.", 409);
   const application = owns(input, "payload") ? payload(input.payload) : saved.payload;
   if (action === "save" && !owns(input, "payload")) fail("Provide the private application to save.");
+  if (saved.payload.companyRecords && !application.companyRecords) fail("Reload the latest company records before saving.", 409);
+  const members = context.state.companies.find(c => c.id === companyId)!.members;
+  const memberIds = [...(application.companyRecords?.owners.map(o => o.memberId) || []), ...(application.companyRecords?.agreements.flatMap(a => a.terms.map(t => t.memberId)) || [])];
+  if (memberIds.some(id => !members.some(m => m.id === id))) fail("An owner link changed. Review the company members before saving.", 409);
   verifySources(application, companyId, context);
   const changed = jvIntakeFingerprint(application) !== jvIntakeFingerprint(saved.payload);
   let status = saved.status, reviewNote = saved.reviewNote;
@@ -102,7 +107,7 @@ export async function jvIntakeRequest(action: string, input: Record<string, unkn
       status = "Reviewed"; reviewNote = input.reviewNote.trim();
     }
   }
-  const sourceManifest = application.sourceDocumentIds.map(documentId => {
+  const sourceManifest = [...new Set([...application.sourceDocumentIds, ...companyRecordSources(application.companyRecords).map(s => s.id)])].map(documentId => {
     const doc = context.state.documents.find(item => item.id === documentId)!;
     return { documentId, assetId: doc.assetId, version: doc.version };
   });

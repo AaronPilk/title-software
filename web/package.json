@@ -67,7 +67,8 @@
     "test:security:sql": "node scripts/backend/test-security-center-sql.mjs && node scripts/backend/test-document-scan-sql.mjs",
     "test:scanner": "npm --prefix ../services/title-scanner test",
     "test:recovery": "node --test ../ops/recovery/tests/*.test.mjs",
-    "test:final-preparation": "node --test --test-concurrency=1 tests/final-preparation.test.mjs tests/final-preparation-backend.test.mjs tests/field-review-history.test.mjs tests/final-preparation-export.test.mjs tests/final-preparation-workspace-ui.test.mjs tests/asset-download-context.test.mjs tests/final-preparation-workbench-ui.test.mjs tests/commitment-snapshot.test.mjs"
+    "test:final-preparation": "node --test --test-concurrency=1 tests/final-preparation.test.mjs tests/final-preparation-backend.test.mjs tests/field-review-history.test.mjs tests/final-preparation-export.test.mjs tests/final-preparation-workspace-ui.test.mjs tests/asset-download-context.test.mjs tests/final-preparation-workbench-ui.test.mjs tests/commitment-snapshot.test.mjs",
+    "test:company-workspace": "node --test --test-concurrency=1 tests/company-workspace.test.mjs tests/company-records-ui.test.mjs tests/company-workspace-ui.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

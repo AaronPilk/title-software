@@ -1,3 +1,4 @@
+import { validateCompanyDesk, validateCompanyWorkspace } from "../title/company-workspace";
 import { projectPartnerSummary } from "./partner-summary";
 import { validateCompanyIntake, companyProfileMissing, companyCandidateKey } from "../title/company-intake";
 import { buildOperatingConfirmation, companyDisplayStage } from "../title/company-operating-status";
@@ -251,6 +252,7 @@ function checkScope(before: Workspace, after: Workspace, a: Access) {
   }
 }
 function ensureShape(s: Workspace) {
+  validateCompanyWorkspace(s);
   if (s.orders.some(o => !fieldReviewHistoryShapeValid(o.fieldReviewHistory))) fail("Invalid source field review history.");
   if (s.orders.some(o => o.finalPreparation !== undefined && !FP.finalPreparationShapeValid(o.finalPreparation))) fail("Invalid final preparation worksheet.");
   if (s.orders.some(o => !P.referencedSourcesShapeValid(o.production?.referencedSources))) fail("Invalid referenced-source checklist.");
@@ -520,7 +522,7 @@ function validateMembers(members: unknown) {
       "Ownership must have unique members and positive shares totaling 100%.",
     );
   for (const member of members) {
-    keys(member, ["name", "share", "email", "phone"]);
+    keys(member, ["id", "name", "share", "email", "phone"]);
     try { Object.assign(member, normalizeMemberContacts(member)); }
     catch (e) { fail(e instanceof Error ? e.message : "Check member contact details."); }
   }
@@ -600,11 +602,12 @@ function applyEdit(
         if (s.companies.some(c => c.intake && companyCandidateKey(c.intake) === companyCandidateKey(intake)))
           fail("This Missive inbox already has a company profile.", 409);
       } else {
-        nonempty(v.contact, "contact");
-        if (!B.emailValid(String(v.email))) fail("Enter a valid company email.");
+        if (typeof v.contact !== "string" || v.contact.length > 100) fail("Check the optional contact name.");
+        if (v.email !== "" && !B.emailValid(String(v.email))) fail("Enter a valid company email.");
       }
       if (!intake && !/^[A-Z]{2}$/.test(String(v.jurisdiction)))
         fail("Choose an operating state.");
+      if (!intake && v.operatingStates !== undefined && (!Array.isArray(v.operatingStates) || !v.operatingStates.length || v.operatingStates.length > 50 || v.operatingStates.some(x => typeof x !== "string" || !/^[A-Z]{2}$/.test(x)) || !v.operatingStates.includes(v.jurisdiction) || new Set(v.operatingStates).size !== v.operatingStates.length)) fail("Choose valid operating states.");
       list.unshift({
         id: edit.id,
         name: v.name,
@@ -619,10 +622,11 @@ function applyEdit(
         stage: "Onboarding",
         steps: Array(7).fill(false),
         members: [],
-        ...(intake ? { intake, operatingStates: [] } : {}),
+        ...(intake ? { intake, operatingStates: [] } : v.operatingStates ? { operatingStates: v.operatingStates } : {}),
       });
     } else {
       keys(v, [
+        "desk",
         "formationState",
         "operatingStates",
         "members",
@@ -635,6 +639,7 @@ function applyEdit(
         "operatingStatus",
       ]);
       const previous = current as Company;
+      if (has(v, "desk")) v.desk = validateCompanyDesk(v.desk);
       if (has(v, "operatingStatus")) {
         permitWorkspaceAdmin(a);
         if (v.operatingStatus !== null) {
@@ -662,7 +667,16 @@ function applyEdit(
         fail("Review the company name after changing it.");
       if (has(v, "jurisdiction") && (previous.jurisdiction || !previous.intake || !/^[A-Z]{2}$/.test(String(v.jurisdiction))) && v.jurisdiction !== previous.jurisdiction)
         fail("The primary operating state cannot be changed here.");
-      if (has(v, "members")) validateMembers(v.members);
+      if (has(v, "members")) {
+        validateMembers(v.members);
+        const nextMembers = v.members as Company["members"];
+        for (const prior of previous.members) {
+          const matchingName = nextMembers.find(m => m.name === prior.name);
+          if (prior.id && matchingName && matchingName.id !== prior.id) fail("Keep the existing member identity.");
+          const sameIdentity = prior.id ? nextMembers.find(m => m.id === prior.id) : undefined;
+          if (sameIdentity && sameIdentity.name !== prior.name) fail("Keep the member ledger name. Record the legal owner and representative in owner details; historical sharing uses the ledger name.");
+        }
+      }
       if (
         v.operatingStates &&
         (!Array.isArray(v.operatingStates) ||
@@ -677,7 +691,7 @@ function applyEdit(
           ))
       )
         fail("Keep operating states used by existing files.");
-      if (has(v, "email") && !(pending && v.email === "") && !B.emailValid(String(v.email)))
+      if (has(v, "email") && v.email !== "" && !B.emailValid(String(v.email)))
         fail("Enter a valid email.");
       Object.assign(current!, v);
     }
@@ -1029,7 +1043,8 @@ function applyEdit(
       }
       list.unshift(n);
     } else {
-      keys(v, ["visibility", "sourceRole"]);
+      keys(v, ["visibility", "sourceRole", "folderId"]);
+      if (has(v, "folderId")) { permit(a, "company"); if (current.orderId) fail("Folders belong to company documents only."); }
       if (v.visibility && !isOneOf(v.visibility, ["Internal", "Restricted"]))
         fail("Use reviewed publication to share documents.");
       if (
@@ -1141,7 +1156,7 @@ const productionNames =
     " ",
   );
 const companyNames =
-  "saveApplication recordOnboardingEvidence saveCredential createMaterial setupMaterials updateMaterial approveMaterial".split(
+  "saveCompanyUnderwriters saveApplication recordOnboardingEvidence saveCredential createMaterial setupMaterials updateMaterial approveMaterial".split(
     " ",
   );
 const financeNames =
@@ -1207,7 +1222,7 @@ function requireReadableReferences(
   cmd: WorkspaceCommand,
   a: Access,
 ) {
-  if(!a.restricted && ["saveApplication","recordOnboardingEvidence","addHandoff"].includes(cmd.name)) fail("Restricted onboarding access is required.",403);
+  if(!a.restricted && ["saveCompanyUnderwriters","saveApplication","recordOnboardingEvidence","addHandoff"].includes(cmd.name)) fail("Restricted onboarding access is required.",403);
   const visible = projectWorkspace(s, a),
     hidden = new Set<string>();
   for (const table of recordTables) {
@@ -1389,6 +1404,7 @@ export function projectWorkspace(source: Workspace, a: Access): Workspace {
       } else
         result.companies.push({
           ...c,
+          desk: undefined,
           stage: companyDisplayStage(c),
           operatingStatus: undefined,
           contact: "",

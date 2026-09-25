@@ -55,8 +55,7 @@ export function validCompanyDisplayName(value: string): boolean {
 export function companyProfileMissing(company: Pick<Company, "name" | "contact" | "email" | "location" | "jurisdiction">): string[] {
   const missing: string[] = [];
   if (!validCompanyDisplayName(company.name)) missing.push("company name");
-  if (!company.contact.trim()) missing.push("primary contact");
-  if (!validEmail(company.email.trim())) missing.push("contact email");
+  if (company.email.trim() && !validEmail(company.email.trim())) missing.push("valid contact email");
   if (!company.location.trim()) missing.push("city");
   if (!/^[A-Z]{2}$/.test(company.jurisdiction)) missing.push("operating state");
   return missing;

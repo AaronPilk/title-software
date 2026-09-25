@@ -53,7 +53,7 @@ before(async () => {
         window.addExistingCompany=name=>{const next=structuredClone(snapshot.s);next.companies.push({...createSeed().companies[0],id:'external-company',name});snapshot={...snapshot,s:next};emit();};
         window.changeProfileContact=contact=>{const next=structuredClone(snapshot.s);next.companies[0].contact=contact;snapshot={...snapshot,s:next};emit();};
         window.changeCompanyCaptureSource=kind=>{const next=structuredClone(snapshot.s);if(kind==='company')next.companies[0].email='newer@example.test';else if(kind==='asset')next.documents[0].assetId='changed-asset';else if(kind==='visibility')next.documents[0].visibility='Restricted';else next.documents[0].version++;snapshot={...snapshot,s:next};emit();};
-        export function useWorkspace(){const current=useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>snapshot);return {...current,update:async(change,title,detail)=>{const next=structuredClone(snapshot.s);change(next);window.companyMutations.push({title,detail});snapshot={...snapshot,s:next};emit();return true;}};}
+        export const getAssetForDocument=async()=>{throw Error("No logo original in this fixture")}; export function useWorkspace(){const current=useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>snapshot);return {...current,update:async(change,title,detail)=>{const next=structuredClone(snapshot.s);change(next);window.companyMutations.push({title,detail});snapshot={...snapshot,s:next};emit();return true;}};}
         export const download=()=>{};export const getAsset=async()=>{throw Error('Unexpected original read')};export const saveAsset=async()=>{throw Error('Unexpected original write')};
       ` }));
     } }],

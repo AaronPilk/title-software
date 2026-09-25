@@ -85,7 +85,7 @@ test("screen ranking stays within the stable role catalog and prioritizes releva
     }
   }
   const company = suggestedHelpGuides("onboarding", { page: "Companies", view: "agency", surface: "company" });
-  assert.equal(company[0].id, "help:company-profile");
+  assert.equal(company[0].id, "help:company-workspace");
   const document = suggestedHelpGuides("operations", { page: "Documents", view: "production", surface: "document" });
   assert(document.every(item => item.page === "Documents"));
   const partner = suggestedHelpGuides("partner", { page: "Partner portal", view: "partner", surface: "document" });

@@ -3,6 +3,9 @@ import { ConfirmActiveCompaniesButton, CompanyOperatingStatusDetails } from "./c
 import { companyDisplayStage, validateOperatingConfirmation } from "@/lib/title/company-operating-status";
 import { canManageOnboardingEvidence } from "@/lib/title/workspace-capabilities";
 import applicationStyles from "./agency-applications.module.css";
+import { CompanyLogo } from "./company-logo";
+import { CompanyRecordsPanel } from "./company-records";
+import { CompanyOverviewDetails, CompanyFolders, CompanyCardFacts } from "./company-workspace";
 import { OwnershipHistoryPanel } from "./ownership";
 import { OnboardingCasePanel, CredentialCenter, CompanyOperatingStates } from "./onboarding-suite";
 import { JVApplicationPanel } from "./jv-application";
@@ -10,7 +13,8 @@ import { CompanyMaterials } from "./materials";
 import { CompanyIntakeProfile, CompanyIntakeProfileEditor, MissiveCompanyIntakeButton } from "./company-intake";
 import { PackageReviewButton, type CompanyProfileCapture } from "./package-review";
 import { documentScanIdentity } from "./use-document-scan";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useWorkspaceNavigationGuard } from "./use-workspace-navigation-guard";
 import {
   Building2,
   Plus,
@@ -41,7 +45,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { useWorkspace } from "@/lib/title/store";
-import { similarCompanies } from "@/lib/title/business";
+import { similarCompanies, saveCompanyUnderwriters } from "@/lib/title/business";
 import { businessDay, nextWeekday } from "@/lib/title/business-date";
 import {
   memberContactError,
@@ -57,9 +61,7 @@ import {
 import {
   Heading,
   SearchBox,
-  Picker,
   Status,
-  CompanyAvatar,
   Segments,
   FieldLabel,
   Empty,
@@ -112,14 +114,15 @@ export function Companies({
             onClick={() => onOpen(c.id)}
           >
             <div className="company-card-top">
-              <CompanyAvatar company={c} large />
+              <CompanyLogo company={c} large />
               <Status value={companyDisplayStage(c)} />
             </div>
             <h2>{c.name}</h2>
             <p>
               <MapPin size={13} />
-              {[c.location, c.jurisdiction].filter(Boolean).join(" · ") || "Location and state needed"}
+              {[c.location, ...(c.operatingStates || [c.jurisdiction])].filter(Boolean).join(" · ") || "Location and state needed"}
             </p>
+            <CompanyCardFacts company={c} />
             <div className="company-card-metrics">
               <div>
                 <strong>
@@ -171,7 +174,9 @@ export function NewCompany({
 }) {
   const { s, update, connection } = useWorkspace();
   const canAddCompany = !connection || (connection.access.allCompanies && ["owner", "admin", "onboarding"].includes(connection.access.role));
-  const [state, setState] = useState("NC");
+  const canChooseUnderwriters = canManageOnboardingEvidence(connection);
+  const [states, setStates] = useState<string[]>(["NC"]);
+  const [writers, setWriters] = useState<string[]>([]);
   const [name, setName] = useState("");
   const [contact, setContact] = useState("");
   const [email, setEmail] = useState("");
@@ -202,8 +207,8 @@ export function NewCompany({
     }
     const trimmedName = name.trim(),
       trimmedContact = contact.trim();
-    if (!trimmedName || !trimmedContact) {
-      toast.error("Enter a company name and contact.");
+    if (!trimmedName || !states.length) {
+      toast.error("Enter a company name and choose an operating state.");
       return;
     }
     if (needsAck && !reviewed) {
@@ -234,11 +239,13 @@ export function NewCompany({
             contact: trimmedContact,
             email: email.trim(),
             location: city.trim(),
-            jurisdiction: state,
+            jurisdiction: states[0],
+            operatingStates: states,
             stage: "Onboarding",
             steps: Array(7).fill(false),
             members: [],
           });
+          if (canChooseUnderwriters && writers.length) saveCompanyUnderwriters(d, { companyId: id, names: writers, expected: [] });
           d.tasks.unshift({
             id: uid("task"),
             title: "Collect onboarding application",
@@ -282,21 +289,19 @@ export function NewCompany({
           </FieldLabel>
           <p className="form-note">Use the legal company name from its formation documents. Add each joint venture as its own company; a single-company business only needs one.</p>
           <div className="form-grid">
-            <FieldLabel label="Primary contact">
+            <FieldLabel label="Company contact (optional)">
               <Input
                 name="contact"
-                required
                 maxLength={100}
                 placeholder="Full name"
                 value={contact}
                 onChange={(e) => setContact(e.target.value)}
               />
             </FieldLabel>
-            <FieldLabel label="Contact email">
+            <FieldLabel label="Contact email (optional)">
               <Input
                 name="email"
                 type="email"
-                required
                 placeholder="name@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -312,14 +317,8 @@ export function NewCompany({
                 onChange={(e) => setCity(e.target.value)}
               />
             </FieldLabel>
-            <FieldLabel label="Initial operating state">
-              <Picker
-                value={state}
-                onChange={setState}
-                label="Initial operating state"
-                options={["NC", "SC"]}
-              />
-            </FieldLabel>
+            <fieldset><legend className="mb-2 text-sm font-medium">Operating states</legend><div className="flex flex-wrap gap-4">{["NC", "SC"].map(code => <label key={code} className="flex items-center gap-2"><input type="checkbox" checked={states.includes(code)} onChange={e => setStates(e.target.checked ? [...states, code] : states.filter(v => v !== code))} />{code === "NC" ? "North Carolina" : "South Carolina"}</label>)}</div></fieldset>
+            {canChooseUnderwriters && <fieldset><legend className="mb-2 text-sm font-medium">Underwriters (optional)</legend><div className="flex flex-wrap gap-4">{["WFG", "Commonwealth", "First American"].map(writer => <label key={writer} className="flex items-center gap-2"><input type="checkbox" checked={writers.includes(writer)} onChange={e => setWriters(e.target.checked ? [...writers, writer] : writers.filter(v => v !== writer))} />{writer}</label>)}</div></fieldset>}
           </div>
           <p className="form-note">
             This starts an internal checklist. It does not create an LLC, obtain
@@ -389,7 +388,6 @@ export function CompanyDetail({
   applicationSourceId,
   onClose,
   onDoc,
-  onUpload,
 }: {
   id: string;
   initialTab?: CompanyDetailTab;
@@ -399,10 +397,14 @@ export function CompanyDetail({
   onUpload: (id: string) => void;
 }) {
   const { s, connection } = useWorkspace();
-  const [tab, setTab] = useState<string>(initialTab === "Onboarding" || initialTab === "Jurisdictions" ? "Application" : initialTab);
+  const [tab, setTab] = useState<string>(initialTab === "Onboarding" || initialTab === "Jurisdictions" ? "Application" : initialTab === "Members" ? "Overview" : initialTab);
   const [applicationEntry, setApplicationEntry] = useState<"upload" | "link" | undefined>();
   const [applicationDirty, setApplicationDirty] = useState(false);
   const [applicationBusy, setApplicationBusy] = useState(false);
+  const [deskDirty, setDeskDirty] = useState(false), [deskBusy, setDeskBusy] = useState(false);
+  const [ownerDirty, setOwnerDirty] = useState(false), [ownerBusy, setOwnerBusy] = useState(false);
+  const [folderDirty, setFolderDirty] = useState(false), [folderBusy, setFolderBusy] = useState(false);
+  const [memberDirty, setMemberDirty] = useState(false), [memberBusy, setMemberBusy] = useState(false);
   const [profileCapture, setProfileCapture] = useState<(CompanyProfileCapture & { companySnapshot: string }) | null>(null);
   const c = s.companies.find((x) => x.id === id);
   if (!c) return null;
@@ -410,7 +412,7 @@ export function CompanyDetail({
   try { existingOperationsConfirmed = !!validateOperatingConfirmation(c.operatingStatus ?? null); } catch { /* Invalid legacy metadata cannot confirm operations. */ }
   const isExisting = companyDisplayStage(c) === "Active";
   const canEditApplication = canManageOnboardingEvidence(connection);
-  const leaveApplication = () => !applicationBusy && (!applicationDirty || window.confirm("Discard unsaved application changes? Save them first to keep your work."));
+  const leaveApplication = () => !applicationBusy && !deskBusy && !ownerBusy && !folderBusy && !memberBusy && (!(applicationDirty || deskDirty || ownerDirty || folderDirty || memberDirty) || window.confirm("Discard unsaved company or application changes? Save them first to keep your work."));
   function changeTab(value: string) {
     if (value === tab || !leaveApplication()) return;
     setApplicationDirty(false); setApplicationEntry(undefined); setTab(value);
@@ -431,10 +433,10 @@ export function CompanyDetail({
     <Sheet open={!!id} onOpenChange={(v) => { if (!v && leaveApplication()) onClose(); }}>
       <SheetContent className="detail-sheet company-detail">
         <SheetHeader>
-          <CompanyAvatar company={c} large />
+          <CompanyLogo company={c} large />
           <SheetTitle>{c.name}</SheetTitle>
           <SheetDescription>
-            {[c.location, c.jurisdiction].filter(Boolean).join(" · ") || "Location and operating state not yet confirmed"}
+            {[c.location, ...(c.operatingStates || [c.jurisdiction])].filter(Boolean).join(" · ") || "Location and operating state not yet confirmed"}
           </SheetDescription>
         </SheetHeader>
         <div className="sheet-body">
@@ -445,11 +447,11 @@ export function CompanyDetail({
               "Overview",
               "Application",
               "Documents",
-              "Members",
             ]}
           />
           {tab === "Overview" && (
             <>
+              <CompanyOverviewDetails company={c} onDirtyChange={setDeskDirty} onBusyChange={setDeskBusy} />
               {canEditApplication && <section className={applicationStyles.startCard} aria-label="Start this company’s application">
                 <div className={applicationStyles.startIcon}>{isExisting ? <FileUp size={23} /> : <Send size={22} />}</div>
                 <h3>{isExisting ? "Already have the application?" : "Collect the application."}</h3>
@@ -462,11 +464,11 @@ export function CompanyDetail({
               <div className="detail-grid">
                 <div>
                   <small>Primary contact</small>
-                  <strong>{c.contact || "Not yet confirmed"}</strong>
+                  <strong>{c.contact || "Managed by the agency"}</strong>
                 </div>
                 <div>
                   <small>Contact email</small>
-                  <strong>{c.email || "Not yet confirmed"}</strong>
+                  <strong>{c.email || "Agency contact"}</strong>
                 </div>
                 <div>
                   <small>Operating states</small>
@@ -480,6 +482,10 @@ export function CompanyDetail({
                 </div>
               </div>
               <div className={`${applicationStyles.supportLinks} my-5`}><Button variant="outline" onClick={() => changeTab("Documents")}>Company documents & logo <ArrowRight /></Button></div>
+              <section className="panel my-5"><div className="section-heading"><h3>Owners</h3></div>{c.members.length ? c.members.map(m => <div key={m.id || m.name} className="detail-grid"><strong>{m.name}</strong><span>{m.share}% ownership</span></div>) : <p className="form-note">Add the people or LLCs that own this company.</p>}
+              {canEditProfile && <details className="my-4"><summary className="cursor-pointer font-semibold">Edit members & ownership interests</summary><CompanyMembers key={c.id} company={c} onDirtyChange={setMemberDirty} onBusyChange={setMemberBusy} /></details>}
+              <CompanyRecordsPanel company={c} onDirtyChange={setOwnerDirty} onBusyChange={setOwnerBusy} />
+              </section>
               {c.intake && <details className={applicationStyles.support}><summary>Company details & Missive source</summary><CompanyIntakeProfile company={c} /></details>}
               <details className="mt-5 border-t pt-5">
               <summary className="cursor-pointer text-sm font-semibold">Formation and approval history</summary>
@@ -531,40 +537,13 @@ export function CompanyDetail({
                   <h3>Company documents</h3>
                   <p>{companyDocs.length ? `${companyDocs.length} ${companyDocs.length === 1 ? "file" : "files"}` : "No files yet"}</p>
                 </div>
-                <Button onClick={() => onUpload(id)}>
-                  <Plus />
-                  Upload
-                </Button>
+
               </div>
               <p className="company-documents-description">Formation records, applications, agreements, disclosures and logos for {c.name}.</p>
               {!!companyDocs.length && <div className="company-documents-reader">
                 <PackageReviewButton documents={companyDocs} onOpenOriginal={onDoc} onCompanyCapture={c.intake && canEditProfile ? capture => setProfileCapture({ ...capture, companySnapshot: JSON.stringify(c) }) : undefined} />
               </div>}
-              <div className="company-documents-files">
-              {companyDocs.map((d) => (
-                <button
-                  key={d.id}
-                  className="doc-list-row"
-                  onClick={() => onDoc(d)}
-                >
-                  <FolderClosed size={20} />
-                  <div className="grow">
-                    <strong>{d.name}</strong>
-                    <small>
-                      {d.category} · v{d.version}
-                    </small>
-                  </div>
-                  <Status value={d.visibility} />
-                  <ChevronRight size={15} />
-                </button>
-              ))}
-              {!companyDocs.length && (
-                  <Empty
-                  title="Add your company files"
-                  text="Choose Upload to add your originals, then pick a category for each file. You can start with just a logo."
-                />
-              )}
-              </div>
+              <CompanyFolders company={c} onDoc={onDoc} onDirtyChange={setFolderDirty} onBusyChange={setFolderBusy} />
               {!!titleDocs.length && <details className="company-documents-disclosure">
                 <summary className="cursor-pointer text-sm font-semibold">Title-file documents ({titleDocs.length})</summary>
                 <p className="subtle my-3">These originals belong to property files. Read and review them from that title file’s Final sources.</p>
@@ -596,7 +575,6 @@ export function CompanyDetail({
               <CredentialCenter key={`${c.id}:${(c.operatingStates || [c.jurisdiction]).join("-")}`} company={c} />
             </details>
           </>}
-          {tab === "Members" && <CompanyMembers key={c.id} company={c} />}
           {profileCapture && canEditProfile && (profileCaptureCurrent ? <CompanyIntakeProfileEditor key={`${profileCapture.packageId}:${profileCapture.packageVersion}`} company={c} initialValues={profileCapture.values} sourceReference={`reviewed document package ${profileCapture.packageId}, version ${profileCapture.packageVersion}`} onClose={() => setProfileCapture(null)} /> : <div role="alert" className="notice warning"><p>The company, original documents or your access changed. Reopen the package before using its suggestions.</p><Button variant="outline" onClick={() => setProfileCapture(null)}>Dismiss</Button></div>)}
         </div>
       </SheetContent>
@@ -670,7 +648,7 @@ export function Onboarding({
                   key={c.id}
                   onClick={() => onOpen(c.id)}
                 >
-                  <CompanyAvatar company={c} />
+                  <CompanyLogo company={c} />
                   <h3>{c.name}</h3>
                   <p>
                     {c.contact} · {c.jurisdiction}
@@ -708,7 +686,7 @@ export function Onboarding({
     </>
   );
 }
-function CompanyMembers({ company }: { company: Company }) {
+function CompanyMembers({ company, onDirtyChange, onBusyChange }: { company: Company; onDirtyChange?: (v: boolean) => void; onBusyChange?: (v: boolean) => void }) {
   const { update } = useWorkspace();
   const [members, setMembers] = useState(() =>
     company.members.map((m) => ({ ...m })),
@@ -716,6 +694,15 @@ function CompanyMembers({ company }: { company: Company }) {
   const [baseline, setBaseline] = useState(() =>
     JSON.stringify(company.members),
   );
+  const [busy, setBusy] = useState(false);
+  const dirty = JSON.stringify(members) !== baseline;
+  useWorkspaceNavigationGuard("company-detail", { dirty, busy });
+  useEffect(() => { onDirtyChange?.(dirty); return () => onDirtyChange?.(false); }, [dirty, onDirtyChange]);
+  useEffect(() => { onBusyChange?.(busy); return () => onBusyChange?.(false); }, [busy, onBusyChange]);
+  // Adopt refreshed members only when this editor has no unsaved work.
+  if (!dirty && JSON.stringify(company.members) !== baseline) {
+    setMembers(company.members.map(m => ({ ...m }))); setBaseline(JSON.stringify(company.members));
+  }
   const contactErrors = members.map(memberContactError);
   const total = members.reduce((n, m) => n + m.share, 0);
   const valid =
@@ -733,8 +720,10 @@ function CompanyMembers({ company }: { company: Company }) {
     !contactErrors.some(Boolean);
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (!valid) return;
+    if (!valid || busy) return;
+    setBusy(true);
     const normalized = members.map((m) => ({
+      id: m.id || uid("member"),
       name: m.name.trim(),
       share: m.share,
       ...normalizeMemberContacts(m),
@@ -751,6 +740,7 @@ function CompanyMembers({ company }: { company: Company }) {
       "Company members updated",
       company.name,
     );
+    setBusy(false);
     if (saved) {
       setMembers(normalized);
       setBaseline(JSON.stringify(normalized));
@@ -758,7 +748,7 @@ function CompanyMembers({ company }: { company: Company }) {
   }
   return (
     <>
-    <form onSubmit={save} className="form-stack">
+    <form onSubmit={save} className="form-stack"><fieldset disabled={busy} style={{display:"contents"}}>
       <p className="inline-note">
         Keep member contact details with the company. Ownership interests are
         used for financial planning and require reviewed agreements.
@@ -850,7 +840,7 @@ function CompanyMembers({ company }: { company: Company }) {
           onClick={() =>
             setMembers((prev) => [
               ...prev,
-              { name: "", share: Math.max(0, 100 - total) },
+              { id: uid("member"), name: "", share: Math.max(0, 100 - total) },
             ])
           }
         >
@@ -864,8 +854,8 @@ function CompanyMembers({ company }: { company: Company }) {
         ownership requires a new month-end review.
       </p>
       <Button type="submit" disabled={!valid}>
-        Save members
-      </Button>
+        {busy ? "Saving…" : "Save members"}
+      </Button></fieldset>
     </form>
     <OwnershipHistoryPanel companyId={company.id} />
     </>

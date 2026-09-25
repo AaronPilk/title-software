@@ -21,7 +21,7 @@ before(async () => {
     ` },
     plugins: [{ name: "fictional-company-documents", setup(builder) {
       builder.onResolve({ filter: /^\.\/document-upload$/ }, () => ({ path: "upload", namespace: "fixture-upload" }));
-      builder.onLoad({ filter: /.*/, namespace: "fixture-upload" }, () => ({ contents: `export const UploadDocument=()=>{throw Error("Unexpected uploader render; this fixture verifies destination callbacks")};` }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture-upload" }, () => ({ contents: `export const UploadDocument=({companyId,onClose})=>{window.uploadCompanies.push(companyId);queueMicrotask(onClose);return null};` }));
       builder.onResolve({ filter: /^@\/lib\/backend\/client$/ }, () => ({ path: "client", namespace: "fixture-client" }));
       builder.onLoad({ filter: /.*/, namespace: "fixture-client" }, () => ({ contents: `export const activeWorkspace=()=>"fictional-workspace";export const backendRequest=async()=>{throw Error("Unexpected provider request")};` }));
       builder.onResolve({ filter: /^@\/lib\/title\/store$/ }, () => ({ path: "store", namespace: "fixture-store" }));
@@ -35,7 +35,7 @@ before(async () => {
         let snapshot={s:state,connection:{workspaceId:'fictional-workspace',revision:1,access:{userId:'fictional-owner',email:'owner@example.test',role:'owner',allCompanies:true,restricted:true,version:1,companyIds:[]}}};
         const emit=()=>listeners.forEach(fn=>fn());window.documentPreviews=[];window.uploadCompanies=[];window.materialUpdates=[];
         window.readCompanyDocuments=()=>structuredClone(snapshot.s);
-        export function useWorkspace(){const current=useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>snapshot);return {...current,update:async(change,title,detail)=>{const next=structuredClone(snapshot.s);change(next);validateBusinessMutation(snapshot.s,next);window.materialUpdates.push({title,detail});snapshot={...snapshot,s:next};emit();return true;}};}
+        export const getAssetForDocument=async()=>{throw Error("No logo original in this fixture")}; export function useWorkspace(){const current=useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>snapshot);return {...current,update:async(change,title,detail)=>{const next=structuredClone(snapshot.s);change(next);validateBusinessMutation(snapshot.s,next);window.materialUpdates.push({title,detail});snapshot={...snapshot,s:next};emit();return true;}};}
         export const download=()=>{throw Error('Unexpected download')};export const getAsset=async()=>{throw Error('Unexpected asset read')};export const saveAsset=async()=>{throw Error('Unexpected asset write')};
       ` }));
     } }],
@@ -77,9 +77,9 @@ test("one Documents tab keeps scoped files, preview, package review and one uplo
   assert.equal(await page.getByRole("tab", { name: "Documents", exact: true }).count(), 1);
   const state = await page.evaluate(() => window.readCompanyDocuments());
   const companyFiles = state.documents.filter(doc => doc.companyId === "c1" && !doc.orderId);
-  const names = await page.locator(".doc-list-row:visible strong").allTextContents(); assert.deepEqual(names, companyFiles.map(doc => doc.name));
+  const names = await page.locator('[aria-label="Company file library"] button strong').allTextContents(); assert.deepEqual(names, companyFiles.map(doc => doc.name));
   assert.ok(names.every(name => name.startsWith("Cedar ")));
-  await page.locator(".doc-list-row").filter({ hasText: "Cedar Company overview.txt" }).click();
+  await page.locator('[aria-label="Company file library"]').getByRole("button", { name: /Cedar Company overview.txt/ }).click();
   assert.deepEqual(await page.evaluate(() => window.documentPreviews), ["d0-1"]);
   await page.getByRole("button", { name: "Upload", exact: true }).click(); assert.deepEqual(await page.evaluate(() => window.uploadCompanies), ["c1"]);
   await page.getByRole("button", { name: "Read document package", exact: true }).click();

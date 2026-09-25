@@ -54,6 +54,29 @@ const allViews: HelpScreen["view"][] = [...staffViews, "partner"];
 
 const catalog: CatalogGuide[] = [
   {
+    id: "help:company-workspace", title: "Company details, owners and folders", page: "Companies", views: ["agency"],
+    roles: companyEditors, surfaces: ["company"], question: "How do I add a logo, renewal dates, folders or an LLC owner?",
+    summary: "The company Overview brings its main details and owners together.",
+    steps: [
+      "Open Agency → Companies → choose a company. Overview → Edit details holds operating-state checkboxes, underwriters and separate Domain, Email and Website renewal dates.",
+      "Choose Upload company logo for a PNG or JPG. A company-level Internal Branding original can be selected as the logo; the uploaded original stays in Documents.",
+      "In Documents, choose New folder, give it a name, then upload there. Use a file’s Folder menu to move it, or the folder’s Rename button to change its name. Folders keep the existing document access rules.",
+    ],
+    note: "Changing underwriters requires a fresh application and underwriter approval review. Document folders do not grant access or change a document’s category.",
+  },
+  {
+    id: "help:company-owners", title: "People, LLC owners and private records", page: "Companies", views: ["agency"],
+    roles: companyEditors, surfaces: ["company"], question: "How do I record an LLC owner, tax ID and agreement terms?",
+    summary: "Keep legal owners and their representatives together without repeating application details.",
+    steps: [
+      "On Overview, expand Edit members & ownership interests to add each owner and its percentage. Open owner details to choose whether the person or their LLC owns that interest.",
+      "Record representatives, formation responsibility, filing reference and EIN. A tax ID does not require an uploaded document. Use saved application details to copy the selected applicant into the correct owner record, then check the result.",
+      "Save owner & company records. Agreements & financial terms records separate percentages without changing ownership calculations.",
+      "Application preparation for John maps saved facts into an unsigned preparation sheet. The exact official forms still need to be supplied and checked.",
+    ],
+    note: "Private owner records require a connected workspace, company access and restricted access as an owner, administrator or onboarding staff member. They are excluded from applicant links and ordinary workspace exports. Enter tax IDs in these private fields, never in the help chat.",
+  },
+  {
     id: "help:jv-application", title: "Add a company application", page: "Onboarding", views: ["agency"],
     roles: companyEditors, surfaces: ["company"], question: "How do I upload an existing application or send one to a new joint venture?",
     summary: "Upload the completed form you already have, or send a new applicant a private link.",
@@ -84,8 +107,8 @@ const catalog: CatalogGuide[] = [
     steps: [
       "Open Companies, select the company, then choose Overview → Complete company profile. Completed imported profiles instead offer Edit company profile.",
       "Verify Company name against its documents and check I verified the legal company name against its documents only after checking it.",
-      "Enter the confirmed Primary contact, Contact email, City and Initial operating state. Leave facts you do not know blank.",
-      "Choose Save company profile. Use Members for ownership and Documents for original records. Manage operating states under Application, in the licensing or formation records section.",
+      "Enter the confirmed City and Initial operating state. Primary contact and Contact email are optional when the agency manages the company.",
+      "Choose Save company profile. Ownership is on Overview under Owners. Use Overview → Edit details for states, underwriters and renewals; Documents holds original records and your folders.",
     ],
     note: "Owners, administrators and onboarding staff can edit assigned companies. This completion form is for imported profiles; saving profile basics does not approve ownership, licensing or company setup.",
   },
@@ -96,7 +119,7 @@ const catalog: CatalogGuide[] = [
     steps: [
       "Open Companies, select the company and look at Overview.",
       "Review Company status separately from Company profile needs completion. Formation and approval history is expandable below the company details.",
-      "Use Documents for its records and logos, Members for ownership, and expand Formation and approval history → Open evidence review for the company's review checklist when your access permits.",
+      "Use Documents for its records, logos and folders, Overview → Owners for ownership, and expand Formation and approval history → Open evidence review for the company's review checklist when your access permits.",
     ],
     note: "Confirming existing operations does not create ownership details, verify licensing or complete evidence reviews. Ask an organization-wide administrator if the operating status is incorrect.",
   },

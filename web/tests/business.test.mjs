@@ -207,6 +207,7 @@ function launchedCompany() {
     c = s.companies.find((c) => c.id === "c3");
   saveApplication(s, {
     ...getOnboarding(s, c),
+    requiredUnderwriters: ["WFG"],
     mailingAddress: "100 Example Street",
     secureApplicationReference: "Secure intake DEMO",
     signatureReference: "Signed application DEMO",

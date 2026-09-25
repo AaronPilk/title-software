@@ -1,3 +1,4 @@
+import { validateCompanyRecords, type CompanyRecords } from "./company-records";
 /** Private applicant intake. Never place these values in workspace JSON, logs, or audit metadata. */
 export type JVResidence = { id: string; address: string; from: string; to: string };
 export type JVEmployment = { id: string; employer: string; role: string; address: string; from: string; to: string };
@@ -26,6 +27,7 @@ export type JVStep = {
   note: string;
 };
 export type JVApplication = {
+  companyRecords?: CompanyRecords;
   schemaVersion: 1;
   applicants: JVApplicant[];
   logoPreferences: string;
@@ -191,12 +193,14 @@ export function newJVApplication(): JVApplication {
 /** Returns a detached, canonical shape. Blanks are permitted for drafts; unknown fields are never retained. */
 export function validateJVApplication(value: unknown): JVApplication {
   try {
-    const row = record(value, applicationKeys);
+    const extended = !!value && typeof value === "object" && Object.hasOwn(value, "companyRecords");
+    const row = record(value, extended ? [...applicationKeys, "companyRecords"] : applicationKeys);
     if (row.schemaVersion !== 1) return invalid();
     const applicants = unique(list(row.applicants, 20).map(applicant), item => item.id);
     const steps = unique(list(row.steps, JV_STEPS.length).map(step), item => item.id);
     if (steps.length !== JV_STEPS.length) return invalid();
     const result: JVApplication = {
+      ...(extended ? { companyRecords: validateCompanyRecords(row.companyRecords) } : {}),
       schemaVersion: 1, applicants, logoPreferences: text(row.logoPreferences, 10_000, true), notes: text(row.notes, 10_000, true),
       sourceDocumentIds: unique(list(row.sourceDocumentIds, 100).map(identifier), id => id),
       steps: JV_STEPS.map(item => steps.find(entry => entry.id === item.id)!),
@@ -273,6 +277,7 @@ export function jvIntakeFingerprint(payload: JVApplication): string {
   const app = validateJVApplication(payload);
   return JSON.stringify({
     schemaVersion: app.schemaVersion,
+    ...(app.companyRecords ? { companyRecords: app.companyRecords } : {}),
     applicants: app.applicants,
     logoPreferences: app.logoPreferences, notes: app.notes, sourceDocumentIds: app.sourceDocumentIds,
   });

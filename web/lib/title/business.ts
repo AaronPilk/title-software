@@ -1,3 +1,4 @@
+import { validateCompanyWorkspace, validateMemberIdentityMutation } from "./company-workspace";
 import { traceMutation, commandUuid } from "./command-log";
 import type {
   Workspace,
@@ -985,11 +986,28 @@ export function getOnboarding(s: Workspace, c: Company): OnboardingCase {
       signatureReference: "",
       applicationStatus: "Not started",
       applicationNote: "",
-      requiredUnderwriters: ["WFG"],
+      requiredUnderwriters: [],
       evidence: [],
       launchedAt: "",
     }
   );
+}
+/** Select business relationships without inventing approval or contact details. */
+export function saveCompanyUnderwriters(s: Workspace, input: { companyId: string; names: string[]; expected: string[] }) {
+  return traceMutation(s, "saveCompanyUnderwriters", [input], () => {
+    const c = s.companies.find(c => c.id === input.companyId);
+    if (!c || !Array.isArray(input.names) || input.names.length > 20 || input.names.some(n => typeof n !== "string" || !n.trim() || n.length > 100)) throw new Error("Choose valid company underwriters.");
+    const previous = business(s).onboarding.find(row => row.companyId === c.id);
+    if (JSON.stringify(previous?.requiredUnderwriters || []) !== JSON.stringify(input.expected)) throw new Error("Underwriters changed. Reopen company details.");
+    const names = [...new Set(input.names.map(n => n.trim()))];
+    if (JSON.stringify([...(previous?.requiredUnderwriters || [])].sort()) === JSON.stringify([...names].sort())) return;
+    const next = { ...getOnboarding(s, c), requiredUnderwriters: names, launchedAt: "", launchSnapshot: "" };
+    next.evidence = next.evidence.filter(e => ![0, 4, 6].includes(e.step));
+    c.steps[0] = false; c.steps[4] = false; c.steps[6] = false; c.stage = "Onboarding";
+    const b = ensure(s);
+    b.onboarding = b.onboarding.filter(row => row.companyId !== c.id);
+    b.onboarding.push(next);
+  });
 }
 export function saveApplication(s: Workspace, input: OnboardingCase) {
   return traceMutation(s, "saveApplication", [input], () => {
@@ -1750,6 +1768,8 @@ export function applicationFingerprint(s: Workspace, c: Company) {
   ]);
 }
 export function validateBusinessMutation(before: Workspace, after: Workspace) {
+  validateCompanyWorkspace(after);
+  validateMemberIdentityMutation(before, after);
   validateReferencedSourcesMutation(before, after);
   validateStatementDeliveryMutation(before, after);
   validateMaterialsMutation(before, after);

@@ -12,7 +12,7 @@ test('only organization administrators can import an incomplete company; normal 
   const blank=emptyWorkspace(),c=draft();
   const result=apply(blank,c,true);assert.equal(result.companies[0].jurisdiction,'');assert.equal(result.companies[0].intake.teamId,'team');
   for(const access of [{...actor,role:'operations'},{...actor,role:'onboarding'},{...actor,role:'admin',allCompanies:false}])assert.throws(()=>apply(blank,c,true,access));
-  const {intake,...regular}=c;assert.throws(()=>apply(blank,regular,true),/contact/);
+  const {intake,...regular}=c;assert.throws(()=>apply(blank,regular,true),/operating state/);
   assert.throws(()=>apply(blank,{...c,intake:{...intake,importedBy:'other@example.test'}},true),/intake/);
 });
 test('duplicate provider identity is denied and company scopes do not change',()=>{
