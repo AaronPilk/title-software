@@ -41,7 +41,7 @@ before(async () => {
         window.changeOperatingAccess=(role,all)=>{snapshot={...snapshot,connection:access(role,all,(snapshot.connection?.access.version||0)+1)};emit();};
         window.renameOperatingCompany=(id,name)=>{const next=structuredClone(snapshot.s);next.companies.find(c=>c.id===id).name=name;snapshot={...snapshot,s:next};emit();};
         export function useWorkspace(){const current=useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>snapshot);return {...current,update:async(change,title,detail)=>{const next=structuredClone(snapshot.s);change(next);window.operatingUpdates.push({title,detail});if(window.failOperatingSave)return false;snapshot={...snapshot,s:next};emit();return true;}};}
-        export const download=()=>{throw Error('Unexpected download')};export const getAsset=async()=>{throw Error('Unexpected asset read')};export const saveAsset=async()=>{throw Error('Unexpected asset write')};
+        export const download=()=>{throw Error('Unexpected download')};export const getAsset=async()=>{throw Error('Unexpected asset read')};export const getAssetForDocument=getAsset;export const saveAsset=async()=>{throw Error('Unexpected asset write')};
       ` }));
     } }],
   });
