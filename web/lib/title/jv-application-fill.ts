@@ -18,6 +18,9 @@ export function applyJVApplicationFill(current: JVApplication, patch: JVApplicat
   }
   if (patch.logoPreferences !== undefined) next.logoPreferences = patch.logoPreferences;
   if (patch.notes !== undefined) next.notes = patch.notes;
+  for (const note of patch.sourceNotes || []) {
+    if (!next.notes.includes(note)) next.notes = [next.notes, note].filter(Boolean).join("\n\n");
+  }
   next.sourceDocumentIds = [...new Set([...next.sourceDocumentIds, sourceDocumentId])];
   return validateJVApplication(next);
 }

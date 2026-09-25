@@ -178,3 +178,28 @@ test("mutating a page window after parsing starts cannot widen the checked read"
   const result = await extractPdfText(file, { engine, pageWindow });
   assert.equal(result.status, "ready"); assert.deepEqual(read, [1]);
 });
+
+
+function formPdf({widget=true,hidden=false,appearance='',widgetAppearance='',value='Avery Fictional'}={}) {
+ const commands=['BT /F1 12 Tf 40 700 Td (NAME:) Tj ET',...(appearance?[`BT /F1 12 Tf 180 700 Td (${appearance}) Tj ET`]:[])].join('\n');
+ const objects=[`<< /Type /Catalog /Pages 2 0 R ${widget?'/AcroForm << /Fields [6 0 R] /DA (/F1 12 Tf 0 g) /DR << /Font << /F1 3 0 R >> >> >>':''} >>`, '<< /Type /Pages /Kids [4 0 R] /Count 1 >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R ${widget?'/Annots [6 0 R]':''} >>`,`<< /Length ${commands.length} >>\nstream\n${commands}\nendstream`];
+ if(widget)objects.push(`<< /Type /Annot /Subtype /Widget /FT /Tx /T (generic_field_17) /V (${value}) /Rect [180 696 400 712] /P 4 0 R /F ${hidden?2:4} ${widgetAppearance ? '/AP << /N 7 0 R >>' : ''} >>`);
+ if(widgetAppearance){const ap=`BT /F1 12 Tf 0 4 Td (${widgetAppearance}) Tj ET`;objects.push(`<< /Type /XObject /Subtype /Form /BBox [0 0 220 16] /Resources << /Font << /F1 3 0 R >> >> /Length ${ap.length} >>\nstream\n${ap}\nendstream`);}
+ let output='%PDF-1.7\n';const offsets=objects.map((o,i)=>{const off=output.length;output+=`${i+1} 0 obj\n${o}\nendobj\n`;return off;});const xref=output.length;output+=`xref\n0 ${objects.length+1}\n0000000000 65535 f \n${offsets.map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')}trailer\n<< /Size ${objects.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;return new Blob([output],{type:'application/pdf'});
+}
+
+test('visible filled widgets require OCR of their appearance, never unverified canonical values',async()=>{
+ const result=await extractPdfText(formPdf(),{layout:'application'});assert.equal(result.status,'partial');assert.equal(result.pages[0].requiresOcr,true);assert.doesNotMatch(result.pages[0].text,/Avery Fictional|generic_field/);
+ const hidden=await extractPdfText(formPdf({hidden:true}),{layout:'application'});assert.equal(hidden.status,'ready');assert.doesNotMatch(hidden.pages[0].text,/Avery Fictional/);
+});
+test('conflicting appearance and canonical form value force a visible-page read',async()=>{
+ const result=await extractPdfText(formPdf({widgetAppearance:'Jordan Fictional'}),{layout:'application'});assert.equal(result.status,'partial');assert.equal(result.pages[0].requiresOcr,true);assert.doesNotMatch(result.pages[0].text,/Avery Fictional/);
+});
+
+test('application visual ordering rejects ambiguous overlapping answers and retains exact duplicates once',async()=>{
+ const {build}=await import('esbuild');const out=await build({entryPoints:['lib/title/pdf-visual-text.ts'],bundle:true,write:false,format:'esm',platform:'node'});const {applicationVisualText}=await import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].contents).toString('base64'));
+ const run=(str,x,y=700,width=100)=>({str,transform:[12,0,0,12,x,y],height:12,width,dir:'ltr'});
+ assert.throws(()=>applicationVisualText([run('NAME:',40,700,40),run('Avery Fictional',180),run('Jordan Fictional',180)]),/Overlapping/);
+ assert.equal(applicationVisualText([run('NAME:',40,700,40),run('Avery Fictional',180),run('Avery Fictional',180)]),'NAME:\tAvery Fictional');
+ assert.throws(()=>applicationVisualText([{...run('NAME:',40),transform:[0,12,-12,0,40,700]}]),/layout/);
+});

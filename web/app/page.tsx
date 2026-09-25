@@ -1,4 +1,6 @@
 "use client";
+import { useCompanyDetailNavigation } from "@/components/title/use-company-detail-navigation";
+import { canFillCompanyApplication } from "@/lib/title/application-document";
 import { canManageFinance } from "@/lib/title/workspace-capabilities";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
@@ -140,9 +142,9 @@ function Workspace() {
   const [orderId, setOrderId] = useState("");
   const [revisionMessage, setRevisionMessage] = useState("");
   const [policyId, setPolicyId] = useState("T-2026-1048");
-  const [companyId, setCompanyId] = useState("");
+  const companyNavigation = useCompanyDetailNavigation();
+  const { id: companyId, tab: companyTab, sourceId: applicationSourceId } = companyNavigation.entry;
   const [productionCompanyId, setProductionCompanyId] = useState("");
-  const [companyTab, setCompanyTab] = useState<CompanyDetailTab>("Overview");
   const [docId, setDocId] = useState("");
   const [docTarget, setDocTarget] = useState<{ identity: string; page: number } | null>(null);
   const [newOrder, setNewOrder] = useState(false);
@@ -161,7 +163,7 @@ function Workspace() {
     workspaceId: activeWorkspace(),
   } : undefined, rawState.user, ready, () => {
     setOpenMobile(false); setSearch(false); setNotifications(false); setOrderId("");
-    setCompanyId(""); setDocId(""); setDocTarget(null);
+    companyNavigation.clear(); setDocId(""); setDocTarget(null);
     window.scrollTo({ top: 0, behavior: "instant" });
   });
   const { page, view } = workspaceLocation;
@@ -295,7 +297,7 @@ function Workspace() {
     if (companyId && !allowWorkspaceNavigation("company-detail")) return;
     setUploadCompany(id || null);
     setUploadDestination(view === "production" ? "title" : destination);
-    setCompanyId("");
+    companyNavigation.clear();
     setUploadOpen(true);
   }
   function openCompany(id: string, tab: CompanyDetailTab = "Overview") {
@@ -304,9 +306,7 @@ function Workspace() {
       setProductionCompanyId(id);
       return;
     }
-    if (companyId && companyId !== id && !allowWorkspaceNavigation("company-detail")) return;
-    setCompanyTab(tab);
-    setCompanyId(id);
+    companyNavigation.open(id, tab);
   }
   const doc = s.documents.find((d) => d.id === docId);
   const helpPage = connection?.access.role === "partner" ? page : doc ? "Documents" : companyId ? "Companies" : orderId ? "Orders" : page;
@@ -316,6 +316,11 @@ function Workspace() {
     if (destination === helpPage) return;
     if (hasOpenForm || helpFromDialog) { setHelpDestination(destination); return; }
     navigate(destination);
+  }
+  function fillApplicationFromDocument(d: VaultDoc) {
+    if (view !== "agency" || !canFillCompanyApplication(s, d, connection)) return;
+    if (!companyNavigation.open(d.companyId, "Application", d.id)) return;
+    setDocId(""); setDocTarget(null);
   }
   const openDoc = (d: VaultDoc, physicalPage?: number) => {
     setDocTarget(physicalPage ? { identity: documentScanIdentity(d, connection), page: physicalPage } : null);
@@ -636,7 +641,7 @@ function Workspace() {
                   <CommandItem
                     key={c.id}
                     onSelect={() => {
-                      if (navigate("Companies")) { setCompanyTab("Overview"); setCompanyId(c.id); }
+                      if (navigate("Companies")) companyNavigation.enterAfterNavigation(c.id);
                     }}
                   >
                     <Building2 />
@@ -719,10 +724,11 @@ function Workspace() {
       )}{" "}
       {companyId && (
         <CompanyDetail
-          key={companyId}
+          key={`${companyId}:${companyNavigation.entry.generation}`}
           id={companyId}
+          applicationSourceId={applicationSourceId}
           initialTab={companyTab}
-          onClose={() => setCompanyId("")}
+          onClose={() => companyNavigation.clear()}
           onDoc={openDoc}
           onUpload={upload}
         />
@@ -731,6 +737,7 @@ function Workspace() {
         <DocumentPreview
           key={documentScanIdentity(doc, connection)}
           doc={doc}
+          onFillApplication={view === "agency" ? fillApplicationFromDocument : undefined}
           initialPage={docTarget?.identity === documentScanIdentity(doc, connection) ? docTarget.page : 1}
           partner={page === "Partner portal"}
           onClose={() => { setDocId(""); setDocTarget(null); }}

@@ -38,12 +38,13 @@ function JVReadSession({ doc, identity, applicant, applicationApplicants, applic
   const [previewPage, setPreviewPage] = useState<number | null>(null);
   const [rotation, setRotation] = useState<0 | 90 | 180 | 270>(0);
   const [readRotation, setReadRotation] = useState(0);
+  const [dateOrder, setDateOrder] = useState<"" | "mdy" | "dmy">("");
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [replaceHistory, setReplaceHistory] = useState<string[]>([]);
   const [applicationUsed, setApplicationUsed] = useState(false);
   const [applyError, setApplyError] = useState("");
   const [overwriteAcknowledged, setOverwriteAcknowledged] = useState("");
-  const scan = useDocumentScan(doc, identity, () => { setReviewed([]); setUsed([]); setReplaceHistory([]); setApplicationUsed(false); setApplyError(""); });
+  const scan = useDocumentScan(doc, identity, () => { setReviewed([]); setUsed([]); setReplaceHistory([]); setApplicationUsed(false); setApplyError(""); }, "application");
   // Publish the navigation guard before the checked rows become interactive.
   // A passive effect leaves a window where changing the original loses a review.
   const reviewState = useRef(onReviewStateChange);
@@ -64,9 +65,9 @@ function JVReadSession({ doc, identity, applicant, applicationApplicants, applic
   }, [scan.busy, scan.result, rotation, readRotation]);
   const applicationSuggestions = useMemo(() => {
     if (!onApplicationFill || scan.busy || !scan.result || rotation !== readRotation) return { extraction: null, error: "" };
-    try { return { extraction: extractJVApplication(scan.result.pages), error: "" }; }
+    try { return { extraction: extractJVApplication(scan.result.pages, undefined, { dateOrder: dateOrder || undefined }), error: "" }; }
     catch { return { extraction: null, error: "Application suggestions could not be prepared. Enter these details from the original." }; }
-  }, [onApplicationFill, scan.busy, scan.result, rotation, readRotation]);
+  }, [onApplicationFill, scan.busy, scan.result, rotation, readRotation, dateOrder]);
   const extraction = applicationSuggestions.extraction;
   const destinations = applicationApplicants || [applicant];
   const effectiveTargets = Object.fromEntries((extraction?.applicants || []).map((item, index) => {
@@ -105,6 +106,7 @@ function JVReadSession({ doc, identity, applicant, applicationApplicants, applic
     <details className="jv-scan-options"><summary>Reading options</summary><label className="field-label">Application scan orientation<select disabled={busy} value={rotation} onChange={event => { setRotation(Number(event.target.value) as typeof rotation); setReviewed([]); setReplaceHistory([]); setApplicationUsed(false); }}><option value={0}>As stored</option><option value={90}>Turn right</option><option value={180}>Upside down</option><option value={270}>Turn left</option></select></label></details>
     <div className="source-actions"><Button type="button" variant="outline" disabled={busy} onClick={() => read()}>{onApplicationFill ? "Find application fields" : "Find applicant fields"}</Button>{scan.busy && <Button type="button" variant="ghost" onClick={scan.cancel}>Cancel reading</Button>}</div>
     <DocumentScanStatus {...scan} onResume={() => read(true)} />
+    {scan.result && <label className="field-label">Dates on this application<select aria-label="Application date format" disabled={busy || applicationUsed} value={dateOrder} onChange={event => { setDateOrder(event.target.value as typeof dateOrder); setReviewed([]); setReplaceHistory([]); setOverwriteAcknowledged(""); }}><option value="">Choose if dates use slashes</option><option value="mdy">Month / day / year (US)</option><option value="dmy">Day / month / year</option></select></label>}
     {(onApplicationFill ? applicationSuggestions.error : suggestions.error) && <p role="alert">{onApplicationFill ? applicationSuggestions.error : suggestions.error}</p>}
     {rotation !== readRotation && <p role="status">Read the application again to use the new orientation.</p>}
     {onApplicationFill && extraction && <>
@@ -115,7 +117,7 @@ function JVReadSession({ doc, identity, applicant, applicationApplicants, applic
       {extraction.candidates.map(candidate => {
         const person = extraction.applicants.find(item => item.key === candidate.applicantKey);
         const value = typeof candidate.value === "string" ? candidate.value : Object.entries(candidate.value).filter(([key]) => key !== "id").map(([key, value]) => `${key}: ${key === "to" && !value ? "Present" : value || "(blank)"}`).join(" · ");
-        const setCandidateReviewed = (checked: boolean) => { setReviewed(values => checked ? [...values.filter(id => !extraction.candidates.some(other => other.id === id && other.applicantKey === candidate.applicantKey && other.field === candidate.field && typeof other.value === "string")), candidate.id] : values.filter(id => id !== candidate.id)); setReplaceHistory([]); };
+        const setCandidateReviewed = (checked: boolean) => { setReviewed(values => checked ? [...values.filter(id => !extraction.candidates.some(other => other.id === id && other.applicantKey === candidate.applicantKey && other.field === candidate.field && other.field !== "sourceNotes" && typeof other.value === "string")), candidate.id] : values.filter(id => id !== candidate.id)); setReplaceHistory([]); };
         if (guided) return <article className="jv-candidate jv-guided-candidate" key={candidate.id}>
           <label className="jv-check"><input type="checkbox" disabled={busy || applicationUsed} checked={reviewed.includes(candidate.id)} onChange={event => setCandidateReviewed(event.target.checked)} /><span><strong>{person ? `${person.label} · ` : ""}{candidate.label}</strong><span className="jv-suggested-value">{["dob", "ssn", "driverLicense"].includes(candidate.field) ? "Private detail — open evidence to review" : value}</span>{candidate.conflict && <span className="jv-suggestion-warning">Conflicting answers — choose the correct one.</span>}</span></label>
           <details><summary>Evidence · page {candidate.page}</summary><p className="form-note">{candidate.warning}</p><p>Suggested value: {value}</p><blockquote>{candidate.quote}</blockquote><Button type="button" size="sm" variant="ghost" onClick={() => setPreviewPage(candidate.page)}>View original page {candidate.page}</Button><p className="form-note">Checking this detail confirms it matches the original and belongs to the selected person.</p></details>
@@ -124,7 +126,7 @@ function JVReadSession({ doc, identity, applicant, applicationApplicants, applic
           <summary>{person ? `${person.label} · ` : "Application · "}{candidate.label} · page {candidate.page}{candidate.conflict ? " · conflicting answers: choose one" : ""}</summary>
           <p className="form-note">{candidate.warning}</p><p>Suggested value: {value}</p><blockquote>{candidate.quote}</blockquote>
           <Button type="button" size="sm" variant="ghost" onClick={() => setPreviewPage(candidate.page)}>View original page {candidate.page}</Button>
-          <label className="jv-check"><input type="checkbox" disabled={busy || applicationUsed} checked={reviewed.includes(candidate.id)} onChange={event => { setReviewed(values => event.target.checked ? [...values.filter(id => !extraction.candidates.some(other => other.id === id && other.applicantKey === candidate.applicantKey && other.field === candidate.field && typeof other.value === "string")), candidate.id] : values.filter(id => id !== candidate.id)); setReplaceHistory([]); }} />I checked {candidate.label.toLowerCase()} on page {candidate.page}{person ? ` and it belongs to ${person.label.toLowerCase()} in the selected destination` : " for this application"}.</label>
+          <label className="jv-check"><input type="checkbox" disabled={busy || applicationUsed} checked={reviewed.includes(candidate.id)} onChange={event => { setReviewed(values => event.target.checked ? [...values.filter(id => !extraction.candidates.some(other => other.id === id && other.applicantKey === candidate.applicantKey && other.field === candidate.field && other.field !== "sourceNotes" && typeof other.value === "string")), candidate.id] : values.filter(id => id !== candidate.id)); setReplaceHistory([]); }} />I checked {candidate.label.toLowerCase()} on page {candidate.page}{person ? ` and it belongs to ${person.label.toLowerCase()} in the selected destination` : " for this application"}.</label>
         </details>;
       })}
       {guided && clearCandidates.length > 0 && <label className="jv-check jv-review-all"><input type="checkbox" disabled={busy || applicationUsed} checked={allClearReviewed} onChange={event => { setReviewed(event.target.checked ? [...new Set([...reviewed, ...clearCandidates.map(candidate => candidate.id)])] : reviewed.filter(id => !clearCandidates.some(candidate => candidate.id === id))); setReplaceHistory([]); }} />I checked all clear suggestions against the original. Conflicting answers still need a separate choice.</label>}

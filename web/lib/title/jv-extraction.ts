@@ -69,8 +69,9 @@ export type JVApplicationFillPatch = {
   applicants: { sourceApplicantKey: string; label: string; patch: Partial<JVApplicant>; targetApplicantId?: string }[];
   logoPreferences?: string;
   notes?: string;
+  sourceNotes?: string[];
 };
-type ScalarField = JVExtractField | "ownershipType" | "businessName" | "businessStatus" | "businessReference" | "logoPreferences" | "notes";
+type ScalarField = JVExtractField | "ownershipType" | "businessName" | "businessStatus" | "businessReference" | "logoPreferences" | "notes" | "sourceNotes";
 type HistoryField = "residenceHistory" | "employmentHistory";
 export type JVApplicationCandidate = {
   id: string; applicantKey?: string; field: ScalarField | HistoryField; label: string;
@@ -86,7 +87,7 @@ export type JVApplicationExtraction = {
 const fullLabels: Record<ScalarField | HistoryField, string> = {
   ...JV_FIELD_LABELS, ownershipType: "Ownership choice", businessName: "Owner business name", businessStatus: "Owner business status",
   businessReference: "Owner business formation reference", residenceHistory: "Residence history", employmentHistory: "Employment history",
-  logoPreferences: "Logo / colors / design preferences", notes: "Additional notes",
+  logoPreferences: "Logo / colors / design preferences", notes: "Additional notes", sourceNotes: "History as written",
 };
 function fullLabel(text: string): ScalarField | undefined {
   const plain = text.trim().replace(/\s*\((?:yyyy-mm-dd|mm\/dd\/yyyy|dd\/mm\/yyyy)\)\s*$/i, "");
@@ -126,7 +127,8 @@ function election(raw: string, choices: Record<string, string>): string | null {
 /** Local, bounded label/layout parsing only. Source text is data, never instructions.
  * Unsupported layouts and uncertain person boundaries are surfaced for manual review.
  */
-export function extractJVApplication(pages: SourceFieldPage[], today = new Date().toISOString().slice(0, 10)): JVApplicationExtraction {
+export function extractJVApplication(pages: SourceFieldPage[], today = new Date().toISOString().slice(0, 10), options: { dateOrder?: "mdy" | "dmy" } = {}): JVApplicationExtraction {
+  const dateLabel = (label: string) => /\((?:mm\/dd|dd\/mm)\/yyyy\)/i.test(label) ? label : options.dateOrder ? `${label} (${options.dateOrder === "mdy" ? "mm/dd/yyyy" : "dd/mm/yyyy"})` : label;
   // Reuse the strict source bounds before processing any text (also preserves the legacy API).
   extractJVFields(pages);
   const result: JVApplicationExtraction = { applicants: [], candidates: [], issues: [], missing: [] };
@@ -134,6 +136,15 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
   let history: { field: HistoryField; cells: Record<string, string>; labels: Record<string, string>; quotes: string[]; page: SourceFieldPage } | null = null;
   let columns: string[] = [], columnLabels: string[] = [];
   let continuation: JVApplicationCandidate | null = null;
+  let narrative: { field: HistoryField; text: string[]; page: SourceFieldPage; applicantKey: string } | null = null;
+  const flushNarrative = () => {
+    if (!narrative) return;
+    const block = narrative; narrative = null;
+    if (!block.text.length) return;
+    const value = `${result.applicants.find(item => item.key === block.applicantKey)?.label || "Applicant"} — ${fullLabels[block.field]} as written:\n${block.text.join("\n")}`;
+    add("sourceNotes", value, block.text.join("\n"), block.page);
+    issue(block.page.page, `${fullLabels[block.field]} is preserved in notes. Exact dates were not inferred; complete dated history rows when available.`);
+  };
   let pendingLabel: { field: ScalarField; label: string; lines: string[] } | null = null;
   const issue = (page: number, message: string) => { if (!result.issues.some(item => item.page === page && item.message === message)) result.issues.push({ page, message }); };
   const ensureApplicant = () => {
@@ -143,7 +154,7 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
     }
   };
   const add = (field: ScalarField | HistoryField, value: JVApplicationCandidate["value"], quote: string, page: SourceFieldPage) => {
-    const global = field === "logoPreferences" || field === "notes";
+    const global = field === "logoPreferences" || field === "notes" || field === "sourceNotes";
     if (!global) ensureApplicant();
     if ((field === "residenceHistory" || field === "employmentHistory") && result.candidates.filter(item => item.applicantKey === applicantKey && item.field === field).length >= 40) {
       issue(page.page, `${fullLabels[field]} exceeds 40 rows for one applicant. Review the original and enter the applicable history manually.`); return null;
@@ -153,7 +164,7 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
       id: `candidate-${result.candidates.length + 1}`, ...(global ? {} : { applicantKey }), field, label: fullLabels[field], value, quote, page: page.page,
       method: page.method, warning: page.method === "ocr" ? "OCR can misread handwriting, letters and digits. Check every character against the original; enter unclear handwriting manually." : "Compare this value and its applicant with the original before using it.", conflict: false,
     };
-    if (typeof value === "string") {
+    if (typeof value === "string" && field !== "sourceNotes") {
       const prior = result.candidates.filter(item => item.applicantKey === candidate.applicantKey && item.field === field);
       if (prior.some(item => item.value === value)) return null;
       if (prior.length) { candidate.conflict = true; prior.forEach(item => { item.conflict = true; }); issue(page.page, `${fullLabels[field]} has competing values. Review the original and choose at most one for this source applicant or application.`); }
@@ -164,7 +175,7 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
     if (!history) return;
     const row = history; history = null;
     if (!Object.keys(row.cells).length) return;
-    const from = sourceDate(row.cells.from || "", row.labels.from), to = sourceDate(row.cells.to || "", row.labels.to, true);
+    const from = sourceDate(row.cells.from || "", dateLabel(row.labels.from || "")), to = sourceDate(row.cells.to || "", dateLabel(row.labels.to || ""), true);
     const required = row.field === "residenceHistory" ? "address" : "employer";
     if (!row.cells[required] || from === null || to === null || to && from > to || Object.values(row.cells).some(unclear)) {
       issue(row.page.page, `${fullLabels[row.field]} contains an incomplete or unclear row. Enter it manually; include explicit start and end dates (or Present).`); return;
@@ -199,9 +210,32 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
       const adjacentField = /^([^:\t]{1,100}?)\s*(?::|\t+| {2,})/.exec(answer);
       return !placeholder(answer) && !fullLabel(answer.replace(/:$/, "")) && !(adjacentField && fullLabel(adjacentField[1])) && !historyHeadingPattern.test(answer) && !/^(?:applicant|owner|person)\s*#?\s*\d/i.test(answer) && !formInstruction(answer) && !formDecoration(answer);
     });
+    flushNarrative();
+    let pendingLabelCount = 0;
     for (const [lineIndex, rawLine] of lines.entries()) {
       const line = rawLine.trim();
       if (!line) { continuation = null; if (pendingLabel && pendingLabel.lines.length < 12) pendingLabel.lines.push(rawLine); else pendingLabel = null; continue; }
+      const historyInline = /^(residence(?: last 5 years)?|employment history)(?:\s*:\s*|	+)(.+)$/i.exec(line);
+      if (historyInline) {
+        flushNarrative(); flushHistory(); ensureApplicant(); section = null; pendingLabel = null; continuation = null;
+        narrative = { field: /^residence/i.test(historyInline[1]) ? "residenceHistory" : "employmentHistory", text: [historyInline[2]], page, applicantKey };
+        continue;
+      }
+      if (narrative) {
+        const historyContinuation = /^last\s*5\s*years\s*:?\s*\t+(.+)$/i.exec(line);
+        if (historyContinuation) {
+          if (narrative.text.join("\n").length + historyContinuation[1].length <= 5000) narrative.text.push(historyContinuation[1]);
+          else issue(page.page, "History text exceeds the notes limit. Review the original.");
+          continue;
+        }
+        if (/^(?:last\s*5\s*years)\s*:?$/i.test(line)) continue;
+        if (!fullLabel(line.replace(/:$/, "")) && !/^([^:\t]{1,100})[:\t]/.test(line) && !formDecoration(line) && !formInstruction(line) && !historyHeadingPattern.test(line) && !/^(?:joint[- ]venture|applicant|owner|person)\b/i.test(line)) {
+          if (narrative.text.join("\n").length + line.length <= 5000) narrative.text.push(line);
+          else issue(page.page, "History text exceeds the notes limit. Review the original.");
+          continue;
+        }
+        flushNarrative();
+      }
       const heading = /^(?:applicant|owner|person)\s*(?:#\s*)?(\d{1,2})(?:\s*[-:]\s*.*)?$/i.exec(line);
       if (heading) {
         flushHistory(); applicantKey = `applicant-${Number(heading[1])}`; ensureApplicant(); section = null; columns = []; continuation = null; pendingLabel = null; continue;
@@ -225,6 +259,7 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
       const standaloneField = fullLabel(line.replace(/:$/, ""));
       if (standaloneField) {
         flushHistory(); section = null; columns = []; continuation = null;
+        pendingLabelCount = pendingLabel ? pendingLabelCount + 1 : 1;
         pendingLabel = { field: standaloneField, label: line.replace(/:$/, ""), lines: [rawLine] }; continue;
       }
       if (/^logo:\s*please let us know if you have a preference or sugges(?:tions|toins) for logo\.?$/i.test(line)) {
@@ -252,11 +287,12 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
       let match: string[] | null = /^([^:\t]{1,100}?)\s*(?::|\t+| {2,})\s*(.*?)\s*$/.exec(line);
       let scalarQuote = line;
       if (pendingLabel) {
+        if (pendingLabelCount > 1 && (!match || !fullLabel(match[1]))) { issue(page.page, "Several questions were read without adjacent answers. Review the original layout before filling those fields."); pendingLabel = null; pendingLabelCount = 0; continue; }
         if (!match || !fullLabel(match[1])) {
           match = [line, pendingLabel.label, line];
           scalarQuote = [...pendingLabel.lines, rawLine].join("\n");
         }
-        pendingLabel = null;
+        pendingLabel = null; pendingLabelCount = 0;
       }
       if (match) {
         const field = fullLabel(match[1]);
@@ -274,7 +310,7 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
           if (unclear(raw) || /[<>\t]/.test(raw) || fullLabel(raw.replace(/:$/, "")) || /\b(?:ownership(?: choice| type)?|(?:owner )?business (?:name|status|reference)|logo preferences|additional notes)\s*(?::| {2,})/i.test(raw) || formInstruction(raw)) { issue(page.page, `${fullLabels[field]} is unclear or contains form instructions. Enter it manually.`); continue; }
           let value: string | null = raw;
           if (Object.hasOwn(JV_FIELD_LABELS, field)) {
-            if (field === "dob") value = sourceDate(raw, match[1]);
+            if (field === "dob") value = sourceDate(raw, dateLabel(match[1]));
             const verified = value !== null ? extractJVFields([{ ...page, text: `${JV_FIELD_LABELS[field as JVExtractField]}: ${value}` }])[0] : undefined;
             // Driver label uses a typographic apostrophe supported by the legacy parser.
             value = verified?.value ?? null;
@@ -291,8 +327,9 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
         flushHistory(); section = null; columns = []; continuation = null;
         issue(page.page, `${fullLabels[globalHeading]} uses an unlabeled multiline layout. Check the original and enter it manually.`); continue;
       }
-      // Only indented continuations of explicit prose answers are safe to attach.
-      if (continuation && /^\s{2,}\S/.test(rawLine) && !unclear(line) && !match && typeof continuation.value === "string" && continuation.value.length + line.length < (continuation.field === "businessReference" ? 2000 : 10000)) {
+      // Wrapped additional notes may be flush-left in flattened completed forms.
+      // Explicit labels, decorations and instructions have already ended this block.
+      if (continuation && (/^\s{2,}\S/.test(rawLine) || continuation.field === "notes") && !unclear(line) && !match && typeof continuation.value === "string" && continuation.value.length + line.length < (continuation.field === "businessReference" ? 2000 : 10000)) {
         continuation.value += `\n${line}`; continuation.quote += `\n${rawLine}`;
       } else {
         continuation = null;
@@ -300,6 +337,7 @@ export function extractJVApplication(pages: SourceFieldPage[], today = new Date(
       }
     }
   }
+  flushNarrative();
   flushHistory();
   const app = newJVApplication(); app.applicants = result.applicants.map(item => newJVApplicant(item.key));
   for (const candidate of result.candidates) {
@@ -322,6 +360,7 @@ export function jvApplicationCandidatePatch(extraction: JVApplicationExtraction,
   const selected = extraction.candidates.filter(candidate => reviewedIds.includes(candidate.id));
   const scalarTargets = new Set<string>();
   for (const candidate of selected) {
+    if (candidate.field === "sourceNotes") { (result.sourceNotes ||= []).push(candidate.value as string); continue; }
     if (typeof candidate.value === "string") {
       const target = `${candidate.applicantKey || "application"}:${candidate.field}`;
       if (scalarTargets.has(target)) throw new Error("Choose only one reviewed value for each field.");

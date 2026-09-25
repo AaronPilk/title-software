@@ -386,12 +386,14 @@ export type CompanyDetailTab = "Overview" | "Onboarding" | "Application" | "Docu
 export function CompanyDetail({
   id,
   initialTab = "Overview",
+  applicationSourceId,
   onClose,
   onDoc,
   onUpload,
 }: {
   id: string;
   initialTab?: CompanyDetailTab;
+  applicationSourceId?: string;
   onClose: () => void;
   onDoc: (doc: VaultDoc, physicalPage?: number) => void;
   onUpload: (id: string) => void;
@@ -585,7 +587,7 @@ export function CompanyDetail({
             </section>
           )}
           {tab === "Application" && <>
-            <JVApplicationPanel key={c.id} navigationScope="company-detail" company={c} existingCompany={isExisting} initiallyOpen entryAction={applicationEntry} onDirtyChange={setApplicationDirty} onBusyChange={setApplicationBusy} onDocuments={() => { setApplicationDirty(false); setApplicationEntry(undefined); setTab("Documents"); }} />
+            <JVApplicationPanel key={c.id} navigationScope="company-detail" company={c} existingCompany={isExisting} initiallyOpen sourceDocumentId={applicationSourceId} entryAction={applicationEntry} onDirtyChange={setApplicationDirty} onBusyChange={setApplicationBusy} onDocuments={() => { setApplicationDirty(false); setApplicationEntry(undefined); setTab("Documents"); }} />
             {!canEditApplication && <section className={applicationStyles.empty}><h3>Application access needed</h3><p className="form-note">An administrator can give you access to this company’s private applications. Permitted company records remain available in the other tabs.</p></section>}
             <details className={applicationStyles.support}>
               <summary>{isExisting ? "Licensing, records & approval history" : "Formation & launch checklist"}</summary>

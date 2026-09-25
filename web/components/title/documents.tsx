@@ -1,5 +1,6 @@
 "use client";
 import { DeliveryManager } from "./deliveries";
+import { canFillCompanyApplication } from "@/lib/title/application-document";
 import { DocumentTextReview } from "./document-text-review";
 import { safeDocumentMime } from "@/lib/title/backup-assets";
 import { PdfPreview } from "./pdf-preview";
@@ -205,6 +206,7 @@ export function DocumentPreview({
   publicationId,
   partnerMember = "",
   initialPage = 1,
+  onFillApplication,
 }: {
   doc: VaultDoc;
   onClose: () => void;
@@ -212,9 +214,11 @@ export function DocumentPreview({
   publicationId?: string;
   partnerMember?: string;
   initialPage?: number;
+  onFillApplication?: (doc: VaultDoc) => void;
 }) {
   const { s, update, connection } = useWorkspace();
   const connected = !!connection;
+  const applicationFill = !partner && !!onFillApplication && canFillCompanyApplication(s, doc, connection);
   const [loaded, setLoaded] = useState<{ doc: VaultDoc; url?: string; text?: string; pdf?: Blob; error?: string } | null>(null);
   const current = loaded?.doc === doc ? loaded : null;
   const url = current?.url || "";
@@ -304,6 +308,10 @@ export function DocumentPreview({
             {doc.version}
           </DialogDescription>
         </DialogHeader>
+        {applicationFill && <section className="panel application-document-action" aria-label="Fill company application">
+          <div><h3>Fill application details</h3><p className="form-note">Read this completed application into {companyById(s, doc.companyId).name}’s private form. Check the suggested details, then save. No re-upload needed.</p></div>
+          <Button onClick={() => onFillApplication?.(doc)}><FileText size={17} />Fill application from this document</Button>
+        </section>}
         <div className="document-modal-tools">
           <Status value={partner ? "Published" : doc.visibility} />
           <span>{doc.size}</span>
@@ -351,7 +359,7 @@ export function DocumentPreview({
             </small>
           </div>
         )}
-        {!partner && <DocumentTextReview key={`${doc.id}:${doc.version}:${doc.assetId}:text`} doc={doc} />}
+        {!partner && (applicationFill ? <details><summary>Read or copy document text</summary><DocumentTextReview key={`${doc.id}:${doc.version}:${doc.assetId}:text`} doc={doc} /></details> : <DocumentTextReview key={`${doc.id}:${doc.version}:${doc.assetId}:text`} doc={doc} />)}
         {!partner && <PublicationManager key={doc.id} documentId={doc.id} />}
         {!partner && doc.orderId && (
           <DeliveryManager key={`${doc.id}:delivery`} documentId={doc.id} />

@@ -15,7 +15,7 @@ export type SourceReadResult = {
   completedPages: number; issues: SourceReadIssue[];
 };
 export type SourceReadOptions = {
-  signal?: AbortSignal; scanPages?: string; rotation?: 0 | 90 | 180 | 270; onProgress?: (message: string) => void;
+  pdfLayout?: "application"; signal?: AbortSignal; scanPages?: string; rotation?: 0 | 90 | 180 | 270; onProgress?: (message: string) => void;
   priorResult?: SourceReadResult; sourceIdentity?: string; onSnapshot?: (result: SourceReadResult) => void;
 };
 type RetainedRead = {
@@ -56,7 +56,7 @@ export async function readFieldSource(doc: VaultDoc, blob: Blob | undefined, opt
   if (options.signal?.aborted) throw new Error("Reading cancelled.");
   const requested = scanPageSelection(options.scanPages || "");
   if (options.rotation !== undefined && ![0, 90, 180, 270].includes(options.rotation)) throw new Error("Choose one of the available page orientations.");
-  const sourceFingerprint = fingerprint(doc), prior = options.priorResult ? retained.get(options.priorResult) : undefined;
+  const sourceFingerprint = JSON.stringify([fingerprint(doc), options.pdfLayout]), prior = options.priorResult ? retained.get(options.priorResult) : undefined;
   if (options.priorResult && (!prior || prior.blob !== blob || prior.fingerprint !== sourceFingerprint || prior.sourceIdentity !== options.sourceIdentity))
     throw new Error("The original document or access scope changed. Start a new document scan.");
   const pages = new Map<number, SourceReadPage>(prior?.pages.map(page => [page.page, copyPage(page)]));
@@ -119,7 +119,7 @@ export async function readFieldSource(doc: VaultDoc, blob: Blob | undefined, opt
     const rememberTotal = (total: number) => {
       if (Number.isSafeInteger(total) && total >= 1 && total <= SOURCE_READ_LIMITS.pages) totalPages = total;
     };
-    const read = await extractPdfText(blob, { signal: options.signal, continueOnPageError: true, detectRasterContent: true, onProgress: (page, total) => {
+    const read = await extractPdfText(blob, { layout: options.pdfLayout, signal: options.signal, continueOnPageError: true, detectRasterContent: true, onProgress: (page, total) => {
       rememberTotal(total);
       if (!options.signal?.aborted) options.onProgress?.(`Reading PDF page ${page} of ${total}`);
     } });

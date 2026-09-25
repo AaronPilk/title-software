@@ -31,7 +31,7 @@ function applicationPdf(pages = [firstApplicant, secondApplicant]) {
   const objects = ["<< /Type /Catalog /Pages 2 0 R >>", `<< /Type /Pages /Kids [${pages.map((_, i) => `${3 + i * 3} 0 R`).join(" ")}] /Count ${pages.length} >>`];
   for (const [index, lines] of pages.entries()) {
     const id = 3 + index * 3;
-    const content = `BT /F1 12 Tf 35 760 Td ${Math.min(19, Math.floor(680 / lines.length))} TL\n` + lines.map((line, i) => `${i ? "T* " : ""}(${line.replace(/[()\\]/g, "\\$&")}) Tj`).join("\n") + "\nET";
+    const content = typeof lines[0] === "object" ? lines.map(({text,x,y}) => `BT /F1 12 Tf ${x} ${y} Td (${text.replace(/[()\\]/g, "\\$&")}) Tj ET`).join("\n") : `BT /F1 12 Tf 35 760 Td ${Math.min(19, Math.floor(680 / lines.length))} TL\n` + lines.map((line, i) => `${i ? "T* " : ""}(${line.replace(/[()\\]/g, "\\$&")}) Tj`).join("\n") + "\nET";
     objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${id + 1} 0 R >> >> /Contents ${id + 2} 0 R >>`, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`);
   }
   let output = "%PDF-1.7\n";
@@ -47,8 +47,8 @@ before(async () => {
     define: { "process.env.NODE_ENV": '"production"' },
     stdin: { resolveDir: web, loader: "tsx", contents: `
       import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
-      import {JVApplicationPanel} from './components/title/jv-application';import {useWorkspace} from '@/lib/title/store';import {useWorkspaceView} from './components/title/use-workspace-view';
-      function App(){const {s}=useWorkspace();const [key,setKey]=useState(0);window.reopenApplication=()=>setKey(v=>v+1);const q=new URLSearchParams(location.search);const route=useWorkspaceView({userId:'fictional-owner',email:'owner@example.test',role:'owner',workspaceId:'fictional-workspace'},'Fictional');window.navigationResults||=[];return <main>{q.has('navigation')&&<nav aria-label="Fixture workspace navigation"><button onClick={()=>window.navigationResults.push(route.navigate('Settings'))}>Open settings</button><button onClick={()=>window.navigationResults.push(route.switchView('production'))}>Switch to Production</button><button onClick={()=>window.navigationResults.push(route.navigate('Onboarding'))}>Return to applications</button><output aria-label="Current workspace route">{route.view+'/'+route.page}</output></nav>}{!q.has('navigation')||route.page==='Onboarding'?<JVApplicationPanel key={key} company={s.companies[0]} existingCompany={!q.has('new')} initiallyOpen onDocuments={()=>window.documentNavigations++}/>:<h2>Another workspace page</h2>}</main>;}createRoot(document.getElementById('root')).render(<App/>);
+      import {JVApplicationPanel} from './components/title/jv-application';import {DocumentPreview} from './components/title/documents';import {useWorkspace} from '@/lib/title/store';import {useWorkspaceView} from './components/title/use-workspace-view';
+      function App(){const {s}=useWorkspace();const [key,setKey]=useState(0);const [sourceId,setSourceId]=useState('');const [preview,setPreview]=useState(true);window.reopenApplication=()=>setKey(v=>v+1);const q=new URLSearchParams(location.search);const route=useWorkspaceView({userId:'fictional-owner',email:'owner@example.test',role:'owner',workspaceId:'fictional-workspace'},'Fictional');window.navigationResults||=[];if(q.has('stored')&&!sourceId)return <main>{s.documents[0]&&preview?<DocumentPreview doc={s.documents[0]} onClose={()=>setPreview(false)} onFillApplication={doc=>{setSourceId(doc.id);setPreview(false)}}/>:<p>Waiting for stored original</p>}</main>;return <main>{q.has('navigation')&&<nav aria-label="Fixture workspace navigation"><button onClick={()=>window.navigationResults.push(route.navigate('Settings'))}>Open settings</button><button onClick={()=>window.navigationResults.push(route.switchView('production'))}>Switch to Production</button><button onClick={()=>window.navigationResults.push(route.navigate('Onboarding'))}>Return to applications</button><output aria-label="Current workspace route">{route.view+'/'+route.page}</output></nav>}{!q.has('navigation')||route.page==='Onboarding'?<JVApplicationPanel key={key} sourceDocumentId={sourceId} company={s.companies[0]} existingCompany={!q.has('new')} initiallyOpen onDocuments={()=>window.documentNavigations++}/>:<h2>Another workspace page</h2>}</main>;}createRoot(document.getElementById('root')).render(<App/>);
     ` }, plugins: [{ name: "fictional-agency-application-transport", setup(builder) {
       builder.onResolve({ filter: /^@\/lib\/title\/store$/ }, () => ({ path: "store", namespace: "fixture" }));
       builder.onLoad({ filter: /^store$/, namespace: "fixture" }, () => ({ loader: "tsx", resolveDir: web, contents: `
@@ -57,6 +57,7 @@ before(async () => {
         let snapshot={s,connection:q.has('local')?undefined:{workspaceId:'fictional-workspace',revision:1,access:{userId:'fictional-owner',email:'owner@example.test',role:q.get('role')||'owner',version:1,allCompanies:!q.has('outofscope'),companyIds:[],restricted:!q.has('unrestricted')}}};
         window.applicationUploads=[];window.applicationWorkspaceWrites=[];window.documentNavigations=0;window.applicationPending=[];window.assetReads=0;
         window.applicationWorkspace=()=>structuredClone(snapshot);
+        window.installApplicationOriginal=(bytes,overrides={})=>{const file=new Blob([new Uint8Array(bytes)],{type:'application/pdf'});assets.set('stored-asset',file);snapshot={...snapshot,s:{...snapshot.s,documents:[{id:'stored-app',companyId:'c1',name:'Fictional saved application.pdf',category:'Applications',visibility:'Restricted',assetId:'stored-asset',mime:'application/pdf',date:'2026-09-25',size:'1 KB',version:1,...overrides}]}};listeners.forEach(fn=>fn());};
         window.changeApplicationAccess=()=>{snapshot={...snapshot,connection:{...snapshot.connection,access:{...snapshot.connection.access,restricted:false,version:2}}};listeners.forEach(fn=>fn());};
         export function useWorkspace(){const current=useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>snapshot);return {...current,update:async(fn,title,detail)=>{if(window.applicationSaveFailure)return false;const next=structuredClone(snapshot.s);fn(next);validateBusinessMutation(snapshot.s,next);snapshot={...snapshot,s:next,connection:{...snapshot.connection,revision:snapshot.connection.revision+1}};window.applicationWorkspaceWrites.push({title,detail});listeners.forEach(fn=>fn());return true;}};}
         export async function saveAsset(id,file,binding){window.applicationUploads.push({id,binding,name:file.name,bytes:Array.from(new Uint8Array(await file.arrayBuffer()))});if(window.holdApplicationUpload)await new Promise(resolve=>window.applicationPending.push(resolve));assets.set(id,file);}
@@ -298,4 +299,45 @@ test("loading and saving a real application block global navigation without a di
   await page.evaluate(() => window.privateApplicationPending.shift()());await page.getByText("Private application saved.", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Open settings", exact: true }).click();await page.getByRole("heading", { name: "Another workspace page", exact: true }).waitFor();assert.deepEqual(prompts, []);
   assert.equal(await page.evaluate(() => window.readPrivateApplication().payload.applicants[0].name), "Saved Fictional Applicant");
+});
+
+
+test("a saved application opens autofill directly from its document without uploading again", async () => {
+  await open("stored=1");
+  await page.evaluate(bytes=>window.installApplicationOriginal(bytes),Array.from(applicationPdf().buffer));
+  await page.getByRole("button",{name:"Fill application from this document",exact:true}).click();
+  await page.getByText("application suggestions for",{exact:false}).waitFor({timeout:15000});
+  assert.equal(await page.getByLabel("Application original",{exact:true}).inputValue(),"stored-app");
+  assert.deepEqual(await page.evaluate(()=>window.applicationUploads),[]);
+  await reviewClear();const saved=await applyAndSave();
+  assert.equal(saved.payload.applicants[0].name,"Avery Example");
+  assert.equal(saved.payload.applicants[1].email,"jordan@example.test");
+  assert.deepEqual(saved.payload.sourceDocumentIds,["stored-app"]);
+  await page.evaluate(()=>window.reopenApplication());
+  await page.getByText("Avery Example · Jordan Example",{exact:true}).waitFor();
+  assert.deepEqual(await page.evaluate(()=>window.readPrivateApplication()),saved);
+});
+
+for(const [label,query,doc] of [["local","local=1",{}],["operations","role=operations",{}],["no restricted grant","unrestricted=1",{}],["different company scope","outofscope=1",{}],["title file","",{orderId:"fictional-order"}],["ordinary record","",{category:"Company records"}]]){
+ test(`document autofill is unavailable for ${label}`,async()=>{
+  await open(`stored=1&${query}`);await page.evaluate(({bytes,doc})=>window.installApplicationOriginal(bytes,doc),{bytes:Array.from(applicationPdf().buffer),doc});
+  await page.getByRole("dialog").waitFor();assert.equal(await page.getByRole("button",{name:"Fill application from this document",exact:true}).count(),0);
+  assert.deepEqual(await page.evaluate(()=>window.privateApplicationRequests),[]);
+ });
+}
+
+
+test("flattened answers painted after questions fill the saved private application in visual order", async()=>{
+  const rows=[['NAME:','Avery Fictional'],['EMAIL:','avery@example.test'],['PHONE NUMBER:','7045550101'],['DATE OF BIRTH:','03/04/1988'],['SOCIAL SECURITY #','123456789'],['DRIVERS LICENSE #:','EX123456'],['CURRENT ADDRESS:','100 Fictional Lane, Example NC 28000']];
+  const positioned=[...rows.map(([text],i)=>({text,x:40,y:700-i*35})),...rows.map(([,text],i)=>({text,x:230,y:700-i*35})).reverse(),{text:'RESIDENCE LAST 5 YEARS:',x:40,y:390},{text:'100 Fictional Lane - since 2017',x:230,y:394},{text:'EMPLOYMENT HISTORY',x:40,y:300},{text:'Fictional Employer - Analyst',x:230,y:304},{text:'Since January 2019',x:230,y:284},{text:'LAST 5YEARS:',x:40,y:280}];
+  const original=applicationPdf([['Welcome to the fictional application'],positioned,['Additional notes: Fictional notes for the company','Continuation of the same answer']]);
+  await open('stored=1');await page.evaluate(bytes=>window.installApplicationOriginal(bytes),Array.from(original.buffer));
+  await page.getByRole('button',{name:'Fill application from this document',exact:true}).click();
+  await page.getByText('application suggestions for',{exact:false}).waitFor({timeout:15000});
+  await page.getByLabel('Application date format',{exact:true}).selectOption('mdy');
+  const histories=page.locator('.jv-guided-candidate').filter({hasText:'History as written'}).locator('input[type=checkbox]');await histories.nth(0).check();await histories.nth(1).check();assert.equal(await histories.nth(0).isChecked(),true);
+  await reviewClear();const saved=await applyAndSave();const person=saved.payload.applicants[0];
+  assert.equal(person.name,'Avery Fictional');assert.equal(person.email,'avery@example.test');assert.equal(person.phone,'7045550101');assert.equal(person.dob,'1988-03-04');assert.equal(person.ssn,'123456789');assert.equal(person.driverLicense,'EX123456');assert.equal(person.currentAddress,'100 Fictional Lane, Example NC 28000');
+  assert.match(saved.payload.notes,/100 Fictional Lane - since 2017/);assert.match(saved.payload.notes,/Fictional Employer - Analyst/);assert.match(saved.payload.notes,/Since January 2019/);assert.match(saved.payload.notes,/Continuation of the same answer/);
+  assert.deepEqual(person.residenceHistory,[]);assert.deepEqual(person.employmentHistory,[]);assert.equal(person.ownershipType,'undecided');assert.equal(saved.status,'Draft');assert.deepEqual(await page.evaluate(()=>window.applicationUploads),[]);
 });

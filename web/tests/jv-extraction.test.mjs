@@ -185,3 +185,22 @@ test('a repeated form cannot reuse a numbered applicant or manufacture a person 
  const continuation=extractJVApplication([source('Joint Venture Application\nName: Avery Fictional',2),source('Joint Venture Application\nNAME:\nEmail: avery@example.test',3)]);
  assert.equal(continuation.applicants.length,1);assert.equal(continuation.candidates.find(item=>item.field==='email').applicantKey,'applicant-1');
 });
+
+
+test('unpaired blocks of labels never assign the first later answer to the last field',()=>{
+ const found=extractJVApplication([source('NAME:\nEMAIL:\nCURRENT ADDRESS:\nAvery Fictional\navery@example.test\n100 Fictional Lane')]);
+ assert.equal(found.candidates.length,0);assert.ok(found.issues.some(issue=>issue.message.includes('adjacent answers')));
+});
+test('numeric date format is explicit and never weakens impossible-date validation',()=>{
+ const page=source('Name: Avery Fictional\nDOB: 03/04/1988');
+ assert.equal(extractJVApplication([page]).candidates.some(c=>c.field==='dob'),false);
+ assert.equal(extractJVApplication([page],undefined,{dateOrder:'mdy'}).candidates.find(c=>c.field==='dob').value,'1988-03-04');
+ assert.equal(extractJVApplication([page],undefined,{dateOrder:'dmy'}).candidates.find(c=>c.field==='dob').value,'1988-04-03');
+ assert.equal(extractJVApplication([source('DOB: 02/30/1988')],undefined,{dateOrder:'mdy'}).candidates.length,0);
+});
+
+test('the chosen numeric date format applies to dated history rows and explicit printed formats take precedence',()=>{
+ const text='Name: Avery Fictional\nResidence History\nAddress | From | To\n100 Fictional Lane | 03/04/2020 | Present';
+ const row=extractJVApplication([source(text)],undefined,{dateOrder:'mdy'}).candidates.find(c=>c.field==='residenceHistory');assert.equal(row.value.from,'2020-03-04');
+ const explicit=extractJVApplication([source(text.replace('From |','From (dd/mm/yyyy) |'))],undefined,{dateOrder:'mdy'}).candidates.find(c=>c.field==='residenceHistory');assert.equal(explicit.value.from,'2020-04-03');
+});

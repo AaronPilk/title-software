@@ -32,3 +32,11 @@ test('candidate IDs cannot replace stable applicant IDs and invalid private fiel
  for(const patch of [{ssn:'123-4O-6789'},{dob:'1980-02-30'},{residenceHistory:[{id:'bad',address:'Fictional',from:'2025-02-01',to:'2024-01-01'}]},{unexpectedField:'private'}])assert.throws(()=>applyJVApplicationFill(current,{applicants:[entry('source-a',patch,'existing-a')]},'new-source'));
  assert.throws(()=>applyJVApplicationFill(current,{applicants:[]},'invalid source id with spaces'));
 });
+
+
+test('reviewed history wording appends to private notes without fabricated dates or duplicate retries',()=>{
+ const current=fixture(),note='Source applicant 1 — Residence history as written:\n100 Fictional Lane since 2017';
+ const first=applyJVApplicationFill(current,{applicants:[],sourceNotes:[note]},'new-source');
+ assert.equal(first.notes,current.notes+'\n\n'+note);assert.deepEqual(first.applicants,current.applicants);
+ assert.equal(applyJVApplicationFill(first,{applicants:[],sourceNotes:[note]},'new-source').notes,first.notes);
+});

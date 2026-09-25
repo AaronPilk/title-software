@@ -28,8 +28,8 @@ const requestMessage = (error: unknown) => errorStatus(error) === 409
     ? "Your access changed or your session ended. Sign in with access to this company and reopen its private application."
     : "The private application could not be saved or loaded. Check the entries and connection, then try again.";
 
-type PanelProps = { company: Company; onDocuments?: () => void; existingCompany?: boolean; initiallyOpen?: boolean; entryAction?: "upload" | "link"; onDirtyChange?: (dirty: boolean) => void; onBusyChange?: (busy: boolean) => void; navigationScope?: WorkspaceNavigationScope };
-export function JVApplicationPanel({ company, onDocuments, existingCompany = false, initiallyOpen = false, entryAction, onDirtyChange, onBusyChange, navigationScope = "workspace" }: PanelProps) {
+type PanelProps = { company: Company; onDocuments?: () => void; existingCompany?: boolean; initiallyOpen?: boolean; entryAction?: "upload" | "link"; sourceDocumentId?: string; onDirtyChange?: (dirty: boolean) => void; onBusyChange?: (busy: boolean) => void; navigationScope?: WorkspaceNavigationScope };
+export function JVApplicationPanel({ company, onDocuments, existingCompany = false, initiallyOpen = false, entryAction, sourceDocumentId, onDirtyChange, onBusyChange, navigationScope = "workspace" }: PanelProps) {
   const { s, connection } = useWorkspace();
   if (!connection) return <section className="panel jv-panel" aria-label="Joint venture application"><header className="jv-header"><LockKeyhole size={19} aria-hidden="true" /><div><h3>Joint venture application</h3><p className="form-note">Sign in to a shared workspace to use the protected application. Personal intake is unavailable in local mode.</p></div></header></section>;
   const { access, workspaceId } = connection;
@@ -37,16 +37,16 @@ export function JVApplicationPanel({ company, onDocuments, existingCompany = fal
   if (!allowed) return null;
   const scope = JSON.stringify([workspaceId, access.userId, access.version, access.role, access.restricted, access.allCompanies, access.companyIds, company.id]);
   const originals = s.documents.filter(doc => doc.companyId === company.id && !doc.orderId && doc.category === "Applications" && doc.visibility === "Restricted" && !!doc.assetId);
-  return <JVApplicationWorkspace key={scope} context={{ workspaceId, userId: access.userId, companyId: company.id }} originals={originals} onDocuments={onDocuments} existingCompany={existingCompany} initiallyOpen={initiallyOpen} entryAction={entryAction} onDirtyChange={onDirtyChange} onBusyChange={onBusyChange} navigationScope={navigationScope} />;
+  return <JVApplicationWorkspace key={scope} context={{ workspaceId, userId: access.userId, companyId: company.id }} originals={originals} onDocuments={onDocuments} existingCompany={existingCompany} initiallyOpen={initiallyOpen} entryAction={entryAction} sourceDocumentId={sourceDocumentId} onDirtyChange={onDirtyChange} onBusyChange={onBusyChange} navigationScope={navigationScope} />;
 }
 
-function JVApplicationWorkspace({ context, originals, onDocuments, existingCompany, initiallyOpen, entryAction, onDirtyChange, onBusyChange, navigationScope }: { context: JVIntakeContext; originals: VaultDoc[]; onDocuments?: () => void; existingCompany: boolean; initiallyOpen: boolean; entryAction?: "upload" | "link"; onDirtyChange?: (dirty: boolean) => void; onBusyChange?: (busy: boolean) => void; navigationScope: WorkspaceNavigationScope }) {
+function JVApplicationWorkspace({ context, originals, onDocuments, existingCompany, initiallyOpen, entryAction, sourceDocumentId, onDirtyChange, onBusyChange, navigationScope }: { context: JVIntakeContext; originals: VaultDoc[]; onDocuments?: () => void; existingCompany: boolean; initiallyOpen: boolean; entryAction?: "upload" | "link"; sourceDocumentId?: string; onDirtyChange?: (dirty: boolean) => void; onBusyChange?: (busy: boolean) => void; navigationScope: WorkspaceNavigationScope }) {
   const { connection } = useWorkspace();
   const [opened, setOpened] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false), [manualOpen, setManualOpen] = useState(false), [linksOpen, setLinksOpen] = useState(entryAction === "link");
   const [portalDirty, setPortalDirty] = useState(false), [portalBusy, setPortalBusy] = useState(false);
   const [readerDirty, setReaderDirty] = useState(false);
-  const [sourceSelection, setSourceSelection] = useState({ id: "", generation: 0 });
+  const [sourceSelection, setSourceSelection] = useState({ id: originals.some(doc => doc.id === sourceDocumentId) ? sourceDocumentId! : "", generation: 0 });
   const pendingUpload = useRef(false);
   const [record, setRecord] = useState<JVRecord | null>(null);
   const [draft, setDraft] = useState<JVApplication | null>(null);
@@ -158,9 +158,9 @@ function JVApplicationWorkspace({ context, originals, onDocuments, existingCompa
   return <section className={`panel jv-panel ${styles.flow}`} aria-label="Joint venture application" aria-busy={busy}>
     <header className={styles.heading}>
       <span className={styles.icon}><FileText size={23} aria-hidden="true" /></span>
-      <div><p className={styles.eyebrow}>{existingCompany ? "Existing joint venture" : "Company application"}</p><h3>{existingCompany ? "Add the application you already have" : "Start with an application"}</h3><p className="form-note">{existingCompany ? "Upload the completed application. We’ll read the details so you can check and save them without retyping." : "Upload a completed application, or send a private link for the new venture to fill out."}</p></div>
+      <div><p className={styles.eyebrow}>{existingCompany ? "Existing joint venture" : "Company application"}</p><h3>{sourceSelection.id ? "Check the application details" : existingCompany ? "Add the application you already have" : "Start with an application"}</h3><p className="form-note">{sourceSelection.id ? "We’re reading your saved original. Review the filled details below, then save them to this company." : existingCompany ? "Upload the completed application. We’ll read the details so you can check and save them without retyping." : "Upload a completed application, or send a private link for the new venture to fill out."}</p></div>
     </header>
-    <ol className={styles.steps} aria-label={requestFirst ? "New application steps" : "Application import steps"}><li><span>1</span>{requestFirst ? "Send private link" : "Upload application"}</li><li><span>2</span>{requestFirst ? "Applicant completes form" : "Check the details"}</li><li><span>3</span>{requestFirst ? "Review and save" : "Save to company"}</li></ol>
+    <ol className={styles.steps} aria-label={requestFirst ? "New application steps" : "Application import steps"}><li><span>1</span>{sourceSelection.id ? "Read saved application" : requestFirst ? "Send private link" : "Upload application"}</li><li><span>2</span>{requestFirst ? "Applicant completes form" : "Check the details"}</li><li><span>3</span>{requestFirst ? "Review and save" : "Save to company"}</li></ol>
     <div className={styles.primaryActions}>{requestFirst ? <>{linkButton}{uploadButton}</> : <>{uploadButton}{linkButton}</>}{!opened && <Button type="button" variant="outline" onClick={() => void request("load")} disabled={busy || portalBusy} aria-expanded={false} aria-controls={contentId}>Open private application</Button>}</div>
     {linksOpen && <div className={styles.links}><JVPortalRequests context={context} initiallyOpen embedded onDirtyChange={setPortalDirty} onBusyChange={setPortalBusy} applicationDirty={dirty || busy} onApplicationChanged={() => { clear(); void connection?.refresh?.(); }} /></div>}
     {uploadOpen && <UploadDocument companyId={context.companyId} initialDestination="company" applicationOnly onUploaded={docs => { const first = docs[0]; if (first) { setSourceSelection(current => ({ id: first.id, generation: current.generation + 1 })); setNotice("Original saved privately. Review the suggested details below."); } }} onClose={() => setUploadOpen(false)} />}

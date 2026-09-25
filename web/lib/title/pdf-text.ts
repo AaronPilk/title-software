@@ -1,3 +1,4 @@
+import { applicationVisualText, applicationWidgetsNeedOcr } from "./pdf-visual-text";
 import type { PDFDocumentLoadingTask, PDFPageProxy } from "pdfjs-dist";
 
 export const PDF_TEXT_LIMITS = { bytes: 26_214_400, pages: 120, characters: 500_000, pageCharacters: 50_000, milliseconds: 20_000 } as const;
@@ -10,7 +11,7 @@ export type PdfTextReview = {
   pages: PdfTextPage[]; totalPages: number; message: string; failedPages?: number[];
 };
 type Engine = { getDocument: (options: Record<string, unknown>) => PDFDocumentLoadingTask; imagePaintOps?: ReadonlySet<number> };
-type Options = { signal?: AbortSignal; onProgress?: (completed: number, total: number) => void; engine?: Engine; timeoutMs?: number; continueOnPageError?: boolean; detectRasterContent?: boolean;
+type Options = { layout?: "application"; signal?: AbortSignal; onProgress?: (completed: number, total: number) => void; engine?: Engine; timeoutMs?: number; continueOnPageError?: boolean; detectRasterContent?: boolean;
   /** count=0 reads the page count without loading page content. Other windows contain at most 20 pages. */
   pageWindow?: { start: number; count: number } };
 class ReviewStop extends Error {
@@ -90,8 +91,15 @@ export async function extractPdfText(file: Blob, options: Options = {}): Promise
             if (text.length > PDF_TEXT_LIMITS.pageCharacters || characters + text.length > PDF_TEXT_LIMITS.characters)
               throw new ReviewStop("text_limit", "This PDF contains more text than local review can safely display. Review a smaller document or the original.");
           }
-          text = text.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
           let requiresOcr = false;
+          if (options.layout === "application") {
+            const widgets = await page.getAnnotations({ intent: "display" });
+            text = applicationVisualText(content.items);
+            requiresOcr = applicationWidgetsNeedOcr(widgets);
+            if (text.length > PDF_TEXT_LIMITS.pageCharacters || characters + text.length > PDF_TEXT_LIMITS.characters)
+              throw new ReviewStop("text_limit", "This form contains more text than application review can safely read.");
+          }
+          text = text.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
           if (text && options.detectRasterContent) {
             // A selectable footer or incomplete text layer cannot stand in for
             // a scanned body. Check actual paint operations (not merely image
@@ -99,7 +107,7 @@ export async function extractPdfText(file: Blob, options: Options = {}): Promise
             // full-page OCR. All operator/image data stays in this local parser.
             if (!pdfjs.imagePaintOps?.size) throw new Error("Image-content inspection unavailable.");
             const operators = await page.getOperatorList();
-            requiresOcr = operators.fnArray.some(operation => pdfjs.imagePaintOps!.has(operation));
+            requiresOcr ||= operators.fnArray.some(operation => pdfjs.imagePaintOps!.has(operation));
           }
           characters += text.length;
           pages.push({ page: pageNumber, text, status: text ? "text" : "empty", ...(requiresOcr ? { requiresOcr } : {}) });
@@ -119,7 +127,7 @@ export async function extractPdfText(file: Blob, options: Options = {}): Promise
         message: "No selectable text was found. This PDF may be scanned; review the original or use OCR before capturing evidence." };
       const hybrid = pages.filter(page => page.requiresOcr).length;
       if (hybrid) return { status: "partial", pages, totalPages, ...failures,
-        message: `${hybrid} page(s) combine selectable text and images and require full-page OCR. Review all results against the original.` };
+        message: `${hybrid} page(s) contain images or filled form fields and require full-page OCR. Review all results against the original.` };
       return { status: empty ? "partial" : "ready", pages, totalPages, ...failures,
         message: empty ? `${empty} page${empty === 1 ? " has" : "s have"} no selectable text. Review those pages in the original or use OCR.` : "Selectable text is ready for page-by-page review." };
     };

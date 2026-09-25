@@ -11,7 +11,7 @@ export function documentScanIdentity(doc: VaultDoc, connection?: { workspaceId: 
 }
 
 /** Mount this hook in an identity-keyed child. Nothing is persisted outside that session. */
-export function useDocumentScan(doc: VaultDoc, identity: string, onActivityChange?: (busy: boolean) => void) {
+export function useDocumentScan(doc: VaultDoc, identity: string, onActivityChange?: (busy: boolean) => void, pdfLayout?: "application") {
   const [result, setResult] = useState<SourceReadResult | null>(null);
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(""), [error, setError] = useState("");
   const controller = useRef<AbortController | null>(null), alive = useRef(true);
@@ -33,7 +33,7 @@ export function useDocumentScan(doc: VaultDoc, identity: string, onActivityChang
       if (!active()) return;
       const publish = (next: SourceReadResult) => { if (active()) { latest.current = next; setResult(next); } };
       const next = await readFieldSource(doc, original.current, {
-        signal: abort.signal, scanPages, rotation, sourceIdentity: identity,
+        pdfLayout, signal: abort.signal, scanPages, rotation, sourceIdentity: identity,
         priorResult: latest.current || undefined, onSnapshot: publish,
         onProgress: message => { if (active()) setProgress(message); },
       });
