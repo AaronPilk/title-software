@@ -85,7 +85,7 @@ const catalog: CatalogGuide[] = [
       "Open Companies, select the company, then choose Overview → Complete company profile. Completed imported profiles instead offer Edit company profile.",
       "Verify Company name against its documents and check I verified the legal company name against its documents only after checking it.",
       "Enter the confirmed Primary contact, Contact email, City and Initial operating state. Leave facts you do not know blank.",
-      "Choose Save company profile. Use Members for ownership and Documents for original records; additional operating states belong in Jurisdictions.",
+      "Choose Save company profile. Use Members for ownership and Documents for original records. Manage operating states under Application, in the licensing or formation records section.",
     ],
     note: "Owners, administrators and onboarding staff can edit assigned companies. This completion form is for imported profiles; saving profile basics does not approve ownership, licensing or company setup.",
   },

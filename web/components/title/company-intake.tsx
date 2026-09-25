@@ -176,7 +176,7 @@ export function CompanyIntakeProfileEditor({ company, onClose, initialValues = {
       const saved = await update(draft => {
         const current = draft.companies.find(row => row.id === company.id);
         if (!current?.intake || JSON.stringify({ name: current.name, contact: current.contact, email: current.email, location: current.location, jurisdiction: current.jurisdiction, intake: current.intake }) !== baseline) throw new Error("The company profile changed. Close this form and reopen the latest profile before saving.");
-        if (current.jurisdiction && current.jurisdiction !== jurisdiction) throw new Error("Use the Jurisdictions tab to manage operating states after the first state is set.");
+        if (current.jurisdiction && current.jurisdiction !== jurisdiction) throw new Error("Open Application to manage operating states in the company records section.");
         Object.assign(current, values);
         if (!company.jurisdiction && jurisdiction) current.operatingStates = [...new Set([...(current.operatingStates || []), jurisdiction])];
         current.intake = { ...current.intake, nameUnverified: !confirmed, profileStatus: !missing.length && confirmed ? "complete" : "incomplete" };
@@ -197,7 +197,7 @@ export function CompanyIntakeProfileEditor({ company, onClose, initialValues = {
         <FieldLabel label="City"><Input maxLength={100} value={location} onChange={event => setLocation(event.target.value)} disabled={saving} placeholder="Add when confirmed" /></FieldLabel>
         <FieldLabel label="Initial operating state"><select aria-label="Initial operating state" className="input" value={jurisdiction} disabled={saving || !!company.jurisdiction} onChange={event => setJurisdiction(event.target.value)}><option value="">Not confirmed yet</option>{[...new Set(["NC", "SC", company.jurisdiction].filter(Boolean))].map(state => <option key={state} value={state}>{state}</option>)}</select></FieldLabel>
       </div>
-      {company.jurisdiction && <p className="form-note">Manage additional operating states in the company’s Jurisdictions tab.</p>}
+      {company.jurisdiction && <p className="form-note">Manage additional operating states under Application, in the licensing or formation records section.</p>}
       <p className="form-note">{missing.length ? `Still needed: ${missing.join(", ")}.` : confirmed ? "Profile basics are ready to save." : "Confirm the legal company name to finish these profile basics."} Owners and documents can be added from the company’s Members and Documents tabs.</p>
       {error && <p role="alert" className="notice warning">{error}</p>}
       <div className="form-actions"><Button variant="outline" type="button" onClick={onClose} disabled={saving}>Cancel</Button><Button type="submit" disabled={saving || !validCompanyDisplayName(values.name)}>{saving ? "Saving…" : "Save company profile"}</Button></div>

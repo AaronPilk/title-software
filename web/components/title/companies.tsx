@@ -4,7 +4,7 @@ import { companyDisplayStage, validateOperatingConfirmation } from "@/lib/title/
 import { canManageOnboardingEvidence } from "@/lib/title/workspace-capabilities";
 import applicationStyles from "./agency-applications.module.css";
 import { OwnershipHistoryPanel } from "./ownership";
-import { OnboardingCasePanel, CredentialCenter } from "./onboarding-suite";
+import { OnboardingCasePanel, CredentialCenter, CompanyOperatingStates } from "./onboarding-suite";
 import { JVApplicationPanel } from "./jv-application";
 import { CompanyMaterials } from "./materials";
 import { CompanyIntakeProfile, CompanyIntakeProfileEditor, MissiveCompanyIntakeButton } from "./company-intake";
@@ -397,7 +397,7 @@ export function CompanyDetail({
   onUpload: (id: string) => void;
 }) {
   const { s, connection } = useWorkspace();
-  const [tab, setTab] = useState<string>(initialTab === "Onboarding" ? "Application" : initialTab);
+  const [tab, setTab] = useState<string>(initialTab === "Onboarding" || initialTab === "Jurisdictions" ? "Application" : initialTab);
   const [applicationEntry, setApplicationEntry] = useState<"upload" | "link" | undefined>();
   const [applicationDirty, setApplicationDirty] = useState(false);
   const [applicationBusy, setApplicationBusy] = useState(false);
@@ -444,7 +444,6 @@ export function CompanyDetail({
               "Application",
               "Documents",
               "Members",
-              "Jurisdictions",
             ]}
           />
           {tab === "Overview" && (
@@ -585,8 +584,16 @@ export function CompanyDetail({
               </details>
             </section>
           )}
-          {tab === "Application" && <><JVApplicationPanel key={c.id} navigationScope="company-detail" company={c} existingCompany={isExisting} initiallyOpen entryAction={applicationEntry} onDirtyChange={setApplicationDirty} onBusyChange={setApplicationBusy} onDocuments={() => { setApplicationDirty(false); setApplicationEntry(undefined); setTab("Documents"); }} />{!canEditApplication && <section className={applicationStyles.empty}><h3>Application access needed</h3><p className="form-note">An administrator can give you access to this company’s private applications. Permitted company records remain available in the other tabs.</p></section>}<details className={applicationStyles.support}><summary>{isExisting ? "Licensing, records & approval history" : "Formation & launch checklist"}</summary><OnboardingCasePanel company={c} /></details></>}
-          {tab === "Jurisdictions" && <CompanyJurisdictions id={id} />}{" "}
+          {tab === "Application" && <>
+            <JVApplicationPanel key={c.id} navigationScope="company-detail" company={c} existingCompany={isExisting} initiallyOpen entryAction={applicationEntry} onDirtyChange={setApplicationDirty} onBusyChange={setApplicationBusy} onDocuments={() => { setApplicationDirty(false); setApplicationEntry(undefined); setTab("Documents"); }} />
+            {!canEditApplication && <section className={applicationStyles.empty}><h3>Application access needed</h3><p className="form-note">An administrator can give you access to this company’s private applications. Permitted company records remain available in the other tabs.</p></section>}
+            <details className={applicationStyles.support}>
+              <summary>{isExisting ? "Licensing, records & approval history" : "Formation & launch checklist"}</summary>
+              <CompanyOperatingStates company={c} />
+              <OnboardingCasePanel company={c} />
+              <CredentialCenter key={`${c.id}:${(c.operatingStates || [c.jurisdiction]).join("-")}`} company={c} />
+            </details>
+          </>}
           {tab === "Members" && <CompanyMembers key={c.id} company={c} />}
           {profileCapture && canEditProfile && (profileCaptureCurrent ? <CompanyIntakeProfileEditor key={`${profileCapture.packageId}:${profileCapture.packageVersion}`} company={c} initialValues={profileCapture.values} sourceReference={`reviewed document package ${profileCapture.packageId}, version ${profileCapture.packageVersion}`} onClose={() => setProfileCapture(null)} /> : <div role="alert" className="notice warning"><p>The company, original documents or your access changed. Reopen the package before using its suggestions.</p><Button variant="outline" onClick={() => setProfileCapture(null)}>Dismiss</Button></div>)}
         </div>
@@ -699,69 +706,6 @@ export function Onboarding({
     </>
   );
 }
-function CompanyJurisdictions({ id }: { id: string }) {
-  const { s, update } = useWorkspace();
-  const c = s.companies.find((c) => c.id === id)!;
-  const operating = c.operatingStates || [c.jurisdiction];
-  return (
-    <>
-      <FieldLabel label="Formation state">
-        <Picker
-          label="Company formation state"
-          value={c.formationState || c.jurisdiction}
-          options={["NC", "SC"]}
-          onChange={async (v) =>
-            await update(
-              (d) => {
-                d.companies.find((c) => c.id === id)!.formationState = v;
-              },
-              "Formation state updated",
-              c.name,
-            )
-          }
-        />
-      </FieldLabel>
-      <FieldLabel label="Operating states">
-        <div className="operating-states">
-          {["NC", "SC"].map((state) => (
-            <label key={state}>
-              <Checkbox
-                checked={operating.includes(state)}
-                onCheckedChange={async (v) =>
-                  await update(
-                    (d) => {
-                      const c = d.companies.find((c) => c.id === id)!;
-                      if (
-                        v !== true &&
-                        (operating.length === 1 ||
-                          d.orders.some(
-                            (o) =>
-                              o.companyId === id && o.jurisdiction === state,
-                          ))
-                      )
-                        throw new Error(
-                          "Keep states with existing orders and at least one operating state.",
-                        );
-                      c.operatingStates =
-                        v === true
-                          ? [...new Set([...operating, state])]
-                          : operating.filter((x) => x !== state);
-                    },
-                    "Operating states updated",
-                    c.name,
-                  )
-                }
-              />
-              {state}
-            </label>
-          ))}
-        </div>
-      </FieldLabel>
-      <CredentialCenter key={operating.join("-")} company={c} />
-    </>
-  );
-}
-
 function CompanyMembers({ company }: { company: Company }) {
   const { update } = useWorkspace();
   const [members, setMembers] = useState(() =>

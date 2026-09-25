@@ -110,12 +110,81 @@ export function OnboardingHub({ onOpen, onNew }: {
         <details className={styles.support} key={`authority-${c.id}`}>
           <summary>{companyDisplayStage(c) === "Active" ? "Licensing, records & approval history" : "Formation & launch checklist"}</summary>
           <p>{companyDisplayStage(c) === "Active" ? "Keep existing formation and approval records here. Adding an application does not restart the company’s launch process." : "Track formation, licensing and approvals as the new venture gets ready to operate."}</p>
+          <CompanyOperatingStates company={c} />
           {evidenceVisible && <OnboardingCasePanel company={c} />}
-          <CredentialCenter key={c.id} company={c} />
+          <CredentialCenter key={`${c.id}-${(c.operatingStates || [c.jurisdiction]).join("-")}`} company={c} />
         </details>
       </section>
     </div> : <section className={styles.empty}><Empty title={lane === "Existing companies" ? "No active companies in this view" : "No new joint ventures in setup"} text={lane === "Existing companies" ? "Existing companies appear here after their operating status is confirmed." : "Add a company when a new joint venture is ready to apply."} action={canAddCompany && lane !== "Existing companies" ? <Button onClick={onNew}><Plus />Add company</Button> : undefined} /></section>}
   </>;
+}
+
+export function CompanyOperatingStates({ company }: { company: Company }) {
+  const { update: save, connection } = useWorkspace();
+  const canEdit = canManageCompanies(connection);
+  const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
+  const operating = company.operatingStates || [company.jurisdiction];
+  return (
+    <section className="panel business-panel">
+      <h2>Formation & operating states</h2>
+      <FieldLabel label="Formation state">
+        <Picker
+          label="Company formation state"
+          value={company.formationState || company.jurisdiction}
+          options={["NC", "SC"]}
+          disabled={!canEdit}
+          onChange={async (value) =>
+            await update(
+              (d) => {
+                const current = d.companies.find((row) => row.id === company.id);
+                if (!current) throw new Error("This company is no longer available.");
+                current.formationState = value;
+              },
+              "Formation state updated",
+              company.name,
+            )
+          }
+        />
+      </FieldLabel>
+      <FieldLabel label="Operating states">
+        <div className="operating-states">
+          {["NC", "SC"].map((state) => (
+            <label key={state}>
+              <Checkbox
+                checked={operating.includes(state)}
+                disabled={!canEdit}
+                onCheckedChange={async (value) =>
+                  await update(
+                    (d) => {
+                      const current = d.companies.find((row) => row.id === company.id);
+                      if (!current) throw new Error("This company is no longer available.");
+                      const currentOperating = current.operatingStates || [current.jurisdiction];
+                      if (
+                        value !== true &&
+                        (currentOperating.length === 1 ||
+                          d.orders.some(
+                            (order) => order.companyId === company.id && order.jurisdiction === state,
+                          ))
+                      )
+                        throw new Error(
+                          "Keep states with existing orders and at least one operating state.",
+                        );
+                      current.operatingStates = value === true
+                        ? [...new Set([...currentOperating, state])]
+                        : currentOperating.filter((item) => item !== state);
+                    },
+                    "Operating states updated",
+                    company.name,
+                  )
+                }
+              />
+              {state}
+            </label>
+          ))}
+        </div>
+      </FieldLabel>
+    </section>
+  );
 }
 
 export function OnboardingCasePanel({ company }: { company: Company }) {
