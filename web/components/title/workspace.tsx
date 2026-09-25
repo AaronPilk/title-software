@@ -15,8 +15,6 @@ import {
   Download,
   ExternalLink,
   LockKeyhole,
-  MapPin,
-  Plus,
   Upload,
   UsersRound,
 } from "lucide-react";
@@ -58,7 +56,6 @@ import {
   CompanyAvatar,
   DataTable,
   Empty,
-  FieldLabel,
 } from "./shared";
 export const integrations = [
   {
@@ -305,7 +302,6 @@ export function Settings() {
     (typeof integrations)[number] | null
   >(null);
   const [resetOpen, setResetOpen] = useState(false);
-  const [stateOpen, setStateOpen] = useState(false);
   const [backupBusy, setBackupBusy] = useState(false);
   const [pendingRestore, setPendingRestore] = useState<WorkspaceBackup | null>(
     null,
@@ -373,12 +369,12 @@ export function Settings() {
     <>
       <Heading
         title="Workspace settings"
-        description="Your team, connections, and operating standards."
+        description="Your account, team, and workspace connections."
       />
       <Segments
         value={tab}
         onChange={setTab}
-        items={sharedConnection ? ["Account", "Connections", "Team & access", ...(workspaceAdmin ? ["Recovery", "Security"] : []), ...(sharedConnection.access.role !== "partner" ? ["Jurisdictions", "Activity"] : [])] : ["Connections", "Team & access", "Jurisdictions", "Activity", "Demo workspace"]}
+        items={sharedConnection ? ["Account", "Connections", "Team & access", ...(workspaceAdmin ? ["Recovery", "Security"] : []), ...(sharedConnection.access.role !== "partner" ? ["Activity"] : [])] : ["Connections", "Team & access", "Activity", "Demo workspace"]}
       />
       {sharedConnection && ["Account", "Connections", "Team & access", "Recovery", "Security"].includes(tab) && <BackendSettings key={`${tab}:${sharedConnection.access.version}`} section={tab as BackendSettingsSection} />}
       {tab === "Connections" && (
@@ -510,73 +506,6 @@ export function Settings() {
               ))}
             </DataTable>
           </section>
-        </>
-      )}
-      {tab === "Jurisdictions" && (
-        <>
-          <div className="settings-intro flex-intro">
-            <div>
-              <h2>Built for the Carolinas. Ready to expand.</h2>
-              <p>
-                Operational templates must be reviewed for each state before
-                live use.
-              </p>
-            </div>
-            {(!sharedConnection || workspaceAdmin) && <Button variant="outline" onClick={() => setStateOpen(true)}>
-              <Plus />
-              Plan another state
-            </Button>}
-          </div>
-          <div className="jurisdiction-grid">
-            {[
-              {
-                code: "NC",
-                name: "North Carolina",
-                notes: [
-                  "Track agency and individual producer credentials separately.",
-                  "Record the independent attorney opinion and review reference.",
-                  "Keep underwriter authority and formation records distinct.",
-                ],
-                url: "https://www.ncleg.gov/EnactedLegislation/Statutes/HTML/BySection/Chapter_58/GS_58-26-1.html",
-              },
-              {
-                code: "SC",
-                name: "South Carolina",
-                notes: [
-                  "Track agency, title producer, and financial-interest disclosures.",
-                  "Record supervising attorney and review evidence.",
-                  "Verify state-specific premium and commission terms.",
-                ],
-                url: "https://www.scstatehouse.gov/code/t38c075.php",
-              },
-            ].map((j) => (
-              <section className="panel jurisdiction-card" key={j.code}>
-                <span className="state-code">{j.code}</span>
-                <h3>{j.name}</h3>
-                <Status value="Review before launch" />
-                <ul>
-                  {j.notes.map((n) => (
-                    <li key={n}>{n}</li>
-                  ))}
-                </ul>
-                <a href={j.url} target="_blank" rel="noreferrer">
-                  Official source
-                  <ExternalLink size={13} />
-                </a>
-              </section>
-            ))}
-            {(s.expansionStates || []).map((name) => (
-              <section className="panel jurisdiction-card" key={name}>
-                <MapPin />
-                <h3>{name}</h3>
-                <Status value="Planning" />
-                <p>
-                  Assign a qualified reviewer, collect official requirements,
-                  and version the operational template before activation.
-                </p>
-              </section>
-            ))}
-          </div>
         </>
       )}
       {tab === "Activity" && (
@@ -772,51 +701,6 @@ export function Settings() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <Dialog open={stateOpen} onOpenChange={setStateOpen}>
-        <DialogContent className="modal">
-          <DialogHeader>
-            <DialogTitle>Plan another state</DialogTitle>
-            <DialogDescription>
-              Create an expansion placeholder. No operational checklist is
-              activated.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            className="form-stack"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const value = String(
-                new FormData(e.currentTarget).get("state"),
-              ).trim();
-              if (value) {
-                if (
-                  !(await update(
-                    (d) => {
-                      d.expansionStates = Array.from(
-                        new Set([...(d.expansionStates || []), value]),
-                      );
-                    },
-                    "Expansion state added",
-                    value,
-                  ))
-                )
-                  return;
-                setStateOpen(false);
-              }
-            }}
-          >
-            <FieldLabel label="State name">
-              <Input
-                name="state"
-                required
-                maxLength={60}
-                placeholder="e.g. Virginia"
-              />
-            </FieldLabel>
-            <Button type="submit">Add to expansion plan</Button>
-          </form>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }
