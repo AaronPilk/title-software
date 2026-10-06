@@ -67,11 +67,11 @@ export async function runAgencyMaintenance(context: MaintenanceRunnerContext) {
   }
   return summary;
 }
-export async function handleAgencyMaintenanceTick(request: Request, serviceKey: string | undefined, context: MaintenanceRunnerContext) {
+export async function handleAgencyMaintenanceTick(request: Request, schedulerKey: string | undefined, context: MaintenanceRunnerContext) {
   const headers = { "Content-Type": "application/json", "Cache-Control": "no-store" };
   if (request.method !== "POST") return new Response(JSON.stringify({ error: "POST required." }), { status: 405, headers });
   const supplied = request.headers.get("Authorization") || "";
-  if (!serviceKey || serviceKey.length < 20 || supplied.length > 8192 || await hash(supplied) !== await hash(`Bearer ${serviceKey}`)) return new Response(JSON.stringify({ error: "Service authorization required." }), { status: 401, headers });
+  if (!schedulerKey || schedulerKey.length < 20 || supplied.length > 8192 || await hash(supplied) !== await hash(`Bearer ${schedulerKey}`)) return new Response(JSON.stringify({ error: "Service authorization required." }), { status: 401, headers });
   try {
     const body = await readRequestText(request, { maxBytes: 1024 });
     if (body.trim() && body.trim() !== "{}") return new Response(JSON.stringify({ error: "Tick accepts no workspace data." }), { status: 400, headers });

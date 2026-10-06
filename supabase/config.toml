@@ -16,7 +16,7 @@ entrypoint = "./functions/title-missive-events/bundle.js"
 verify_jwt = false
 entrypoint = "./functions/title-jv-public/bundle.js"
 
-# Authenticated scheduler only; handler additionally requires the exact service key.
+# Authenticated scheduler only; handler additionally requires the exact dedicated scheduler key.
 [functions.title-maintenance]
 verify_jwt = true
 entrypoint = "./functions/title-maintenance/bundle.js"

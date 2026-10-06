@@ -14,3 +14,23 @@ test('worker checks current lease then records provider acceptance and uses mini
 test('unknown transport keeps same idempotency key; 23h-old uncertainty requires manual action with no send',async()=>{const requests=[];const transport=async(url,init)=>{requests.push(init);throw Error('lost response');};assert.equal((await lib.sendMaintenanceEmail(job,mail,transport,now)).status,'unknown');assert.equal((await lib.sendMaintenanceEmail(job,mail,transport,now)).status,'unknown');assert.deepEqual(requests[0],requests[1]);assert.equal((await lib.sendMaintenanceEmail({...job,firstAttemptAt:'2026-10-05T14:00:00Z'},mail,transport,now)).status,'manual');assert.equal(requests.length,2);});
 test('anon/user JWTs and caller-supplied state are rejected before any tick; exact service credential succeeds',async()=>{const key='fictional-service-key-at-least-20',calls=[];const context={now,mail,rpc:async(name)=>{calls.push(name);return[];}};for(const token of ['', 'anon-jwt','user-jwt']){const response=await lib.handleAgencyMaintenanceTick(new Request('https://test/tick',{method:'POST',headers:{Authorization:`Bearer ${token}`},body:'{}'}),key,context);assert.equal(response.status,401);}assert.equal(calls.length,0);const bad=await lib.handleAgencyMaintenanceTick(new Request('https://test/tick',{method:'POST',headers:{Authorization:`Bearer ${key}`},body:'{"state":{}}'}),key,context);assert.equal(bad.status,400);const good=await lib.handleAgencyMaintenanceTick(new Request('https://test/tick',{method:'POST',headers:{Authorization:`Bearer ${key}`},body:'{}'}),key,context);assert.equal(good.status,200);assert.deepEqual(calls,['title_maintenance_candidates']);});
 test('revision conflicts are deferred without overwriting state or sending',async()=>{const result=await lib.runAgencyMaintenance({now,mail,rpc:async(name)=>{if(name==='title_maintenance_candidates')return[snapshot()];throw{code:'PT409'};},fetcher:async()=>assert.fail('No send after conflict')});assert.equal(result.deferred,1);assert.equal(result.failedWorkspaces,0);assert.equal(result.sent,0);});
+
+test('Edge entrypoint separates database and scheduler keys and fails closed without dedicated scheduler configuration',async()=>{
+ const originalDeno=globalThis.Deno;
+ const databaseKey='fictional-database-key-at-least-20',schedulerKey='fictional-dedicated-scheduler-key-at-least-20';
+ const entry=await build({entryPoints:[fileURLToPath(new URL('../../supabase/functions/title-maintenance/index.ts',import.meta.url))],bundle:true,write:false,format:'esm',platform:'node',plugins:[{name:'isolated-maintenance-client',setup(b){b.onResolve({filter:/^npm:@supabase\/supabase-js@/},()=>({path:'client',namespace:'fixture'}));b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export const createClient=(...args)=>globalThis.__maintenanceIndexClient(...args);'}));}}]});
+ try {
+  for(const configured of [schedulerKey,undefined,'']){
+   let handler;const rpcCalls=[],clientCalls=[];
+   globalThis.__maintenanceIndexClient=(...args)=>{clientCalls.push(args);return{rpc:async name=>{rpcCalls.push(name);return{data:[],error:null};}}};
+   globalThis.Deno={env:{get:name=>({SUPABASE_URL:'https://fixture.example.test',SUPABASE_SERVICE_ROLE_KEY:databaseKey,TITLE_MAINTENANCE_SCHEDULER_KEY:configured})[name]},serve:fn=>{handler=fn}};
+   await import(`data:text/javascript;base64,${Buffer.from(entry.outputFiles[0].text+`\n// configuration ${String(configured)}`).toString('base64')}`);
+   assert.equal(clientCalls.length,1);assert.equal(clientCalls[0][1],databaseKey,'database access retains its built-in key');
+   const request=token=>new Request('https://fixture.example.test/tick',{method:'POST',headers:{Authorization:`Bearer ${token}`},body:'{}'});
+   assert.equal((await handler(request(databaseKey))).status,401,'database key is never an implicit scheduler credential');
+   assert.equal(rpcCalls.length,0);
+   assert.equal((await handler(request(schedulerKey))).status,configured?200:401);
+   assert.deepEqual(rpcCalls,configured?['title_maintenance_candidates']:[]);
+  }
+ } finally {globalThis.Deno=originalDeno;delete globalThis.__maintenanceIndexClient;}
+});

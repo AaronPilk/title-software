@@ -14,20 +14,26 @@ Run commands from the repository root against the intended linked project. Migra
    supabase functions deploy title-maintenance --project-ref "$SUPABASE_PROJECT_REF"
    ```
 
-   Keep `verify_jwt = true` from `supabase/config.toml`. The handler additionally requires the exact `SUPABASE_SERVICE_ROLE_KEY`; an anonymous or ordinary user JWT is rejected even when the gateway accepts its signature. The Vault key must match the worker's built-in service-role JWT, not a publishable key or a different secret key.
-3. Provide `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF` and `SUPABASE_SERVICE_ROLE_KEY` through the deployment process's protected environment. Do not place raw values in shell arguments, screenshots, checked-in files, debug logs or SQL output. Validate and activate:
+   Keep `verify_jwt = true` from `supabase/config.toml`. The handler additionally requires the exact dedicated `TITLE_MAINTENANCE_SCHEDULER_KEY`; it fails closed when that setting is absent and does not fall back to `SUPABASE_SERVICE_ROLE_KEY`. The database client continues to use its built-in `SUPABASE_SERVICE_ROLE_KEY` independently. An anonymous or ordinary user JWT is rejected even when the gateway accepts its signature. Use an unexpired service-role JWT for this project as the dedicated scheduler key so it also passes gateway JWT verification. The Vault bearer and dedicated function setting must match exactly; neither needs to equal the built-in database client key.
+3. Provide `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF` and `TITLE_MAINTENANCE_SCHEDULER_KEY` through the deployment process's protected environment. Do not place raw values in shell arguments, screenshots, checked-in files, debug logs or SQL output. Install the same dedicated scheduler key as a function secret using a protected mode-0600 environment file; do not overwrite the built-in `SUPABASE_SERVICE_ROLE_KEY`:
+
+   ```sh
+   supabase secrets set --env-file "$scheduler_env_file" --project-ref "$SUPABASE_PROJECT_REF"
+   ```
+
+   The file must contain `TITLE_MAINTENANCE_SCHEDULER_KEY=<the valid project service-role JWT>`; remove it after installation. Redeploy the worker after changing this wiring. Validate and activate:
 
    ```sh
    node ops/maintenance/activate-scheduler.mjs
    node ops/maintenance/activate-scheduler.mjs --activate
    ```
 
-   The first command checks configuration without a network request. The second uses the Management API in one database transaction to install available `pg_cron` and `pg_net` extensions, upsert Vault names `title_maintenance_worker_url` and `title_maintenance_service_role_key`, and register the named hourly job `title-agency-maintenance`. The endpoint is `https://<project-ref>.supabase.co/functions/v1/title-maintenance`. Repeating activation updates the named job and Vault configuration. Activation does not invoke a tick or enable email.
+   The first command checks configuration without a network request, including the JWT role (`service_role`), project reference and future expiration. This decodes claims to catch mistakes; only the Edge gateway verifies the signature. The second uses the Management API in one database transaction to install available `pg_cron` and `pg_net` extensions, upsert Vault names `title_maintenance_worker_url` and `title_maintenance_service_role_key` (the latter contains the dedicated scheduler key, retaining its existing database name), and register the named hourly job `title-agency-maintenance`. The endpoint is `https://<project-ref>.supabase.co/functions/v1/title-maintenance`. Repeating activation updates the named job and Vault configuration. Activation does not invoke a tick or enable email.
 
    A release operator already authenticated through the linked CLI may instead generate a mode-0600 SQL file from protected environment values containing the same transaction and apply it with `supabase db query --linked --file "$activation_file"`. Use the statements in `activate-scheduler.sql` and the Vault update/create logic in `activate-scheduler.mjs`, quote SQL literals correctly, suppress result bodies, and remove the temporary file afterward. Never commit this generated file. A database administrator must create the cron job: its execution identity needs to execute the private invoker and access Vault. The `service_role`, `anon` and `authenticated` roles deliberately cannot call the private invoker directly.
 4. Verify extension availability, cron registration and Vault names with the read-only checks below. Wait for the next hourly tick to verify function execution. A manual authenticated POST is an actual worker run that can create tasks and, if all delivery gates are enabled, send reminders; it is not a read-only health check.
 
-Activation needs project Management API database-query access (or an equivalently authorized linked CLI session), database privileges for extension installation, Vault and cron, Edge Function deployment access, and the matching service-role key. The last pre-release inspection found Vault installed but `pg_cron` and `pg_net` absent; confirm their availability before activation. Missing credentials or unsupported extensions must be resolved in the existing project. The release owner should run hosted security/performance advisors after installation; the local PostgreSQL tests do not verify hosted extension grants or cron availability.
+Activation needs project Management API database-query access (or an equivalently authorized linked CLI session), database privileges for extension installation, Vault and cron, Edge Function deployment access, and the valid dedicated scheduler JWT installed identically in the function environment and Vault. The last pre-release inspection found Vault installed but `pg_cron` and `pg_net` absent; confirm their availability before activation. Missing credentials or unsupported extensions must be resolved in the existing project. The release owner should run hosted security/performance advisors after installation; the local PostgreSQL tests do not verify hosted extension grants or cron availability.
 
 ## Email is disabled by default
 
@@ -98,7 +104,7 @@ For an incident, set `TITLE_MAINTENANCE_EMAIL_ENABLED=false` to stop future send
 select cron.unschedule('title-agency-maintenance');
 ```
 
-This does not cancel a request already in flight. Preserve outbox history and audit rows. To resume, resolve the incident and rerun activation; retain delivery disabled until settings and any uncertain prior submissions are reviewed. Rotating the service-role key also requires updating the Vault scheduler key and confirming it matches the worker's environment.
+This does not cancel a request already in flight. Preserve outbox history and audit rows. To resume, resolve the incident and rerun activation; retain delivery disabled until settings and any uncertain prior submissions are reviewed. Rotating the scheduler credential requires updating `TITLE_MAINTENANCE_SCHEDULER_KEY` in the function environment and the existing Vault `title_maintenance_service_role_key` entry together, using a service-role JWT that remains valid at the gateway. A gateway-accepted request that returns `Service authorization required` means the dedicated key is absent or differs from the Vault bearer; it does not mean the database client key should be replaced. Use protected configuration handling to reconcile the two, without printing either value.
 
 ## Local verification
 
