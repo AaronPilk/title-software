@@ -27,13 +27,15 @@ For shared sign-in, copy `web/.env.example` to `web/.env.local` and configure th
 - **Policy workbench → Document review:** compare the captured wording with proposed values, review each relevant field, and enter a fictional attorney-review reference to export a preparation packet. New documents or changed values reopen affected review steps. Cash purchases and refinances have different source requirements.
 - **Inbox / Revisions:** open the sample Evergreen loan-amount request, confirm the company/file and before/after amounts, then apply the local revision. A reply draft waits for a revised commitment document. Upload a sample using a distinct filename, attach the current revision's document, review the reply and approve it locally. Nothing is sent or changed in SoftPro.
 - **Policy workbench → Attorney follow-ups:** save a missing-document request with its owner and outstanding items. Record a manual send reference and resolve individual received items without losing the request on reload.
-- **Companies / Onboarding:** create a company, record application/signature references, attach milestone evidence, review NC/SC agency/producer/underwriter authority, and complete launch review. Changed evidence reopens affected approvals.
+- **Agency → Companies:** manage basic details, multiple email addresses, logos and service dates. The company cabinet stores completed applications without requiring OCR. Setup uses a conditional, versioned checklist; Ownership keeps legal ownership, distributions and management fees separate in protected records. Existing active companies keep their operating status.
+- **Agency → Tasks → Renewals & maintenance:** track company and owner-entity reports, NC/SC agency licenses, service renewals and agency-wide coverage. Completion records the previous cycle and advances the next due date. Shared-inbox reminders require an explicitly enabled recipient and the authenticated scheduled worker.
+- **Company Documents:** use seeded folders, display-name edits, Current/Final designation and recoverable Trash. Referenced originals remain protected. Optional reading and reviewed sharing remain available.
 - **Documents:** upload and preview a synthetic or redacted PDF, text file, CSV, PNG, or JPEG. Up to 10 files per batch, 25 MB per file and 100 MB per batch. Link title documents to the correct company and order; same filenames are versioned within that scope.
 - **Financials → Company closes:** freeze one company/month’s policy rows and ownership, enter expenses/reserves/adjustments, reconcile references and publish a reviewed revision. Preview the frozen member statement in **Partner portal → Statements**.
 - **Handoffs:** review version-bound commitment, policy, CPL, reply and application preparations; record manual outcomes. Changed sources place pending handoffs on hold.
 - **Connections:** configure verified company/field/file identities, compare source-backed proposed changes, record named approvals and manual outcomes, and track production-readiness evidence. SoftPro remains external; saved references do not establish a live connection.
 - **Documents → Read document text:** extract selectable PDF text locally and copy document/version/page citations for review.
-- **Tasks / Automations / Settings:** assign work, run repeatable local rules, review the disconnected SoftPro Select and Missive integration plans, plan state expansion, or export workspace metadata.
+- **More tools / Settings:** retain the additional financial, partner, integration and automation workflows. Staff can attach an optional PNG/JPEG screenshot to developer feedback; screenshots remain private to the report author and workspace owner.
 
 ## Scope and data
 
@@ -48,6 +50,7 @@ cd web
 npm run typecheck
 npm test
 npm run test:backend
+npm run test:agency:phase-one
 npm run test:missive
 npm run test:pdf
 npm run test:workflows
@@ -59,6 +62,7 @@ The current verification results and limitations are in the [requirements implem
 
 ## Documentation
 
+- [Phase One agency workflow and administrator guide](docs/agency-phase-one.md)
 - [September 14 PDF requirements implementation and remaining inputs](docs/REQUIREMENTS_IMPLEMENTATION.md)
 
 - [Private Cloudflare pilot and first sign-in](docs/cloudflare-pilot.md)

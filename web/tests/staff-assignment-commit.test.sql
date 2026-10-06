@@ -34,7 +34,7 @@ do $$
 declare w uuid='20000000-0000-4000-8000-000000000001'; owner_id uuid='10000000-0000-4000-8000-000000000001';
  staff_id uuid='10000000-0000-4000-8000-000000000002'; admin_id uuid='10000000-0000-4000-8000-000000000003';
  viewer_id uuid='10000000-0000-4000-8000-000000000005'; state jsonb; initial jsonb; next_state jsonb; result jsonb;
- request_id uuid=gen_random_uuid(); before_state jsonb; before_revision bigint; before_audit bigint; before_receipts bigint;
+ request_id uuid=gen_random_uuid(); before_state jsonb; before_revision bigint; before_audit bigint; before_receipts bigint; agency_role text;
 begin
   perform pg_temp.ok(not has_function_privilege('anon','public.title_commit(uuid,uuid,text,bigint,bigint,uuid,text,jsonb,jsonb,text[])','execute'),'anonymous commit denied');
   perform pg_temp.ok(not has_function_privilege('authenticated','public.title_commit(uuid,uuid,text,bigint,bigint,uuid,text,jsonb,jsonb,text[])','execute'),'browser direct commit denied');
@@ -86,6 +86,42 @@ begin
   perform pg_temp.reject('PT409',format('select public.title_commit(%L,%L,%L,1,5,%L,%L,%L,%L,%L)',w,owner_id,'owner@example.test',gen_random_uuid(),'missing-company',jsonb_set(next_state,'{orders,0,companyId}','"missing"'),'[]','{missing}'),'all-company assignment still needs actual company');
   perform pg_temp.reject('PT409',format('select public.title_commit(%L,%L,%L,1,5,%L,%L,%L,%L,%L)',w,owner_id,'owner@example.test',request_id,'different',state,'[]','{A}'),'changed request hash remains conflict');
   perform pg_temp.reject('PT409',format('select public.title_commit(%L,%L,%L,1,1,%L,%L,%L,%L,%L)',w,owner_id,'owner@example.test',gen_random_uuid(),'stale-revision',state,'[]','{A}'),'stale revision remains conflict');
+  -- Global work must be a real agency maintenance task and needs an active
+  -- Agency staff account with organization-wide scope.
+  select ws.state,ws.revision into state,before_revision from public.title_workspaces ws where id=w;
+  state=jsonb_set(state,'{agencyMaintenance}','{"records":[{"id":"agency-m","scope":"agency"}]}');
+  state=jsonb_set(state,'{tasks}',jsonb_build_array(jsonb_build_object('id','global-maintenance','companyId','','scope','agency','owner','admin@example.test','assigneeId',admin_id,'phaseOne',jsonb_build_object('kind','maintenance','maintenanceId','agency-m'))));
+  update public.title_memberships set all_companies=true where workspace_id=w and user_id=admin_id;
+  foreach agency_role in array array['owner','admin','onboarding'] loop
+    update public.title_memberships set role=agency_role where workspace_id=w and user_id=admin_id;
+    state=jsonb_set(state,'{tasks,0,id}',to_jsonb('global-'||agency_role));
+    result=public.title_commit(w,owner_id,'owner@example.test',1,before_revision,gen_random_uuid(),'agency-'||agency_role,state,'[]','{}');
+    before_revision=before_revision+1;
+    perform pg_temp.ok((result->>'revision')::bigint=before_revision,'all-company '||agency_role||' may receive agency-wide maintenance');
+  end loop;
+  foreach agency_role in array array['operations','finance','viewer','partner'] loop
+    update public.title_memberships set role=agency_role where workspace_id=w and user_id=admin_id;
+    next_state=jsonb_set(state,'{tasks,0,id}',to_jsonb('forbidden-'||agency_role));
+    perform pg_temp.reject('PT409',format('select public.title_commit(%L,%L,%L,1,%s,%L,%L,%L,%L,%L)',w,owner_id,'owner@example.test',before_revision,gen_random_uuid(),'agency-role',next_state,'[]','{}'),agency_role||' cannot receive agency-wide maintenance');
+  end loop;
+  update public.title_memberships set role='onboarding',all_companies=false where workspace_id=w and user_id=admin_id;
+  next_state=jsonb_set(state,'{tasks,0,id}','"global-scoped"');
+  perform pg_temp.reject('PT409',format('select public.title_commit(%L,%L,%L,1,%s,%L,%L,%L,%L,%L)',w,owner_id,'owner@example.test',before_revision,gen_random_uuid(),'agency-scoped',next_state,'[]','{}'),'company-scoped staff cannot receive agency-wide maintenance');
+  update public.title_memberships set all_companies=true where workspace_id=w and user_id=admin_id;
+  next_state=jsonb_set(state,'{tasks,0,id}','"global-missing-record"')#-'{agencyMaintenance}';
+  perform pg_temp.reject('PT409',format('select public.title_commit(%L,%L,%L,1,%s,%L,%L,%L,%L,%L)',w,owner_id,'owner@example.test',before_revision,gen_random_uuid(),'agency-missing-record',next_state,'[]','{}'),'global task needs a matching agency maintenance record');
+  next_state=jsonb_set(state,'{tasks,0,id}','"global-wrong-scope"');next_state=jsonb_set(next_state,'{agencyMaintenance,records,0,scope}','"company"');
+  perform pg_temp.reject('PT409',format('select public.title_commit(%L,%L,%L,1,%s,%L,%L,%L,%L,%L)',w,owner_id,'owner@example.test',before_revision,gen_random_uuid(),'agency-wrong-record',next_state,'[]','{}'),'company maintenance cannot authorize a global assignment');
+  next_state=jsonb_set(state,'{tasks,0,id}','"ordinary-missing-company"')#-'{tasks,0,phaseOne}';
+  perform pg_temp.reject('PT409',format('select public.title_commit(%L,%L,%L,1,%s,%L,%L,%L,%L,%L)',w,owner_id,'owner@example.test',before_revision,gen_random_uuid(),'ordinary-missing-company',next_state,'[]','{}'),'ordinary tasks still require a real company');
+  next_state=jsonb_set(next_state,'{tasks,0,companyId}','"missing"');
+  perform pg_temp.reject('PT409',format('select public.title_commit(%L,%L,%L,1,%s,%L,%L,%L,%L,%L)',w,owner_id,'owner@example.test',before_revision,gen_random_uuid(),'ordinary-foreign-company',next_state,'[]','{}'),'ordinary tasks cannot use a foreign company');
+  next_state=jsonb_set(state,'{tasks,0,id}','"global-missing-kind"')#-'{tasks,0,phaseOne,kind}';
+  perform pg_temp.reject('PT409',format('select public.title_commit(%L,%L,%L,1,%s,%L,%L,%L,%L,%L)',w,owner_id,'owner@example.test',before_revision,gen_random_uuid(),'global-missing-kind',next_state,'[]','{}'),'global maintenance exception fails closed for absent kind');
+  next_state=jsonb_set(state,'{tasks,0,id}','"global-missing-scope"')#-'{tasks,0,scope}';
+  perform pg_temp.reject('PT409',format('select public.title_commit(%L,%L,%L,1,%s,%L,%L,%L,%L,%L)',w,owner_id,'owner@example.test',before_revision,gen_random_uuid(),'global-missing-scope',next_state,'[]','{}'),'global maintenance exception needs explicit Agency scope');
+  next_state=jsonb_set(state,'{tasks,0,id}','"global-production-scope"');next_state=jsonb_set(next_state,'{tasks,0,scope}','"production"');
+  perform pg_temp.reject('PT409',format('select public.title_commit(%L,%L,%L,1,%s,%L,%L,%L,%L,%L)',w,owner_id,'owner@example.test',before_revision,gen_random_uuid(),'global-production-scope',next_state,'[]','{}'),'production task cannot use global maintenance exception');
 end $$;
 select count(*)||' staff assignment commit SQL assertions passed' from staff_assertions;
 rollback;

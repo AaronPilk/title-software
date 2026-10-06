@@ -209,3 +209,31 @@ test("a hidden browser tab does not poll and becoming visible refreshes once", a
   await page.evaluate(() => { Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" }); document.dispatchEvent(new Event("visibilitychange")); });
   await page.waitForFunction(count => window.feedbackRequests.filter(request => request.method === "list").length === count + 1, before);
 });
+
+test("a deliberate screenshot previews, can be removed, and opens privately from the original report", async () => {
+  await open(); await message().fill("Fictional screenshot report");
+  const file = { name: "fictional.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6+9sAAAAASUVORK5CYII=", "base64") };
+  await page.getByLabel("Attach screenshot (optional)").setInputFiles(file);
+  await page.getByAltText("Screenshot attachment preview").waitFor();
+  await page.getByRole("button", { name: "Remove screenshot", exact: true }).click();
+  assert.equal(await page.getByAltText("Screenshot attachment preview").count(), 0);
+  await page.getByLabel("Attach screenshot (optional)").setInputFiles(file);
+  await page.getByAltText("Screenshot attachment preview").waitFor();
+  await send().click(); await page.getByText("Feedback received", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "View feedback", exact: true }).click();
+  await page.getByRole("button", { name: "Open screenshot", exact: true }).click();
+  await page.getByAltText("Attached feedback screenshot").waitFor();
+  assert.equal((await requests("screenshot")).length, 1);
+  assert.equal(await page.getByRole("link", { name: "Download screenshot" }).getAttribute("download"), "fictional.png");
+  assert.equal(await page.evaluate(() => window.feedbackRows.length), 1);
+});
+
+test("invalid screenshot signatures are rejected before attaching and account changes discard the preview", async () => {
+  await open(); await page.getByLabel("Attach screenshot (optional)").setInputFiles({name:"fake.png",mimeType:"image/png",buffer:Buffer.from("<svg/>")});
+  await page.getByRole("alert").waitFor(); assert.equal(await page.getByAltText("Screenshot attachment preview").count(),0);
+  await page.getByLabel("Attach screenshot (optional)").setInputFiles({name:"fictional.png",mimeType:"image/png",buffer:Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6+9sAAAAASUVORK5CYII=","base64")});
+  await page.getByAltText("Screenshot attachment preview").waitFor();
+  await page.evaluate(() => window.setFeedbackContext({userId:"other-user"}));
+  await page.getByRole("button",{name:"Feedback",exact:true}).click();
+  assert.equal(await page.getByAltText("Screenshot attachment preview").count(),0);
+});

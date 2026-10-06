@@ -14,6 +14,8 @@ import { JVApplicationReader } from "./jv-application-reader";
 import { JVPortalRequests } from "./jv-portal-requests";
 import { applyJVApplicationFill } from "@/lib/title/jv-application-fill";
 import { UploadDocument } from "./document-upload";
+import { DocumentPreview } from "./documents";
+import { documentDisplayName } from "@/lib/title/agency-documents";
 import styles from "./jv-application-flow.module.css";
 import type { JVApplicationFillPatch } from "@/lib/title/jv-extraction";
 import { useWorkspaceNavigationGuard } from "./use-workspace-navigation-guard";
@@ -36,7 +38,7 @@ export function JVApplicationPanel({ company, onDocuments, existingCompany = fal
   const allowed = ["owner", "admin", "onboarding"].includes(access.role) && access.restricted && (access.allCompanies || access.companyIds.includes(company.id)) && s.companies.some(item => item.id === company.id);
   if (!allowed) return null;
   const scope = JSON.stringify([workspaceId, access.userId, access.version, access.role, access.restricted, access.allCompanies, access.companyIds, company.id]);
-  const originals = s.documents.filter(doc => doc.companyId === company.id && !doc.orderId && doc.category === "Applications" && doc.visibility === "Restricted" && !!doc.assetId);
+  const originals = s.documents.filter(doc => doc.companyId === company.id && !doc.orderId && !doc.archivedAt && doc.category === "Applications" && doc.visibility === "Restricted" && !!doc.assetId);
   return <JVApplicationWorkspace key={scope} context={{ workspaceId, userId: access.userId, companyId: company.id }} originals={originals} onDocuments={onDocuments} existingCompany={existingCompany} initiallyOpen={initiallyOpen} entryAction={entryAction} sourceDocumentId={sourceDocumentId} onDirtyChange={onDirtyChange} onBusyChange={onBusyChange} navigationScope={navigationScope} />;
 }
 
@@ -46,8 +48,8 @@ function JVApplicationWorkspace({ context, originals, onDocuments, existingCompa
   const [uploadOpen, setUploadOpen] = useState(false), [manualOpen, setManualOpen] = useState(false), [linksOpen, setLinksOpen] = useState(entryAction === "link");
   const [portalDirty, setPortalDirty] = useState(false), [portalBusy, setPortalBusy] = useState(false);
   const [readerDirty, setReaderDirty] = useState(false);
+  const [preview, setPreview] = useState<VaultDoc | null>(null);
   const [sourceSelection, setSourceSelection] = useState({ id: originals.some(doc => doc.id === sourceDocumentId) ? sourceDocumentId! : "", generation: 0 });
-  const pendingUpload = useRef(false);
   const [record, setRecord] = useState<JVRecord | null>(null);
   const [draft, setDraft] = useState<JVApplication | null>(null);
   const [section, setSection] = useState(0);
@@ -120,7 +122,7 @@ function JVApplicationWorkspace({ context, originals, onDocuments, existingCompa
       const result = await jvIntakeClientRequest(context, action, action === "load" ? undefined : action === "reopen" ? { expectedVersion: record!.version } : { expectedVersion: record!.version, payload, ...(action === "review" ? { reviewNote } : {}) });
       if (!alive.current || generation.current !== currentGeneration) return;
       setRecord(result); setDraft(result.payload); setConflict(false);
-      if (action === "load" && pendingUpload.current) { pendingUpload.current = false; setUploadOpen(true); } setReviewConfirmed(false);
+      setReviewConfirmed(false);
       setReviewNote(action === "save" && result.status === "Ready for review" ? reviewNote : result.reviewNote);
       setApplicantIndex(index => Math.min(index, Math.max(0, result.payload.applicants.length - 1)));
       setNotice(action === "load" ? "Private application loaded." : action === "review" ? "Application marked reviewed. Company launch approval is a separate decision." : action === "submit" ? "Application saved and submitted for manual review." : action === "reopen" ? "Application reopened as a draft." : "Private application saved.");
@@ -137,8 +139,12 @@ function JVApplicationWorkspace({ context, originals, onDocuments, existingCompa
 
   function openUpload() {
     if (busy || portalBusy || conflict || (readerDirty && !window.confirm("Discard the current document review and upload another application?"))) return;
-    if (draft) { setOpened(true); setUploadOpen(true); }
-    else { pendingUpload.current = true; void request("load"); }
+    setUploadOpen(true);
+  }
+  function readOriginal(doc: VaultDoc) {
+    if (busy || portalBusy || conflict || (readerDirty && !window.confirm("Discard the current document review and read a different application?"))) return;
+    setSourceSelection(current => ({ id: doc.id, generation: current.generation + 1 }));
+    if (!draft) void request("load"); else setOpened(true);
   }
   const openAction = useRef({ request, openUpload });
   useEffect(() => { openAction.current = { request, openUpload }; });
@@ -158,12 +164,15 @@ function JVApplicationWorkspace({ context, originals, onDocuments, existingCompa
   return <section className={`panel jv-panel ${styles.flow}`} aria-label="Joint venture application" aria-busy={busy}>
     <header className={styles.heading}>
       <span className={styles.icon}><FileText size={23} aria-hidden="true" /></span>
-      <div><p className={styles.eyebrow}>{existingCompany ? "Existing joint venture" : "Company application"}</p><h3>{sourceSelection.id ? "Check the application details" : existingCompany ? "Add the application you already have" : "Start with an application"}</h3><p className="form-note">{sourceSelection.id ? "We’re reading your saved original. Review the filled details below, then save them to this company." : existingCompany ? "Upload the completed application. We’ll read the details so you can check and save them without retyping." : "Upload a completed application, or send a private link for the new venture to fill out."}</p></div>
+      <div><p className={styles.eyebrow}>{existingCompany ? "Existing joint venture" : "Company application"}</p><h3>{sourceSelection.id ? "Check the application details" : originals.length ? "Application saved" : existingCompany ? "Add the application you already have" : "Start with an application"}</h3><p className="form-note">{sourceSelection.id ? "We’re reading your saved original. Review the filled details below, then save them to this company." : originals.length ? "Your completed application is stored privately. Open the original or choose Read / Import Application Details when needed." : existingCompany ? "Upload the completed application for private storage. You can read or import its details later." : "Upload a completed application, or send a private link for the new venture to fill out."}</p></div>
     </header>
-    <ol className={styles.steps} aria-label={requestFirst ? "New application steps" : "Application import steps"}><li><span>1</span>{sourceSelection.id ? "Read saved application" : requestFirst ? "Send private link" : "Upload application"}</li><li><span>2</span>{requestFirst ? "Applicant completes form" : "Check the details"}</li><li><span>3</span>{requestFirst ? "Review and save" : "Save to company"}</li></ol>
+
     <div className={styles.primaryActions}>{requestFirst ? <>{linkButton}{uploadButton}</> : <>{uploadButton}{linkButton}</>}{!opened && <Button type="button" variant="outline" onClick={() => void request("load")} disabled={busy || portalBusy} aria-expanded={false} aria-controls={contentId}>Open private application</Button>}</div>
     {linksOpen && <div className={styles.links}><JVPortalRequests context={context} initiallyOpen embedded onDirtyChange={setPortalDirty} onBusyChange={setPortalBusy} applicationDirty={dirty || busy} onApplicationChanged={() => { clear(); void connection?.refresh?.(); }} /></div>}
-    {uploadOpen && <UploadDocument companyId={context.companyId} initialDestination="company" applicationOnly onUploaded={docs => { const first = docs[0]; if (first) { setSourceSelection(current => ({ id: first.id, generation: current.generation + 1 })); setNotice("Original saved privately. Review the suggested details below."); } }} onClose={() => setUploadOpen(false)} />}
+    {originals.length > 0 && <div className={styles.savedOriginals} aria-label="Saved application originals">{originals.map(doc => <div key={doc.id}><span><strong>{documentDisplayName(doc)}</strong><small>Saved {doc.date} · version {doc.version} · Restricted</small></span><Button type="button" variant="outline" disabled={busy || portalBusy} onClick={() => setPreview(doc)}>Open original</Button><Button type="button" variant="ghost" disabled={busy || portalBusy || conflict} onClick={() => readOriginal(doc)}>Read / Import Application Details</Button></div>)}</div>}
+    {preview && <DocumentPreview doc={preview} onClose={() => setPreview(null)} />}
+    {notice && !opened && <p className="form-note" role="status">{notice}</p>}
+    {uploadOpen && <UploadDocument companyId={context.companyId} initialDestination="company" applicationOnly onUploaded={() => { setSourceSelection(current => ({ id: "", generation: current.generation + 1 })); setNotice("Completed application saved privately. Reading or importing details is optional."); }} onClose={() => setUploadOpen(false)} />}
     {opened && <div id={contentId}>
       <div className={styles.savedHeader}>{record && <Status value={record.status} />}<p className="form-note"><LockKeyhole size={13} aria-hidden="true" /> Application details are private to authorized staff.</p><Button type="button" variant="ghost" size="sm" onClick={close} disabled={busy || portalBusy} aria-expanded={true} aria-controls={contentId}><X size={15} />Close application</Button></div>
       {error && <div className="notice warning" role="alert"><div><p>{error}</p><Button type="button" variant="outline" size="sm" disabled={busy || portalBusy} onClick={() => void request("load")}>{conflict ? "Reload latest application" : "Retry loading application"}</Button>{draft && !conflict && <p className="form-note">Your unsaved entries remain here. Use Save application details to retry saving.</p>}</div></div>}
@@ -171,7 +180,7 @@ function JVApplicationWorkspace({ context, originals, onDocuments, existingCompa
       {(record as (JVRecord & { sourceChanged?: boolean }) | null)?.sourceChanged && <p className="notice warning" role="alert">An application original changed. Review the current originals and submit again.</p>}
       {busy && !draft && <p role="status">Loading protected application…</p>}
       {draft && record && <>
-        {originals.length > 0 && <div className={styles.importArea}>
+        {sourceSelection.id && originals.length > 0 && <div className={styles.importArea}>
           {applicant && <JVApplicationReader key={`reader:${sourceSelection.generation}`} companyId={context.companyId} applicant={applicant} applicationApplicants={draft.applicants} applicationDetails={draft} onFill={changeApplicant} onApplicationFill={fillApplication} disabled={busy || portalBusy || conflict} guided selectedDocumentId={sourceSelection.id} autoRead={!!sourceSelection.id} onReviewStateChange={setReaderDirty} />}
         </div>}
         {showDetailsSummary && <div className={styles.summary} aria-label="Application details summary"><div><h4>{payloadDirty ? "Details ready to save" : record.version ? "Saved application details" : "Your application details"}</h4><p>{draft.applicants.filter(person => person.name || person.email).length} applicant{draft.applicants.filter(person => person.name || person.email).length === 1 ? "" : "s"} · {draft.sourceDocumentIds.length} linked original{draft.sourceDocumentIds.length === 1 ? "" : "s"}</p>{draft.applicants.some(person => person.name) && <p className="form-note">{draft.applicants.map(person => person.name).filter(Boolean).join(" · ")}</p>}<p className="form-note">You can save now and add missing information later.</p></div><Button type="button" disabled={busy || portalBusy || conflict || (!payloadDirty && record.version > 0)} onClick={() => void request("save")}><Check size={16} />Save application details</Button></div>}

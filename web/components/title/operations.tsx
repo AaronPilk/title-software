@@ -1,4 +1,6 @@
 "use client";
+import { AgencyTaskEditor } from "./agency-setup";
+import { AgencyMaintenance } from "./agency-maintenance";
 import { StaffAssignmentPicker } from "./staff-assignment-picker";
 import { chooseStaffAssignment, useStaffDirectory } from "./use-staff-directory";
 import { IntakeCapture } from "./intake-capture";
@@ -54,7 +56,7 @@ import {
   resolveWaiting,
   waitingReasons,
 } from "@/lib/title/task-clock";
-import { canManageProduction, canManageTasks, canManageAutomations } from "@/lib/title/workspace-capabilities";
+import { canManageProduction, canManageCompanies, canManageTasks, canManageAutomations } from "@/lib/title/workspace-capabilities";
 import { businessDay, nextWeekday } from "@/lib/title/business-date";
 export function InboxView({
   onReview,
@@ -428,8 +430,10 @@ export function InboxView({
 }
 export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
   const { s, update: save, connection } = useWorkspace();
-  const canEdit = canManageTasks(connection);
+  const canEdit = scope === "agency" ? canManageCompanies(connection) : canManageTasks(connection);
   const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
+  const [agencyTask, setAgencyTask] = useState("");
+  const [agencyDocument, setAgencyDocument] = useState("");
   const [filter, setFilter] = useState("Open");
   const [owner, setOwner] = useState("Everyone");
   const [newTask, setNewTask] = useState(false);
@@ -451,7 +455,8 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
   // The company works on the Carolina calendar; a UTC day flips at 8pm Eastern.
   const today = businessDay();
   const clocks = new Map(s.tasks.map((t) => [t.id, taskClock(t)]));
-  const rows = s.tasks.filter((t) => {
+  const scopedTasks = s.tasks.filter(t => (!scope || (scope === "agency" ? t.scope !== "production" : t.scope === "production")) && t.phaseOne?.applicable !== false);
+  const rows = scopedTasks.filter((t) => {
     const clock = clocks.get(t.id)!;
     const matchesView =
       filter === "All tasks"
@@ -468,7 +473,7 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
       : t.owner === filterIdentity || normalizeOwner(t.owner) === normalizeOwner(filterEmail));
     return matchesView && matchesOwner;
   });
-  const openTasks = s.tasks.filter((t) => !t.done);
+  const openTasks = scopedTasks.filter((t) => !t.done);
   const waitingCount = openTasks.filter(
     (t) => clocks.get(t.id)!.state === "Waiting",
   ).length;
@@ -557,6 +562,9 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
           New task
         </Button>}
       </Heading>
+      {scope === "agency" && <details className="panel" style={{ marginBottom: 20 }}><summary style={{ cursor: "pointer", fontWeight: 600 }}>Renewals &amp; maintenance</summary><AgencyMaintenance onDoc={doc => setAgencyDocument(doc.id)} /></details>}
+      {agencyTask && s.tasks.find(t => t.id === agencyTask) && <AgencyTaskEditor task={s.tasks.find(t => t.id === agencyTask)!} onClose={() => setAgencyTask("")} onDoc={doc => setAgencyDocument(doc.id)} />}
+      {agencyDocument && s.documents.find(d => d.id === agencyDocument) && <DocumentPreview doc={s.documents.find(d => d.id === agencyDocument)!} onClose={() => setAgencyDocument("")} />}
       <div className="toolbar">
         <Segments
           value={filter}
@@ -602,7 +610,7 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
                 <TableCell>
                   <Checkbox
                     aria-label={`Complete ${t.title}`}
-                    disabled={!canEdit}
+                    disabled={!canEdit || !!t.phaseOne}
                     checked={t.done}
                     onCheckedChange={async (v) =>
                       await update(
@@ -626,9 +634,9 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
                     </span>
                   )}
                 </TableCell>
-                <TableCell>{companyById(s, t.companyId).name}</TableCell>
+                <TableCell>{t.companyId ? companyById(s, t.companyId).name : "Agency"}</TableCell>
                 <TableCell>
-                  {canEdit ? <StaffAssignmentPicker
+                  {canEdit && !t.phaseOne ? <StaffAssignmentPicker
                     companyId={t.companyId} owner={t.owner} assigneeId={t.assigneeId}
                     label={`Assign ${t.title}`}
                     onChange={async assignment => {
@@ -652,10 +660,11 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
                   )}
                 </TableCell>
                 <TableCell>
-                  <Status value={clock.state} />
+                  <Status value={t.phaseOne ? t.status || "Not Started" : clock.state} />
                 </TableCell>
                 <TableCell>
                   <div className="task-actions">
+                    {t.phaseOne && canEdit && !(t.phaseOne.kind === "maintenance" && t.done) && <Button variant="outline" onClick={() => setAgencyTask(t.id)}>Edit task</Button>}
                     {!t.done && canEdit && (
                       <Button
                         variant="ghost"

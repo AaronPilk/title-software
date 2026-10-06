@@ -73,3 +73,15 @@ export async function updateFeedback(input: FeedbackUpdate, userId: string): Pro
   window.feedbackSettled++;
   return structuredClone(item);
 }
+
+export async function submitFeedbackWithScreenshot(input: FeedbackSubmission, file: File, userId: string) {
+  const item = await submitFeedback(input, userId);
+  item.screenshot = { fileName: file.name, mime: file.type as "image/png" | "image/jpeg", byteSize: file.size, width: 1, height: 1 };
+  Object.assign(window.feedbackRows.find(row => row.id === item.id)!, item);
+  return item;
+}
+export async function readFeedbackScreenshot(workspaceId: string, id: string, userId: string) {
+  window.feedbackRequests.push({ method: "screenshot", input: { workspaceId, id }, userId });
+  if (window.feedbackListError) throw new Error(window.feedbackListError);
+  return { fileName: "fictional.png", blob: new Blob([Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6+9sAAAAASUVORK5CYII="), c => c.charCodeAt(0))], { type: "image/png" }) };
+}

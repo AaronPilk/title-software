@@ -11,7 +11,7 @@ let server, browser, context, page, origin;
 let errors = [];
 before(async () => {
   const bundle = await build({
-    absWorkingDir: web, write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent",
+    absWorkingDir: web, write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent", loader: { ".css": "empty", ".module.css": "empty" },
     define: { "process.env.NODE_ENV": '"production"' },
     stdin: { resolveDir: web, loader: "tsx", contents: `
       import React from 'react';import {createRoot} from 'react-dom/client';
@@ -40,7 +40,7 @@ before(async () => {
         ];
         window.previews=[];window.uploadCompanies=[];window.readVault=()=>structuredClone(state);
         export const useWorkspace=()=>({s:state,connection:{workspaceId:'fictional-workspace',revision:1,access:{userId:'fictional-owner',email:'owner@example.test',role:'owner',allCompanies:true,restricted:true,version:1,companyIds:[]}},update:async()=>{throw Error('Unexpected record mutation')}});
-        export const download=()=>{throw Error('Unexpected download')};export const getAsset=async()=>{throw Error('Unexpected asset read')};export const saveAsset=async()=>{throw Error('Unexpected asset write')};
+        export const getAssetForDocument=async()=>{throw Error('Unexpected asset read')};export const download=()=>{throw Error('Unexpected download')};export const getAsset=async()=>{throw Error('Unexpected asset read')};export const saveAsset=async()=>{throw Error('Unexpected asset write')};
       ` }));
     } }],
   });

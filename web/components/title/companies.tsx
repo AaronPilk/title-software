@@ -1,8 +1,11 @@
 "use client";
 import { ConfirmActiveCompaniesButton, CompanyOperatingStatusDetails } from "./company-operating-status";
-import { companyDisplayStage, validateOperatingConfirmation } from "@/lib/title/company-operating-status";
+import { companyDisplayStage } from "@/lib/title/company-operating-status";
 import { canManageOnboardingEvidence } from "@/lib/title/workspace-capabilities";
 import applicationStyles from "./agency-applications.module.css";
+import { AgencySetup } from "./agency-setup";
+import { agencySetupReadiness, configureAgencySetup, latestAgencySetupTemplate } from "@/lib/title/agency-setup";
+import { isAgencyDocumentArchived } from "@/lib/title/agency-documents";
 import { CompanyLogo } from "./company-logo";
 import { CompanyRecordsPanel } from "./company-records";
 import { CompanyOverviewDetails, CompanyFolders, CompanyCardFacts } from "./company-workspace";
@@ -16,15 +19,12 @@ import { documentScanIdentity } from "./use-document-scan";
 import { useEffect, useState } from "react";
 import { useWorkspaceNavigationGuard } from "./use-workspace-navigation-guard";
 import {
-  Building2,
   Plus,
   ChevronRight,
   ArrowRight,
   MapPin,
   FolderClosed,
   AlertTriangle,
-  FileUp,
-  Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,14 +46,12 @@ import {
 } from "@/components/ui/sheet";
 import { useWorkspace } from "@/lib/title/store";
 import { similarCompanies, saveCompanyUnderwriters } from "@/lib/title/business";
-import { businessDay, nextWeekday } from "@/lib/title/business-date";
 import {
   memberContactError,
   normalizeMemberContacts,
 } from "@/lib/title/member-directory";
 import {
   onboardingSteps,
-  onboardingOwner,
   uid,
   type VaultDoc,
   type Company,
@@ -89,7 +87,7 @@ export function Companies({
     <>
       <Heading
         title="Companies"
-        description="Choose a company to add its application, documents and details."
+        description="Company details, documents and the work that needs attention."
       >
         <ConfirmActiveCompaniesButton />
         <MissiveCompanyIntakeButton />
@@ -127,18 +125,14 @@ export function Companies({
               <div>
                 <strong>
                   {
-                    s.orders.filter(
-                      (o) =>
-                        o.companyId === c.id &&
-                        !["Issued", "Rejected"].includes(o.status),
-                    ).length
+                    s.tasks.filter(t => t.companyId === c.id && t.scope !== "production" && !t.done && t.phaseOne?.applicable !== false).length
                   }
                 </strong>
-                <small>Open orders</small>
+                <small>Open tasks</small>
               </div>
               <div>
                 <strong>
-                  {s.documents.filter((d) => d.companyId === c.id).length}
+                  {s.documents.filter((d) => d.companyId === c.id && !d.orderId && !isAgencyDocumentArchived(d)).length}
                 </strong>
                 <small>Documents</small>
               </div>
@@ -246,17 +240,7 @@ export function NewCompany({
             members: [],
           });
           if (canChooseUnderwriters && writers.length) saveCompanyUnderwriters(d, { companyId: id, names: writers, expected: [] });
-          d.tasks.unshift({
-            id: uid("task"),
-            title: "Collect onboarding application",
-            companyId: id,
-            ...(connection
-              ? { owner: connection.access.email, assigneeId: connection.access.userId }
-              : { owner: "Stephenie" }),
-            due: nextWeekday(businessDay()),
-            priority: "Normal",
-            done: false,
-          });
+          configureAgencySetup(d, { companyId: id, expectedVersion: 0, templateVersion: latestAgencySetupTemplate(d).version, owners: [], agreementCount: 1, eoCovered: false });
         },
         "Company added",
         `${trimmedName} · onboarding started${acknowledged}`,
@@ -367,7 +351,7 @@ export function NewCompany({
               </div>
             </div>
           )}
-          {connection && <p className="form-note">Initial setup task assigned to you: {connection.access.email}.</p>}
+          <p className="form-note">A setup checklist will be created for this company. Assign each task to the person handling it.</p>
           <div className="form-actions">
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
@@ -381,7 +365,7 @@ export function NewCompany({
     </Dialog>
   );
 }
-export type CompanyDetailTab = "Overview" | "Onboarding" | "Application" | "Documents" | "Members" | "Jurisdictions";
+export type CompanyDetailTab = "Overview" | "Onboarding" | "Application" | "Documents" | "Members" | "Jurisdictions" | "Setup" | "Ownership";
 export function CompanyDetail({
   id,
   initialTab = "Overview",
@@ -397,8 +381,9 @@ export function CompanyDetail({
   onUpload: (id: string) => void;
 }) {
   const { s, connection } = useWorkspace();
-  const [tab, setTab] = useState<string>(initialTab === "Onboarding" || initialTab === "Jurisdictions" ? "Application" : initialTab === "Members" ? "Overview" : initialTab);
+  const [tab, setTab] = useState<string>(initialTab === "Onboarding" ? "Setup" : initialTab === "Jurisdictions" ? "Application" : initialTab === "Members" ? "Ownership" : initialTab);
   const [applicationEntry, setApplicationEntry] = useState<"upload" | "link" | undefined>();
+  const [setupDirty, setSetupDirty] = useState(false), [setupBusy, setSetupBusy] = useState(false);
   const [applicationDirty, setApplicationDirty] = useState(false);
   const [applicationBusy, setApplicationBusy] = useState(false);
   const [deskDirty, setDeskDirty] = useState(false), [deskBusy, setDeskBusy] = useState(false);
@@ -408,11 +393,9 @@ export function CompanyDetail({
   const [profileCapture, setProfileCapture] = useState<(CompanyProfileCapture & { companySnapshot: string }) | null>(null);
   const c = s.companies.find((x) => x.id === id);
   if (!c) return null;
-  let existingOperationsConfirmed = false;
-  try { existingOperationsConfirmed = !!validateOperatingConfirmation(c.operatingStatus ?? null); } catch { /* Invalid legacy metadata cannot confirm operations. */ }
   const isExisting = companyDisplayStage(c) === "Active";
   const canEditApplication = canManageOnboardingEvidence(connection);
-  const leaveApplication = () => !applicationBusy && !deskBusy && !ownerBusy && !folderBusy && !memberBusy && (!(applicationDirty || deskDirty || ownerDirty || folderDirty || memberDirty) || window.confirm("Discard unsaved company or application changes? Save them first to keep your work."));
+  const leaveApplication = () => !setupBusy && !applicationBusy && !deskBusy && !ownerBusy && !folderBusy && !memberBusy && (!(setupDirty || applicationDirty || deskDirty || ownerDirty || folderDirty || memberDirty) || window.confirm("Discard unsaved company or application changes? Save them first to keep your work."));
   function changeTab(value: string) {
     if (value === tab || !leaveApplication()) return;
     setApplicationDirty(false); setApplicationEntry(undefined); setTab(value);
@@ -422,7 +405,9 @@ export function CompanyDetail({
     setApplicationDirty(false); setApplicationEntry(action); setTab("Application");
   }
   const docs = s.documents.filter((d) => d.companyId === id);
-  const companyDocs = docs.filter(d => !d.orderId);
+  const companyDocs = docs.filter(d => !d.orderId && !isAgencyDocumentArchived(d));
+  const savedApplication = companyDocs.some(d => d.category === "Applications" && d.visibility === "Restricted" && d.assetId);
+  const setup = agencySetupReadiness(s, c.id);
   const titleDocs = docs.filter(d => !!d.orderId);
   const canEditProfile = !connection || (["owner", "admin", "onboarding"].includes(connection.access.role) && (connection.access.allCompanies || connection.access.companyIds.includes(c.id)));
   const profileCaptureCurrent = !!profileCapture && profileCapture.companySnapshot === JSON.stringify(c) && profileCapture.sourceIdentities.every(source => {
@@ -445,22 +430,24 @@ export function CompanyDetail({
             onChange={changeTab}
             items={[
               "Overview",
-              "Application",
+              "Setup",
+              "Ownership",
               "Documents",
+              "Application",
             ]}
           />
           {tab === "Overview" && (
             <>
               <CompanyOverviewDetails company={c} onDirtyChange={setDeskDirty} onBusyChange={setDeskBusy} />
-              {canEditApplication && <section className={applicationStyles.startCard} aria-label="Start this company’s application">
-                <div className={applicationStyles.startIcon}>{isExisting ? <FileUp size={23} /> : <Send size={22} />}</div>
-                <h3>{isExisting ? "Already have the application?" : "Collect the application."}</h3>
-                <p>{isExisting ? "Upload the completed form. We’ll read it and fill the application details for you to review and save." : "Prepare a private link for the applicant to fill out. Their answers return to this company for review."}</p>
+              <section className={applicationStyles.startCard} aria-label="Company setup summary">
+                <h3>{isExisting ? "Active company" : "Company setup"}</h3>
+                <p>{isExisting ? "Keep this company’s records together and track ongoing work." : setup.ready ? "The required setup tasks are complete." : "Follow the setup checklist for this company’s states and underwriters."}</p>
                 <div className={applicationStyles.startActions}>
-                  <Button onClick={() => openApplication(isExisting ? "upload" : "link")}>{isExisting ? <FileUp /> : <Send />}{isExisting ? "Upload completed application" : "Send application link"}</Button>
-                  <Button variant="outline" onClick={() => openApplication()}>Open application <ArrowRight /></Button>
+                  <Button onClick={() => changeTab("Setup")}>Setup & approvals <ArrowRight /></Button>
+                  <Button variant="outline" onClick={() => changeTab("Documents")}>Open documents <ArrowRight /></Button>
                 </div>
-              </section>}
+                {canEditApplication && <p className="form-note">{savedApplication ? "Completed application saved." : "Add the completed application whenever you have it."} <Button variant="ghost" onClick={() => openApplication(savedApplication ? undefined : "upload")}>{savedApplication ? "Open application" : "Upload completed application"}</Button></p>}
+              </section>
               <div className="detail-grid">
                 <div>
                   <small>Primary contact</small>
@@ -482,54 +469,17 @@ export function CompanyDetail({
                 </div>
               </div>
               <div className={`${applicationStyles.supportLinks} my-5`}><Button variant="outline" onClick={() => changeTab("Documents")}>Company documents & logo <ArrowRight /></Button></div>
-              <section className="panel my-5"><div className="section-heading"><h3>Owners</h3></div>{c.members.length ? c.members.map(m => <div key={m.id || m.name} className="detail-grid"><strong>{m.name}</strong><span>{m.share}% ownership</span></div>) : <p className="form-note">Add the people or LLCs that own this company.</p>}
+              <Button variant="outline" onClick={() => changeTab("Ownership")}>Ownership & financial terms <ArrowRight /></Button>
+              {c.intake && <details className={applicationStyles.support}><summary>Company details & Missive source</summary><CompanyIntakeProfile company={c} /></details>}
+              <details className="mt-5 border-t pt-5"><summary className="cursor-pointer text-sm font-semibold">Operating status history</summary><CompanyOperatingStatusDetails company={c} /></details>
+            </>
+          )}
+          {tab === "Setup" && <AgencySetup company={c} onDoc={onDoc} onDirtyChange={setSetupDirty} onBusyChange={setSetupBusy} />}
+          {tab === "Ownership" && <>              <section className="panel my-5"><div className="section-heading"><h3>Owners</h3></div>{c.members.length ? c.members.map(m => <div key={m.id || m.name} className="detail-grid"><strong>{m.name}</strong><span>{m.share}% ownership</span></div>) : <p className="form-note">Add the people or LLCs that own this company.</p>}
               {canEditProfile && <details className="my-4"><summary className="cursor-pointer font-semibold">Edit members & ownership interests</summary><CompanyMembers key={c.id} company={c} onDirtyChange={setMemberDirty} onBusyChange={setMemberBusy} /></details>}
               <CompanyRecordsPanel company={c} onDirtyChange={setOwnerDirty} onBusyChange={setOwnerBusy} />
               </section>
-              {c.intake && <details className={applicationStyles.support}><summary>Company details & Missive source</summary><CompanyIntakeProfile company={c} /></details>}
-              <details className="mt-5 border-t pt-5">
-              <summary className="cursor-pointer text-sm font-semibold">Formation and approval history</summary>
-              <CompanyOperatingStatusDetails company={c} />
-              <div className="checklist-title">
-                <h3>{existingOperationsConfirmed ? "Workspace setup checklist" : "Onboarding checklist"}</h3>
-                <span>
-                  {c.steps.filter(Boolean).length} / {onboardingSteps.length}
-                </span>
-              </div>
-              <Progress
-                value={
-                  (c.steps.filter(Boolean).length / onboardingSteps.length) *
-                  100
-                }
-                className="h-1.5"
-              />
-              <p className="inline-note">
-                Track confirmations from the responsible person. These steps do
-                not perform external filings or approvals.
-              </p>
-              <Button variant="outline" onClick={() => openApplication()}>
-                Open evidence review
-              </Button>
-              <div className="checklist">
-                {onboardingSteps.map((step, i) => (
-                  <label key={step}>
-                    <Checkbox checked={c.steps[i]} disabled />
-                    <span>{step}</span>
-                    <small>{onboardingOwner(i)}</small>
-                  </label>
-                ))}
-              </div>
-              <div className="notice">
-                <Building2 size={17} />
-                <p>
-                  {existingOperationsConfirmed
-                    ? "This workspace checklist tracks company records. Confirming existing operations does not verify licensing, attorney review, or underwriter evidence."
-                    : `${c.jurisdiction || "The company"} checklist is a planning template. State licensing, attorney review, and underwriter evidence need confirmation before launch.`}
-                </p>
-              </div>
-              </details>
-            </>
-          )}
+</>}
           {tab === "Documents" && (
             <section className="company-documents" aria-label="Company documents">
               <div className="company-documents-heading">
@@ -540,9 +490,9 @@ export function CompanyDetail({
 
               </div>
               <p className="company-documents-description">Formation records, applications, agreements, disclosures and logos for {c.name}.</p>
-              {!!companyDocs.length && <div className="company-documents-reader">
+              {!!companyDocs.length && <details className="company-documents-reader"><summary className="cursor-pointer text-sm">Optional document reading</summary>
                 <PackageReviewButton documents={companyDocs} onOpenOriginal={onDoc} onCompanyCapture={c.intake && canEditProfile ? capture => setProfileCapture({ ...capture, companySnapshot: JSON.stringify(c) }) : undefined} />
-              </div>}
+              </details>}
               <CompanyFolders company={c} onDoc={onDoc} onDirtyChange={setFolderDirty} onBusyChange={setFolderBusy} />
               {!!titleDocs.length && <details className="company-documents-disclosure">
                 <summary className="cursor-pointer text-sm font-semibold">Title-file documents ({titleDocs.length})</summary>

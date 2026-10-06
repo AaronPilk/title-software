@@ -21,7 +21,7 @@ export function JVApplicationReader(props: Props) {
   const { s, connection } = useWorkspace(), [selected, setSelected] = useState(props.selectedDocumentId || "");
   const [reviewPending, setReviewPending] = useState(false);
   const [open, setOpen] = useState(!!props.guided);
-  const docs = s.documents.filter(doc => doc.companyId === props.companyId && !doc.orderId && doc.category === "Applications" && doc.visibility === "Restricted" && doc.assetId && ["application/pdf", "image/png", "image/jpeg", "text/plain"].includes(doc.mime || ""));
+  const docs = s.documents.filter(doc => doc.companyId === props.companyId && !doc.orderId && !doc.archivedAt && doc.category === "Applications" && doc.visibility === "Restricted" && doc.assetId && ["application/pdf", "image/png", "image/jpeg", "text/plain"].includes(doc.mime || ""));
   const doc = docs.find(doc => doc.id === selected);
   return <section className="jv-reader form-stack" aria-label="Read an application into fields">
     {!props.guided && <Button type="button" variant="outline" disabled={props.disabled} aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Close application reader" : "Read an uploaded application"}</Button>}

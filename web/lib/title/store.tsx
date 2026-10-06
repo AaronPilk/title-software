@@ -1,5 +1,8 @@
 "use client";
 import { companyWorkspaceShapeValid } from "./company-workspace";
+import { validateAgencySetup } from "./agency-setup";
+import { validateAgencyMaintenance } from "./agency-maintenance";
+import { validateAgencyDocuments } from "./agency-documents";
 import {
   createContext,
   useCallback,
@@ -52,9 +55,8 @@ const WORKSPACE_ARRAY_KEYS = [
   "approvedReports",
 ] as const;
 /**
- * Optional top-level modules (currently just `materials`, see
- * lib/title/materials.ts) are never required here — an older or
- * materials-untouched workspace simply omits the key — but if one IS
+ * Optional top-level modules are never required here — an older or
+ * module-untouched workspace simply omits the key — but if one IS
  * present it must have its own expected shape, so a corrupted or foreign
  * value doesn't pass hydration/restore only to fail later when
  * materials-aware UI reads it. Add future optional modules the same way.
@@ -85,12 +87,27 @@ function isWorkspaceShape(data: unknown): data is Workspace {
     isValidOwnershipHistory((data as { ownershipHistory?: unknown }).ownershipHistory) &&
     isValidOrchestration((data as Workspace).orchestration) &&
     validOrchestrationSnapshot(data as Workspace) &&
+    validAgencySnapshot(data as Workspace) &&
     (data as Workspace).tasks.every(isValidTaskFields)
   );
 }
 function validOrchestrationSnapshot(data: Workspace) {
   try { validateOrchestrationMutation(data, data); return true; }
   catch { return false; }
+}
+function validAgencySnapshot(data: Workspace) {
+  try {
+    // Legacy workspaces omit these modules. Explicit malformed values must not
+    // be mistaken for that absence by the domain helpers' default projections.
+    if (data.agencySetupTemplates !== undefined && !Array.isArray(data.agencySetupTemplates)) return false;
+    if (data.agencyMaintenance !== undefined && (!data.agencyMaintenance || typeof data.agencyMaintenance !== "object" || Array.isArray(data.agencyMaintenance))) return false;
+    if (data.companies.some(company => company.agencySetup !== undefined && !company.agencySetup)) return false;
+    if (data.tasks.some(task => task.phaseOne !== undefined && !task.phaseOne || task.phaseOne?.kind === "maintenance" && !data.agencyMaintenance)) return false;
+    validateAgencySetup(data);
+    validateAgencyMaintenance(data);
+    validateAgencyDocuments(data);
+    return true;
+  } catch { return false; }
 }
 type Store = {
   s: Workspace;

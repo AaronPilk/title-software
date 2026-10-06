@@ -10,16 +10,19 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 let server, browser, origin, context, page;
 before(async () => {
   const result = await build({
-    absWorkingDir: root, write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic",
+    absWorkingDir: root, outfile: "app.mjs", write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic",
     define: { "process.env.NODE_ENV": '"production"' },
     stdin: { resolveDir: root, loader: "tsx", contents: [
       "import React,{useState} from 'react';import {createRoot} from 'react-dom/client';import {Toaster} from 'sonner';",
       "import {WorkspaceProvider,useWorkspace,parseBackupFile,restoreAssets,getAsset,saveAsset,createFullBackup} from './lib/title/store';",
       "import {createSeed} from './lib/title/model';import {DocumentPreview} from './components/title/documents';",
+      "import {configureAgencySetup} from './lib/title/agency-setup';import {saveAgencyMaintenance,syncAgencyMaintenance,completeAgencyMaintenance} from './lib/title/agency-maintenance';import {businessDay} from './lib/title/business-date';import {emptyWorkspace,projectWorkspace} from './lib/backend/workspace';",
       "function App(){const {s,ready,restore}=useWorkspace();const [open,setOpen]=useState(false);const d=s.documents.find(d=>d.id==='QA-DOC');",
       "window.seedFixture=()=>createSeed();window.currentFixture=()=>structuredClone(s);",
       "window.parseOnly=raw=>{try{return {accepted:true,backup:parseBackupFile(raw)}}catch(e){return {accepted:false,message:e.message}}};",
       "window.restoreSynthetic=async raw=>{const b=parseBackupFile(raw);await restore(b.workspace,b.assets);setOpen(true)};",
+      "window.restoreDirect=restore;window.projectFixture=(source,access)=>projectWorkspace({...emptyWorkspace(source.user),companies:source.companies,documents:source.documents,tasks:source.tasks.filter(t=>t.phaseOne),agencySetupTemplates:source.agencySetupTemplates,agencyMaintenance:source.agencyMaintenance},access);",
+      "window.agencyFixture=input=>{const c=input.companies[0],day=businessDay();configureAgencySetup(input,{companyId:c.id,expectedVersion:0,templateVersion:1,owners:[],agreementCount:1,eoCovered:false});input.documents.push({...input.documents[0],id:'QA-PRIVATE',assetId:'QA-PRIVATE-ASSET',visibility:'Restricted'});for(const kind of ['Domain','Email'])saveAgencyMaintenance(input,{expectedRevision:0,record:{id:'maintenance-'+kind,revision:1,scope:'company',companyId:c.id,memberId:'',kind,title:kind+' renewal',active:true,nextDueOn:day,intervalYears:1,schedule:'anniversary',source:'Fictional notice',verifiedOn:day,notes:'',owner:'',documentIds:kind==='Email'?['QA-PRIVATE']:[],standing:'Unknown'}});syncAgencyMaintenance(input);completeAgencyMaintenance(input,{maintenanceId:'maintenance-Domain',expectedRevision:1,cycleOn:day,completedOn:day,nextDueOn:(Number(day.slice(0,4))+1)+day.slice(4),notes:'Fictional completion',documentIds:['QA-DOC']});return input};",
       "window.writeAssets=restoreAssets;window.readAsset=async id=>(await getAsset(id)).text();",
       "window.buildBackup=createFullBackup;window.saveFile=saveAsset;",
       "window.replacePreview=async (mime,text)=>{setOpen(false);await saveAsset('QA-ASSET',new File([text],'test',{type:mime}));setTimeout(()=>setOpen(true),0)};",
@@ -39,8 +42,8 @@ before(async () => {
   });
   const worker = await readFile(root + "node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs");
   server = createServer((req,res) => {
-    res.setHeader("content-type", req.url === "/" ? "text/html" : "text/javascript");
-    res.end(req.url === "/app.mjs" ? result.outputFiles[0].text : req.url === "/pdf.worker.mjs" ? worker : '<html><body><div id="root"></div><script type="module" src="/app.mjs"></script></body></html>');
+    res.setHeader("content-type", req.url === "/" ? "text/html" : req.url === "/app.css" ? "text/css" : "text/javascript");
+    res.end(req.url === "/app.mjs" ? result.outputFiles.find(f=>f.path.endsWith('.mjs')).text : req.url === "/app.css" ? result.outputFiles.find(f=>f.path.endsWith('.css'))?.text || '' : req.url === "/pdf.worker.mjs" ? worker : '<html><head><link rel="stylesheet" href="/app.css"/></head><body><div id="root"></div><script type="module" src="/app.mjs"></script></body></html>');
   });
   await new Promise(resolve => server.listen(0,"127.0.0.1",resolve)); origin="http://127.0.0.1:"+server.address().port;
   try { browser=await chromium.launch({headless:true}); } catch { browser=await chromium.launch({channel:"chrome",headless:true}); }
@@ -64,6 +67,56 @@ const rejected=async b=>assert.equal((await page.evaluate(raw=>window.parseOnly(
 test("active or mismatched backup MIME is rejected before storing or previewing",async()=>{
   await open();
   for(const assetMime of ["text/html","image/svg+xml","text/plain"])await rejected(await backup({mime:"application/pdf",assetMime,body:"<html>Fictional specimen</html>"}));
+});
+test("malformed Agency modules, task requirements and cabinet metadata reject at parse and direct restore before bytes change",async()=>{
+  await open();await restore(await backup());const before=await current();
+  const valid=await backup({body:"Replacement"});valid.workspace=await page.evaluate(input=>window.agencyFixture(input),valid.workspace);
+  const mutations=[
+    w=>{w.agencyMaintenance={}},
+    w=>{w.agencyMaintenance=null},
+    w=>{w.agencySetupTemplates={}},
+    w=>{w.agencySetupTemplates=null},
+    w=>{w.companies[0].agencySetup={}},
+    w=>{w.companies[0].agencySetup=null},
+    w=>{w.tasks.find(t=>t.phaseOne).phaseOne={}},
+    w=>{w.tasks.find(t=>t.phaseOne).phaseOne=null},
+    w=>{w.tasks.find(t=>t.phaseOne?.kind==='setup').phaseOne.required=false},
+    w=>{delete w.agencyMaintenance},
+    w=>{w.agencyMaintenance.history[0].taskId='missing-task'},
+    w=>{w.agencyMaintenance.records[0].documentIds=['missing-document']},
+    w=>{w.documents[0].archivedAt='2026-10-06T12:00:00.000Z'},
+    w=>{w.documents[0].displayName='../unsafe.txt'},
+    w=>{w.documents[0].designation='Unknown'},
+  ];
+  for(const mutate of mutations){
+    const b=structuredClone(valid);mutate(b.workspace);await rejected(b);
+    const error=await page.evaluate(async b=>{try{await window.restoreDirect(b.workspace,b.assets);return ''}catch(e){return e.message}},b);
+    assert.match(error,/workspace|backup/i);assert.deepEqual(await current(),before);assert.equal(await read(),"Synthetic original");
+  }
+});
+test("Agency originals, setup tasks and maintenance history round trip through restore and local reload",async()=>{
+  await open();const b=await backup();b.workspace=await page.evaluate(input=>window.agencyFixture(input),b.workspace);
+  b.workspace.documents[0].displayName='Company renewal confirmation';b.workspace.documents[0].designation='Final';
+  await restore(b);const saved=await current();assert.equal(saved.agencyMaintenance.history.length,1);assert.ok(saved.tasks.some(t=>t.phaseOne?.kind==='setup'));
+  await page.reload();await page.locator('#ready').waitFor({state:'attached'});const loaded=await current();
+  assert.deepEqual(loaded.agencyMaintenance,saved.agencyMaintenance);assert.deepEqual(loaded.tasks,saved.tasks);assert.equal(loaded.documents[0].name,'Fictional original.txt');assert.equal(loaded.documents[0].displayName,'Company renewal confirmation');assert.equal(await read(),'Synthetic original');
+});
+test("legacy and scoped Production or Agency projections remain valid restore snapshots",async()=>{
+  await open();const legacy=await backup();assert.equal((await page.evaluate(raw=>window.parseOnly(raw),JSON.stringify(legacy))).accepted,true);
+  const b=await backup();b.workspace=await page.evaluate(input=>window.agencyFixture(input),b.workspace);const companyId=b.workspace.companies[0].id;
+  for(const access of [
+    {role:'operations',allCompanies:true,companyIds:[],restricted:true},
+    {role:'admin',allCompanies:false,companyIds:[companyId],restricted:true},
+    {role:'onboarding',allCompanies:false,companyIds:[companyId],restricted:false},
+  ]){
+    const projected=await page.evaluate(({state,access})=>window.projectFixture(state,{userId:'fixture-user',email:'qa@example.test',version:1,partnerMembers:[],...access}),{state:b.workspace,access});
+    const scoped={...b,workspace:projected,assets:b.assets.filter(a=>projected.documents.some(d=>d.assetId===a.id))};
+    const parsed=await page.evaluate(raw=>window.parseOnly(raw),JSON.stringify(scoped));assert.equal(parsed.accepted,true,access.role+': '+parsed.message);
+    await page.evaluate(async b=>window.restoreDirect(b.workspace,b.assets),scoped);const saved=await current();
+    assert.deepEqual(saved.agencyMaintenance,projected.agencyMaintenance);
+    if(access.role==='operations')assert.equal(saved.tasks.some(t=>t.phaseOne),false);
+    if(!access.restricted)assert.equal(saved.documents.some(d=>d.id==='QA-PRIVATE'),false);
+  }
 });
 test("all malformed or duplicate asset entries reject before an earlier original can change",async()=>{
   await open();await restore(await backup());const before=await current();

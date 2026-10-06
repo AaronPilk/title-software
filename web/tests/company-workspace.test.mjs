@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {build} from 'esbuild';
 import {fileURLToPath} from 'node:url';
 import {ownerRecordsFixture} from './fixtures/company-records.mjs';
-const built=await build({stdin:{contents:"export * from './lib/title/company-records';export * from './lib/title/company-workspace';export * from './lib/title/application-worksheet';export * from './lib/backend/workspace';export * from './lib/backend/jv-intake';export * from './lib/title/jv-application';export {createSeed} from './lib/title/model';export {saveCompanyUnderwriters} from './lib/title/business';export {captureCommands} from './lib/title/command-log';",resolveDir:fileURLToPath(new URL('../',import.meta.url))},bundle:true,write:false,format:'esm',platform:'node'});
+const built=await build({stdin:{contents:"export * from './lib/title/company-records';export * from './lib/title/company-records-maintenance';export * from './lib/title/company-workspace';export * from './lib/title/application-worksheet';export * from './lib/backend/workspace';export * from './lib/backend/jv-intake';export * from './lib/title/jv-application';export {createSeed} from './lib/title/model';export {saveCompanyUnderwriters} from './lib/title/business';export {captureCommands} from './lib/title/command-log';",resolveDir:fileURLToPath(new URL('../',import.meta.url))},bundle:true,write:false,format:'esm',platform:'node'});
 const lib=await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text+'\n//# sourceURL=company-workspace-test.mjs').toString('base64')}`);
 const {validateCompanyRecords,validateCompanyWorkspace,validateCompanyDesk,prepareApplicationWorksheet,createSeed,emptyWorkspace,executeCommands,captureCommands,saveCompanyUnderwriters,projectWorkspace,newJVApplication,validateJVApplication,jvIntakeRequest}=lib;
 const actor={userId:'test-owner',email:'owner@example.test',role:'owner',allCompanies:true,companyIds:[],restricted:true,version:1,partnerMembers:[]};
@@ -73,4 +73,46 @@ test('purpose-bound references require same company restricted originals and ded
  const f=privateFixture(),p={...newJVApplication(),companyRecords:ownerRecordsFixture()};p.companyRecords.owners[0].documentIds=['D1'];p.companyRecords.worksheets[0].documentId='D1';f.s.documents=[{id:'D1',companyId:'c1',category:'Company records',visibility:'Restricted',assetId:'A1',version:2}];
  await f.request('save',{expectedVersion:0,payload:p});assert.deepEqual(f.calls.at(-1).p_input.sourceManifest,[{documentId:'D1',assetId:'A1',version:2}]);
  for(const mutate of [d=>d.category='Formation',d=>d.visibility='Internal',d=>d.companyId='c2',d=>d.orderId='order',d=>d.assetId='']){const previous=structuredClone(f.s.documents[0]);mutate(f.s.documents[0]);await assert.rejects(()=>f.request('save',{expectedVersion:1,payload:p}),e=>e.status===403);f.s.documents[0]=previous;}
+});
+
+test('confirmed distribution and fee remain independent, require exactly 100 percent and one or two executed governing originals',()=>{
+ const r=ownerRecordsFixture(),a=r.agreements[0];a.kind='combined';a.executed=true;a.documentIds=['combined-original'];
+ r.financialTerms={status:'Confirmed',effectiveOn:'2026-10-06',distribution:[{memberId:'member-a',percentage:'25'},{memberId:'member-b',percentage:'75'}],managementFeePercentage:'15',agreementMode:'single',jvAgreementId:a.id,operatingAgreementId:''};
+ assert.equal(validateCompanyRecords(r).financialTerms.managementFeePercentage,'15');assert.deepEqual(state().companies[0].members.map(m=>m.share),[49,51]);
+ for(const mutate of [v=>v.financialTerms.distribution[1].percentage='74.999',v=>v.financialTerms.managementFeePercentage='',v=>v.financialTerms.effectiveOn='',v=>v.agreements[0].executed=false,v=>v.agreements[0].documentIds=[]]){const v=structuredClone(r);mutate(v);assert.throws(()=>validateCompanyRecords(v));}
+ r.agreements[0].kind='jv';r.agreements.push({...structuredClone(a),id:'operating',kind:'operating',documentIds:['operating-original']});r.financialTerms.agreementMode='separate';r.financialTerms.operatingAgreementId='operating';assert.doesNotThrow(()=>validateCompanyRecords(r));r.financialTerms.operatingAgreementId=a.id;assert.throws(()=>validateCompanyRecords(r));
+ r.financialTerms.status='Draft';r.financialTerms.operatingAgreementId='';r.financialTerms.distribution[1].percentage='';assert.doesNotThrow(()=>validateCompanyRecords(r));
+});
+test('payment metadata rejects CVV, full card values and hidden card numbers while entity compliance sources remain purpose-bound',()=>{
+ const r=ownerRecordsFixture();r.banking={bankEstablished:true,bankName:'Fictional bank',confirmation:'Established',paymentEstablished:true,cardholder:'Fictional company',lastFour:'1234'};assert.equal(validateCompanyRecords(r).banking.lastFour,'1234');
+ for(const mutate of [b=>b.cvv='123',b=>b.lastFour='4111111111111111',b=>b.cardholder='4111 1111 1111 1111']){const v=structuredClone(r);mutate(v.banking);assert.throws(()=>validateCompanyRecords(v));}
+ r.owners[0].setupKind='new';r.owners[0].compliance={status:'Delinquent',statusCheckedOn:'2026-10-06',annualReportFiledOn:'',annualReportDueOn:'2027-04-15',documentIds:['entity-status']};assert.equal(validateCompanyRecords(r).owners[0].compliance.status,'Delinquent');assert.ok(lib.companyRecordSources(r).find(s=>s.id==='entity-status').categories.includes('Partner entities'));
+});
+test('private financial member references reject unknown owners and archived originals reject all private purposes',async()=>{
+ const f=privateFixture(),p={...newJVApplication(),companyRecords:ownerRecordsFixture()};p.companyRecords.financialTerms={status:'Draft',effectiveOn:'',distribution:[{memberId:'unknown',percentage:'100'}],managementFeePercentage:'15',agreementMode:'single',jvAgreementId:'',operatingAgreementId:''};await assert.rejects(()=>f.request('save',{expectedVersion:0,payload:p}),e=>e.status===409);
+ delete p.companyRecords.financialTerms;p.companyRecords.owners[0].documentIds=['D1'];f.s.documents=[{id:'D1',companyId:'c1',category:'Formation',visibility:'Restricted',assetId:'A1',version:1,archivedAt:'2026-10-06T00:00:00Z'}];await assert.rejects(()=>f.request('save',{expectedVersion:0,payload:p}),e=>e.status===403);
+});
+
+test('confirmed distributions require every current owner including zero percentages while drafts can remain partial',async()=>{
+ const f=privateFixture(),p={...newJVApplication(),companyRecords:ownerRecordsFixture()},r=p.companyRecords;
+ r.agreements[0].kind='combined';r.agreements[0].executed=true;r.agreements[0].documentIds=['AG'];
+ r.financialTerms={status:'Confirmed',effectiveOn:'2026-10-06',distribution:[{memberId:'member-a',percentage:'100'}],managementFeePercentage:'15',agreementMode:'single',jvAgreementId:r.agreements[0].id,operatingAgreementId:''};
+ f.s.documents=[{id:'AG',companyId:'c1',category:'Agreements',visibility:'Restricted',assetId:'agreement-asset',version:1}];
+ await assert.rejects(()=>f.request('save',{expectedVersion:0,payload:p}),e=>e.status===400&&/every owner/i.test(e.message));
+ assert.equal(f.calls.filter(c=>c.p_action==='save').length,0);
+ r.financialTerms.status='Draft';await f.request('save',{expectedVersion:0,payload:p});
+ r.financialTerms.status='Confirmed';r.financialTerms.distribution.push({memberId:'member-b',percentage:'0'});await f.request('save',{expectedVersion:1,payload:p});
+ assert.deepEqual(f.calls.at(-1).p_input.payload.companyRecords.financialTerms.distribution.map(d=>d.percentage),['100','0']);
+});
+test('private dated evidence updates shared maintenance without copying private fields or rewinding canonical future dates',()=>{
+ const s=state(),before=ownerRecordsFixture(),after=structuredClone(before);after.owners[0].legalName='Private legal name';after.owners[0].compliance={status:'Current',statusCheckedOn:'2026-10-06',annualReportFiledOn:'2026-04-15',annualReportDueOn:'2027-04-15',documentIds:['private-source']};
+ lib.syncCompanyRecordMaintenance(s,'c1',before,after);assert.equal(s.agencyMaintenance.records.length,2);
+ const annual=s.agencyMaintenance.records.find(r=>r.kind==='Annual report'),standing=s.agencyMaintenance.records.find(r=>r.kind==='Good standing');
+ assert.equal(annual.nextDueOn,'2027-04-15');assert.equal(standing.nextDueOn,'2027-10-06');assert.ok(annual.title.startsWith('Fictional member A:'));assert.deepEqual(annual.documentIds,[]);
+ assert.doesNotMatch(JSON.stringify(s),/120000001|120000002|Private legal name|representatives|private-source/);
+ annual.nextDueOn='2028-04-15';standing.nextDueOn='2028-10-06';standing.verifiedOn='2027-10-06';const canonical=structuredClone(s);
+ lib.syncCompanyRecordMaintenance(s,'c1',after,structuredClone(after));assert.deepEqual(s,canonical);
+ const updated=structuredClone(after);updated.owners[0].compliance.status='Delinquent';assert.equal(lib.companyRecordMaintenanceChanged(after,updated),true);
+ lib.syncCompanyRecordMaintenance(s,'c1',after,updated);assert.equal(s.agencyMaintenance.records.find(r=>r.kind==='Annual report').nextDueOn,'2028-04-15');assert.equal(s.agencyMaintenance.records.find(r=>r.kind==='Good standing').nextDueOn,'2028-10-06');
+ const fresh=structuredClone(updated);fresh.owners[0].compliance.annualReportDueOn='2029-04-15';lib.syncCompanyRecordMaintenance(s,'c1',updated,fresh);assert.equal(s.agencyMaintenance.records.find(r=>r.kind==='Annual report').nextDueOn,'2029-04-15');assert.equal(s.agencyMaintenance.records.find(r=>r.kind==='Good standing').verifiedOn,'2027-10-06');
 });

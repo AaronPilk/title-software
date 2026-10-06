@@ -1,5 +1,6 @@
 import { validateCompanyWorkspace, validateMemberIdentityMutation } from "./company-workspace";
 import { traceMutation, commandUuid } from "./command-log";
+import { agencyActivationAuthorized } from "./agency-setup";
 import type {
   Workspace,
   Order,
@@ -1910,6 +1911,7 @@ export function validateBusinessMutation(before: Workspace, after: Workspace) {
     if (
       previous?.stage !== "Active" &&
       c.stage === "Active" &&
+      !agencyActivationAuthorized(after, c.id) &&
       (!oc?.launchedAt || companyProblems(after, c).length)
     )
       throw new Error(

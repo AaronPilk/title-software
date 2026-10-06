@@ -140,10 +140,10 @@ for (const [role, all] of [["onboarding", false], ["operations", true]]) {
     assert.deepEqual(await page.evaluate(() => window.companyUpdates), []);
   });
 }
-test("an allowed company form still creates the company and onboarding task", async () => {
+test("an allowed company form creates its applicable setup checklist with explicit unassigned tasks", async () => {
   await open("owner", true);
   await add().click();
-  assert.match(await page.getByRole("dialog").innerText(), /Initial setup task assigned to you: staff@example.test/);
+  assert.doesNotMatch(await page.getByRole("dialog").innerText(), /task assigned to you/);
   await page.getByLabel("Company name", {exact:true}).fill("New Synthetic Title");
   await page.getByLabel("Company contact (optional)", {exact:true}).fill("Test Contact");
   await page.getByLabel("Contact email (optional)", {exact:true}).fill("contact@example.test");
@@ -157,18 +157,21 @@ test("an allowed company form still creates the company and onboarding task", as
   assert.equal(company.contact, "Test Contact");
   assert.equal(company.email, "contact@example.test");
   const tasks = state.tasks.filter(task => task.companyId === company.id);
-  assert.equal(tasks.length, 1);
-  assert.equal(tasks[0].title, "Collect onboarding application");
-  assert.equal(tasks[0].owner, "staff@example.test");
-  assert.equal(tasks[0].assigneeId, "fixture-user");
+  assert.ok(company.agencySetup);
+  assert.ok(tasks.length > 1);
+  assert.equal(new Set(tasks.map(task=>task.phaseOne.key)).size,tasks.length);
+  assert.ok(tasks.every(task=>task.phaseOne.kind==='setup' && task.phaseOne.templateVersion===company.agencySetup.templateVersion && task.phaseOne.applicable && task.scope==='agency'));
+  assert.equal(tasks.filter(task=>task.phaseOne.itemId==='application-original').length,1);
+  assert.equal(tasks.some(task=>task.title==='Collect onboarding application'),false);
+  assert.ok(tasks.every(task=>task.owner==='' && task.assigneeId===undefined));
 });
-test("local sample company creation preserves its illustrative setup owner", async () => {
+test("local sample company creation starts the same unassigned setup checklist", async () => {
   await open("demo", true);await add().click();
   await page.getByLabel("Company name", {exact:true}).fill("Fictional Demo Title");
   await page.getByLabel("Company contact (optional)", {exact:true}).fill("Test Contact");
   await page.getByLabel("Contact email (optional)", {exact:true}).fill("demo@example.test");
   await page.getByLabel("City", {exact:true}).fill("Charlotte");
   await page.getByRole("dialog").getByRole("button", {name:"Add company",exact:true}).click();await page.getByRole("dialog").waitFor({state:"detached"});
-  const state=await page.evaluate(()=>window.readFixtureCompanyState());const company=state.companies.find(row=>row.name==="Fictional Demo Title");const task=state.tasks.find(row=>row.companyId===company.id);
-  assert.equal(task.owner,"Stephenie");assert.equal(task.assigneeId,undefined);
+  const state=await page.evaluate(()=>window.readFixtureCompanyState());const company=state.companies.find(row=>row.name==="Fictional Demo Title");const tasks=state.tasks.filter(row=>row.companyId===company.id);
+  assert.ok(tasks.length>1);assert.ok(tasks.every(task=>task.phaseOne.kind==='setup' && task.owner==='' && task.assigneeId===undefined));
 });

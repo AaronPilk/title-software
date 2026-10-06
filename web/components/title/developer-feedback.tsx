@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element -- Private Blob previews must stay in this browser; image optimization would require a server-visible URL. */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Dialog, Tabs } from "radix-ui";
@@ -6,7 +7,8 @@ import { CheckCircle2, MessageSquare, RefreshCw, Send, X } from "lucide-react";
 import type { Access } from "@/lib/backend/workspace";
 import type { Page } from "@/lib/title/model";
 import type { FeedbackCursor, FeedbackItem, FeedbackKind, FeedbackStatus, FeedbackView } from "@/lib/backend/feedback";
-import { listFeedback, submitFeedback, updateFeedback } from "@/lib/backend/feedback-client";
+import { listFeedback, submitFeedback, submitFeedbackWithScreenshot, readFeedbackScreenshot, updateFeedback } from "@/lib/backend/feedback-client";
+import { feedbackScreenshotBytes, MAX_FEEDBACK_SCREENSHOT_BYTES } from "@/lib/backend/feedback-screenshot-validation";
 import styles from "./developer-feedback.module.css";
 
 type Props = { workspaceId: string; access: Access; page: Page; view: FeedbackView };
@@ -27,6 +29,12 @@ function FeedbackWidget({ workspaceId, access, page, view }: Props) {
   const [tab, setTab] = useState("send");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [sending, setSending] = useState(false);
+  const [screenshot, setScreenshot] = useState<File | null>(null);
+  const [preview, setPreview] = useState("");
+  const selection = useRef(0), previewResource = useRef("");
+  const [attaching, setAttaching] = useState(false);
+  useEffect(() => () => { if (previewResource.current) URL.revokeObjectURL(previewResource.current); }, []);
+  function clearScreenshot() { selection.current++; if (previewResource.current) URL.revokeObjectURL(previewResource.current); previewResource.current = ""; setPreview(""); setScreenshot(null); setAttaching(false); }
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<FeedbackItem | null>(null);
   const busy = useRef(false);
@@ -35,7 +43,7 @@ function FeedbackWidget({ workspaceId, access, page, view }: Props) {
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   function changeOpen(next: boolean) {
-    if (next && !draft?.message.trim() && !busy.current && !receipt) setDraft(freshDraft(page, view));
+    if (next && !draft?.message.trim() && !screenshot && !busy.current && !receipt) setDraft(freshDraft(page, view));
     setOpen(next);
   }
   function changeDraft(change: Partial<Pick<Draft, "kind" | "message">>) {
@@ -45,18 +53,34 @@ function FeedbackWidget({ workspaceId, access, page, view }: Props) {
   }
   async function send(event: React.FormEvent) {
     event.preventDefault();
-    if (!draft?.message.trim() || draft.message.length > 4000 || busy.current) return;
+    if (!draft?.message.trim() || draft.message.length > 4000 || busy.current || attaching) return;
     busy.current = true; setSending(true); setError("");
     try {
-      const item = await submitFeedback({ workspaceId, ...draft }, access.userId);
+      const item = screenshot ? await submitFeedbackWithScreenshot({ workspaceId, ...draft }, screenshot, access.userId) : await submitFeedback({ workspaceId, ...draft }, access.userId);
       if (!alive.current) return;
-      setReceipt(item); setDraft(null);
+      setReceipt(item); setDraft(null); clearScreenshot();
     } catch (cause) {
       if (alive.current) setError(errorMessage(cause));
     } finally {
       busy.current = false;
       if (alive.current) setSending(false);
     }
+  }
+
+  async function chooseScreenshot(file?: File) {
+    if (busy.current) return;
+    const version = ++selection.current;
+    if (!file) return;
+    setError(""); setAttaching(true);
+    try {
+      if (file.size > MAX_FEEDBACK_SCREENSHOT_BYTES) throw new Error("Choose a PNG or JPEG screenshot up to 4 MB.");
+      feedbackScreenshotBytes(new Uint8Array(await file.arrayBuffer()), file.type);
+      if (!alive.current || version !== selection.current || busy.current) return;
+      if (previewResource.current) URL.revokeObjectURL(previewResource.current);
+      previewResource.current = URL.createObjectURL(file); setPreview(previewResource.current);
+      setScreenshot(file); changeDraft({});
+    } catch (cause) { if (alive.current && version === selection.current) setError(errorMessage(cause)); }
+    finally { if (alive.current && version === selection.current) setAttaching(false); }
   }
 
   return <Dialog.Root open={open} onOpenChange={changeOpen}>
@@ -100,8 +124,9 @@ function FeedbackWidget({ workspaceId, access, page, view }: Props) {
               </div>
               <div className={styles.count}>{draft.message.length.toLocaleString()} / 4,000</div>
               <p id="feedback-sharing" className={styles.caption}>Your message, email, and this page are shared privately with the workspace owner. Screenshots and documents are not attached automatically. Leave out passwords and client details.</p>
+              <div className={styles.field}><label htmlFor="feedback-screenshot">Attach screenshot (optional)</label><input id="feedback-screenshot" type="file" accept="image/png,image/jpeg" disabled={sending} onChange={event => { void chooseScreenshot(event.target.files?.[0]); event.target.value = ""; }} /><p className={styles.caption}>Choose a PNG or JPEG up to 4 MB. Only you and the workspace owner can open it. Review it for private details before sending.</p>{screenshot && <div className={styles.attachment}><p>{screenshot.name}</p>{preview && <img src={preview} alt="Screenshot attachment preview" className={styles.preview} />}<button className={styles.secondary} type="button" disabled={sending} onClick={() => { clearScreenshot(); changeDraft({}); }}>Remove screenshot</button></div>}</div>
               {error && <p className={styles.error} role="alert">{error} Your draft is still here; retrying the same message will not create a duplicate.</p>}
-              <div className={styles.actions}><button className={styles.primary} type="submit" disabled={sending || !draft.message.trim()}><Send size={15} aria-hidden="true" />{sending ? "Sending…" : "Send feedback"}</button></div>
+              <div className={styles.actions}><button className={styles.primary} type="submit" disabled={sending || attaching || !draft.message.trim()}><Send size={15} aria-hidden="true" />{sending ? "Sending…" : "Send feedback"}</button></div>
             </form>}
           </Tabs.Content>
           <Tabs.Content value="inbox" className={styles.body}>
@@ -188,6 +213,7 @@ function FeedbackInbox({ workspaceId, userId, owner }: { workspaceId: string; us
     <div className={styles.items}>{items.map(item => <article key={item.id} className={styles.item} aria-label={`Feedback ${item.id.slice(0, 8)}`}>
       <div className={styles.itemHeading}><span className={styles.kind}>{kinds[item.kind]}</span><span className={styles.status} data-status={item.status}>{statuses[item.status]}</span></div>
       <p className={styles.message}>{item.message}</p>
+      {item.screenshot && <FeedbackScreenshot key={`${item.id}:${item.screenshot.fileName}`} item={item} workspaceId={workspaceId} userId={userId} />}
       <p className={styles.metadata}>{views[item.view]} / {item.page} · <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time></p>
       {owner && <p className={styles.metadata}>{item.author_email}</p>}
       {item.owner_reply && <div className={styles.reply}><strong>Reply from the workspace owner</strong><p>{item.owner_reply}</p></div>}
@@ -223,4 +249,17 @@ function FeedbackEditor({ workspaceId, userId, item, onCancel, onSaved }: { work
     {error && <p className={styles.error} role="alert">{error} Your changes are still here. If someone updated this item, copy your reply before canceling and refreshing.</p>}
     <div className={styles.actions}><button className={styles.secondary} type="button" disabled={saving} onClick={onCancel}>Cancel update</button><button className={styles.primary} type="submit" disabled={saving}>{saving ? "Saving…" : "Save update"}</button></div>
   </form>;
+}
+
+function FeedbackScreenshot({ item, workspaceId, userId }: { item: FeedbackItem; workspaceId: string; userId: string }) {
+  const [url, setUrl] = useState(""), [loading, setLoading] = useState(false), [error, setError] = useState("");
+  const alive = useRef(true), resource = useRef("");
+  useEffect(() => { alive.current = true; return () => { alive.current = false; if (resource.current) URL.revokeObjectURL(resource.current); }; }, []);
+  async function open() {
+    if (loading) return; setLoading(true); setError("");
+    try { const result = await readFeedbackScreenshot(workspaceId, item.id, userId); if (!alive.current) return; resource.current = URL.createObjectURL(result.blob); setUrl(resource.current); }
+    catch (cause) { if (alive.current) setError(errorMessage(cause)); }
+    finally { if (alive.current) setLoading(false); }
+  }
+  return <div className={styles.attachment}>{url ? <><img className={styles.preview} src={url} alt="Attached feedback screenshot" /><a className={styles.secondary} href={url} download={item.screenshot!.fileName}>Download screenshot</a></> : <button type="button" className={styles.secondary} disabled={loading} onClick={() => void open()}>{loading ? "Opening screenshot…" : "Open screenshot"}</button>}{error && <p className={styles.error} role="alert">{error}</p>}</div>;
 }

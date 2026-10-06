@@ -137,6 +137,7 @@ export default function Home() {
 function Workspace() {
   const { s: rawState, ready, connection } = useWorkspace();
   const { setOpenMobile } = useSidebar();
+  const [agencyMore, setAgencyMore] = useState(false);
   const [search, setSearch] = useState(false);
   const [notifications, setNotifications] = useState(false);
   const [orderId, setOrderId] = useState("");
@@ -485,7 +486,7 @@ function Workspace() {
             {(connection?.access.role === "partner" ? navigation : workspaceViewPages[view].map(label => navigation.find(n => n.label === label)!))
               .filter(
                 (n) =>
-                  pageVisibleInWorkspace(n.label, connection?.access.role),
+                  pageVisibleInWorkspace(n.label, connection?.access.role) && (view !== "agency" || connection?.access.role === "partner" || agencyMore || ["Overview", "Companies", "Tasks", "Documents", "Onboarding"].includes(n.label) || page === n.label),
               )
               .map(({ label, icon: Icon }) => (
                 <SidebarMenuItem
@@ -514,6 +515,7 @@ function Workspace() {
                 </SidebarMenuItem>
               ))}
           </SidebarMenu>
+          {view === "agency" && connection?.access.role !== "partner" && <button className="nav-button" style={{ margin: "10px 12px", padding: "10px 12px", textAlign: "left" }} aria-expanded={agencyMore} onClick={() => setAgencyMore(v => !v)}>{agencyMore ? "Fewer tools" : "More tools"}</button>}
         </SidebarContent>
         <SidebarFooter>
           <div className="local-card">

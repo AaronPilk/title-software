@@ -33,11 +33,20 @@ const client = {
       fixture.securityReads++;
       return ok(fixture.security);
     }
-    assert(["title_list_feedback", "title_submit_feedback", "title_update_feedback"].includes(name), `Unexpected RPC ${name}`);
+    assert(["title_list_feedback", "title_submit_feedback", "title_update_feedback", "title_feedback_screenshot"].includes(name), `Unexpected RPC ${name}`);
     fixture.calls.push({ name, args: structuredClone(args) });
     if (fixture.rpcError) return { data: null, error: fixture.rpcError };
+    if (name === "title_feedback_screenshot") {
+      if (args.p_action === "prepare") { fixture.screenshotDetails = args.p_input; return ok({ path: "private/screenshot", ready: false }); }
+      if (args.p_action === "read") return ok({ path: "private/screenshot", sha256: fixture.screenshotDetails.sha256, fileName: fixture.screenshotDetails.fileName, mime: fixture.screenshotDetails.mime });
+      return ok({ id: feedbackId, screenshot: { fileName: fixture.screenshotDetails.fileName, mime: fixture.screenshotDetails.mime }, version: 2 });
+    }
     return ok(name === "title_list_feedback" ? [{ id: feedbackId, message: "Fictional saved feedback", version: 3 }] : { id: feedbackId, version: 4 });
   },
+  storage: { from(bucket) { assert.equal(bucket,"title-feedback-screenshots"); return {
+    async upload(path, bytes, options) { assert.equal(path,"private/screenshot"); assert.equal(options.upsert,false); fixture.screenshotBytes=bytes; fixture.storageWrites++; return ok({path}); },
+    async download(path) { assert.equal(path,"private/screenshot"); if (fixture.revokeAfterDownload) fixture.rpcError={code:"42501",message:"Changed access"}; return ok(new Blob([fixture.screenshotBytes],{type:"image/png"})); },
+  }; } },
   from(table) {
     assert.equal(table, "title_memberships", "Feedback must use its scoped RPC, not read/write feedback rows directly");
     const filters = []; fixture.queries.push({ table, filters });
@@ -69,7 +78,7 @@ const bundle = await build({
 await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString("base64")}`);
 beforeEach(() => {
   fixture = { authenticated: true, confirmed: true, anonymous: false, aal: "aal2", active: true,
-    role: "operations", allCompanies: false, queries: [], calls: [], securityReads: 0, rpcError: null,
+    role: "operations", storageWrites: 0, allCompanies: false, queries: [], calls: [], securityReads: 0, rpcError: null,
     security: { session_valid: true, password_change_required: false, has_totp: true, session_totp: true } };
 });
 after(() => { globalThis.Deno = originalDeno; globalThis.fetch = originalFetch; delete globalThis.__developerFeedbackClient; });
@@ -295,3 +304,17 @@ for (const [code, status] of [["PT429", 429], ["PT409", 409], ["42501", 403]]) {
     const result = await submit(); assert.equal(result.status, status); assert.equal(fixture.calls.length, 1);
   });
 }
+
+const validScreenshot = { fileName: "fictional.png", mime: "image/png", base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6+9sAAAAASUVORK5CYII=" };
+test("screenshot route binds server identity and separate private bucket; original report attachment downloads through authorization twice", async () => {
+  const result=await post("/feedback/screenshot",{...submission(),screenshot:validScreenshot}); assert.equal(result.status,200);assert.equal(fixture.storageWrites,1);
+  assert.equal(fixture.calls[0].args.p_actor,actorId);assert.equal(fixture.calls[0].args.p_input.email,actorEmail);assert.equal(fixture.calls[0].args.p_actor_version,7);
+  const downloaded=await post("/feedback/screenshot/read",{workspaceId,id:feedbackId});assert.equal(downloaded.status,200);assert.equal(downloaded.body.base64,validScreenshot.base64);assert.equal(fixture.calls.filter(c=>c.args.p_action==='read').length,2);
+  fixture.revokeAfterDownload=true; assert.equal((await post("/feedback/screenshot/read",{workspaceId,id:feedbackId})).status,403);
+});
+test("screenshot routes reject unauthorized identities, unknown fields, forged MIME and oversized JSON before storage", async () => {
+  fixture.anonymous=true;assert.equal((await post("/feedback/screenshot",{...submission(),screenshot:validScreenshot})).status,403);fixture.anonymous=false;
+  for(const extra of [{screenshot:{...validScreenshot,mime:'image/svg+xml'}},{screenshot:{...validScreenshot,base64:'PHN2Zy8+'}},{screenshot:validScreenshot,authorId:actorId}]) assert.equal((await post('/feedback/screenshot',{...submission(),...extra})).status,400);
+  const tooLarge=JSON.stringify({...submission(),screenshot:validScreenshot}).padEnd(5_610_001,' ');assert.equal((await post('/feedback/screenshot',null,{raw:tooLarge})).status,413);
+  assert.equal(fixture.storageWrites,0);noFeedbackRpc();
+});

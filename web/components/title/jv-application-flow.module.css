@@ -65,3 +65,5 @@
  .flow, .importArea :global(.jv-reader), .importArea :global(.jv-candidate), .icon, .steps span { background: Canvas; border: 1px solid CanvasText; }
  .flow button:focus-visible, .flow summary:focus-visible, .flow input:focus-visible { outline-color: Highlight; }
 }
+
+.savedOriginals{display:flex;flex-direction:column;gap:.6rem;margin:1rem 0}.savedOriginals>div{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;padding:1rem;border:1px solid #d8e4ef;border-radius:12px}.savedOriginals span{flex:1;min-width:180px}.savedOriginals strong,.savedOriginals small{display:block;overflow-wrap:anywhere}.savedOriginals small{font-size:.8rem;color:#52677c;margin-top:.3rem}

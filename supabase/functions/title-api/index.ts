@@ -1,3 +1,4 @@
+import { FEEDBACK_SCREENSHOT_BUCKET, MAX_FEEDBACK_SCREENSHOT_BODY, submitFeedbackScreenshot, readFeedbackScreenshot } from "../../../web/lib/backend/feedback-screenshots.ts";
 import { prepareDocumentIngestion } from "../../../web/lib/backend/document-ingestion.ts";
 import { requireSecurityCenterAccess, parseSecurityPage, parseAccessReview, redactSecurityEvent, securityEventsCsv, recordSecurityEvent, type SecurityAuditContext } from "../../../web/lib/backend/security-center.ts";
 import { invitationEmailRedirect, sendInvitationEmail, invitationDeliveryMessage } from "../../../web/lib/backend/invitation-email.ts";
@@ -354,6 +355,20 @@ Deno.serve(async (req) => {
       );
       return response({ user: { id: user.id, email: user.email }, workspaces: rows });
     }
+    if (pathname === "/feedback/screenshot" || pathname === "/feedback/screenshot/read") {
+      if (req.method !== "POST") error("Feedback screenshots support POST only.", 405);
+      let raw: any;
+      try { raw = JSON.parse(await readRequestText(req, { maxBytes: pathname.endsWith("/read") ? 4096 : MAX_FEEDBACK_SCREENSHOT_BODY, timeoutMs: 30_000, tooLargeMessage: "Screenshot exceeds 4 MB." })); }
+      catch (e) { if (e instanceof SyntaxError) error("Invalid screenshot request."); throw e; }
+      const workspaceId = uuid(raw?.workspaceId), a = await access(workspaceId, user);
+      const context = {
+        workspaceId, access: a, email: user.email || "",
+        rpc: async (name: string, args: Record<string, unknown>) => { const result = await service.rpc(name, args); if (result.error) throw result.error; return result.data; },
+        upload: async (path: string, bytes: Uint8Array, mime: string) => { checked(await service.storage.from(FEEDBACK_SCREENSHOT_BUCKET).upload(path, bytes, { contentType: mime, upsert: false })); },
+        download: async (path: string) => { const blob = checked(await service.storage.from(FEEDBACK_SCREENSHOT_BUCKET).download(path)); return new Uint8Array(await blob.arrayBuffer()); },
+      };
+      return response(await (pathname.endsWith("/read") ? readFeedbackScreenshot(raw, context) : submitFeedbackScreenshot(raw, context)));
+    }
     if (pathname === "/feedback" || pathname === "/feedback/update") {
       if (pathname === "/feedback" && req.method === "GET") {
         const params = new URL(req.url).searchParams;
@@ -643,7 +658,10 @@ Deno.serve(async (req) => {
       // a stale or modified client cannot become authoritative assignment data.
       const selectedIds = new Set<string>();
       for (const command of Array.isArray(input.commands) ? input.commands : []) {
-        if (!command || typeof command !== "object" || command.name !== "editDraft" || !Array.isArray(command.args?.[0])) continue;
+        if (!command || typeof command !== "object") continue;
+        if (command.name === "updateAgencyTask" && command.args?.[0]?.assigneeId) selectedIds.add(uuid(command.args[0].assigneeId));
+        if (command.name === "saveAgencyMaintenance" && command.args?.[0]?.record?.assigneeId) selectedIds.add(uuid(command.args[0].record.assigneeId));
+        if (command.name !== "editDraft" || !Array.isArray(command.args?.[0])) continue;
         for (const edit of command.args[0]) if (edit && typeof edit === "object" && ["tasks", "orders"].includes(edit.table) && edit.value?.assigneeId)
           selectedIds.add(uuid(edit.value.assigneeId));
       }

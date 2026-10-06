@@ -1,4 +1,4 @@
-import { companyRecordSources } from "../title/company-records";
+import { companyRecordSources, companyRecordMemberIds, validateConfirmedDistributionMembers } from "../title/company-records";
 import type { Workspace } from "../title/model";
 import { ApiError, canCompany, type Access } from "./workspace";
 import {
@@ -47,7 +47,7 @@ function record(raw: unknown, companyId: string): JVRecord {
 function verifySources(application: JVApplication, companyId: string, context: JVIntakeContext) {
   for (const { id, categories } of [...application.sourceDocumentIds.map(id => ({ id, categories: ["Applications"] })), ...companyRecordSources(application.companyRecords)]) {
     const doc = context.state.documents.find(item => item.id === id);
-    if (!doc || doc.companyId !== companyId || doc.orderId || doc.visibility !== "Restricted" ||
+    if (!doc || doc.archivedAt || doc.companyId !== companyId || doc.orderId || doc.visibility !== "Restricted" ||
         !categories.includes(doc.category) || !Number.isSafeInteger(doc.version) || doc.version < 1 || typeof doc.assetId !== "string" || !doc.assetId)
       fail("Choose an available restricted application original for this company.", 403);
   }
@@ -88,9 +88,10 @@ export async function jvIntakeRequest(action: string, input: Record<string, unkn
   const application = owns(input, "payload") ? payload(input.payload) : saved.payload;
   if (action === "save" && !owns(input, "payload")) fail("Provide the private application to save.");
   if (saved.payload.companyRecords && !application.companyRecords) fail("Reload the latest company records before saving.", 409);
-  const members = context.state.companies.find(c => c.id === companyId)!.members;
-  const memberIds = [...(application.companyRecords?.owners.map(o => o.memberId) || []), ...(application.companyRecords?.agreements.flatMap(a => a.terms.map(t => t.memberId)) || [])];
+  const members = context.state.companies.find(c => c.id === companyId)!.members || [];
+  const memberIds = companyRecordMemberIds(application.companyRecords);
   if (memberIds.some(id => !members.some(m => m.id === id))) fail("An owner link changed. Review the company members before saving.", 409);
+  try { validateConfirmedDistributionMembers(application.companyRecords, members.map(m => m.id || "")); } catch { fail("Confirmed terms require a distribution percentage for every owner, including 0% where applicable."); }
   verifySources(application, companyId, context);
   const changed = jvIntakeFingerprint(application) !== jvIntakeFingerprint(saved.payload);
   let status = saved.status, reviewNote = saved.reviewNote;

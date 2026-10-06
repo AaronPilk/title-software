@@ -68,10 +68,11 @@ try {
     grant usage on schema auth to service_role; grant execute on function auth.uid() to service_role;
     create schema storage; create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint);`);
   for (const name of ['20260912142734_title_backend_foundation.sql', '20260912145118_title_verified_access_gateway.sql',
-    '20260912145505_title_explicit_conflicts.sql', '20260919215301_title_staff_access_lifecycle.sql', '20260923173707_title_developer_feedback.sql']) {
+    '20260912145505_title_explicit_conflicts.sql', '20260919215301_title_staff_access_lifecycle.sql', '20260923173707_title_developer_feedback.sql', '20261006152512_title_feedback_screenshots.sql']) {
     sql(fs.readFileSync(path.join(root, 'supabase/migrations', name), 'utf8'));
   }
   console.log(sql(fs.readFileSync(path.join(root, 'web/tests/feedback.test.sql'), 'utf8')).match(/\d+ feedback SQL assertions passed/)?.[0]);
+  console.log(sql(fs.readFileSync(path.join(root, 'web/tests/feedback-screenshots.test.sql'), 'utf8')));
   setup();
   await blocked(submit(), submit(), 'concurrent same-ID retry creates one note');
   assert.equal(sql('select count(*) from public.title_feedback;').trim(), '1');

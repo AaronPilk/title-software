@@ -47,6 +47,7 @@ export type AuthorityRecord = {
   reviewer: string;
 };
 export type Company = {
+  agencySetup?: import("./agency-setup").AgencySetupConfiguration;
   desk?: CompanyDesk;
   intake?: CompanyIntakeSource;
   /** Confirmed business operation, independent of this workspace's evidence review. */
@@ -127,6 +128,11 @@ export type Order = {
   exception: string;
 };
 export type VaultDoc = {
+  displayName?: string;
+  archivedAt?: string;
+  archivedBy?: string;
+  archiveReason?: string;
+  designation?: "Current" | "Final";
   folderId?: string;
   /** Immutable source attribution assigned only by the reviewed server importer. */
   providerSource?: {
@@ -160,6 +166,12 @@ export type VaultDoc = {
   mime?: string;
 };
 export type Task = {
+  status?: "Not Started" | "In Progress" | "Complete";
+  completedOn?: string;
+  effectiveOn?: string;
+  notes?: string;
+  documentIds?: string[];
+  phaseOne?: import("./agency-setup").AgencyTaskMetadata;
   /** Explicit work domain. Unclassified legacy tasks are withheld from production-only accounts. */
   scope?: "agency" | "production";
   id: string;
@@ -254,6 +266,8 @@ export type PartnerOperationalSummary = {
   rows: PartnerCompanyPeriodSummary[];
 };
 export type Workspace = {
+  agencySetupTemplates?: import("./agency-setup").AgencySetupTemplate[];
+  agencyMaintenance?: import("./agency-maintenance").AgencyMaintenanceState;
   orchestration?: import("./orchestration").OrchestrationState;
   /** Read-only projection; never an authoritative source or a saved approval. */
   partnerSummary?: PartnerOperationalSummary;

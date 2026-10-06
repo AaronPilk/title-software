@@ -1,4 +1,7 @@
 "use client";
+import { AgencyDocumentActions } from "./company-workspace";
+import { companyDesk } from "@/lib/title/company-workspace";
+import { documentDisplayName } from "@/lib/title/agency-documents";
 import { DeliveryManager } from "./deliveries";
 import { canFillCompanyApplication } from "@/lib/title/application-document";
 import { DocumentTextReview } from "./document-text-review";
@@ -48,13 +51,16 @@ export function Documents({
   const [company, setCompany] = useState("all");
   const [category, setCategory] = useState("All documents");
   const [filing, setFiling] = useState("All documents");
-  const companyRows = s.documents.filter(d => company === "all" || d.companyId === company);
+  const [lifecycle, setLifecycle] = useState("active"), [type, setType] = useState(""), [folder, setFolder] = useState(""), [since, setSince] = useState("");
+  const companyRows = s.documents.filter(d => !d.archivedAt && (company === "all" || d.companyId === company));
   const rows = s.documents.filter(
     (d) =>
+      (lifecycle === "trash" ? !!d.archivedAt : !d.archivedAt) &&
+      (!type || d.category === type) && (!folder || d.folderId === folder) && (!since || d.date >= since) &&
       (company === "all" || d.companyId === company) &&
       (category === "All documents" || d.visibility === category) &&
       (filing === "All documents" || (filing === "Company documents" ? !d.orderId : !!d.orderId)) &&
-      `${d.name} ${d.category} ${companyById(s, d.companyId).name}`
+      `${documentDisplayName(d)} ${d.name} ${d.category} ${companyById(s, d.companyId).name}`
         .toLowerCase()
         .includes(q.toLowerCase()),
   );
@@ -121,6 +127,7 @@ export function Documents({
           />
         </div>
       </div>
+      <details className="document-filters"><summary>Filter by folder, document type, date or Trash</summary><div className="toolbar"><Picker value={lifecycle} onChange={setLifecycle} label="Document location" options={[{ value: "active", label: "Cabinet" }, { value: "trash", label: "Trash" }]} /><Picker value={type} onChange={setType} label="Document type filter" options={[{ value: "", label: "All document types" }, ...[...new Set(companyRows.map(doc => doc.category))].sort()]} /><Picker value={folder} onChange={setFolder} label="Document folder filter" options={[{ value: "", label: "All folders" }, ...[...new Map(s.companies.filter(c => company === "all" || c.id === company).flatMap(c => companyDesk(c).folders).map(folder => [folder.id, { value: folder.id, label: folder.name }])).values()]]} /><label>Uploaded since <input className="input" aria-label="Uploaded since" type="date" value={since} onChange={event => setSince(event.target.value)} /></label></div></details>
       {s.documents.some(
         (d) =>
           d.visibility === "Partner" &&
@@ -151,7 +158,7 @@ export function Documents({
                   <span className="file-icon">
                     <FileText size={19} />
                   </span>
-                  <strong>{d.name}</strong>
+                  <strong>{documentDisplayName(d)}</strong>
                 </button>
               </TableCell>
               <TableCell>{companyById(s, d.companyId).name}</TableCell>
@@ -171,12 +178,12 @@ export function Documents({
                 />
               </TableCell>
               <TableCell>{d.date}</TableCell>
-              <TableCell>v{d.version}</TableCell>
+              <TableCell>v{d.version}{d.designation ? ` · ${d.designation}` : ""}{d.archivedAt ? " · In Trash" : ""}</TableCell>
               <TableCell>
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label={`Preview ${d.name} ${companyById(s, d.companyId).name}`}
+                  aria-label={`Preview ${documentDisplayName(d)} ${companyById(s, d.companyId).name}`}
                   onClick={() => onDoc(d)}
                 >
                   <Eye />
@@ -200,7 +207,7 @@ export function Documents({
 }
 export { UploadDocument } from "./document-upload";
 export function DocumentPreview({
-  doc,
+  doc: selectedDoc,
   onClose,
   partner = false,
   publicationId,
@@ -217,8 +224,10 @@ export function DocumentPreview({
   onFillApplication?: (doc: VaultDoc) => void;
 }) {
   const { s, update, connection } = useWorkspace();
+  const doc = s.documents.find(row => row.id === selectedDoc.id) || selectedDoc;
+  const cabinet = !partner && !doc.orderId;
   const connected = !!connection;
-  const applicationFill = !partner && !!onFillApplication && canFillCompanyApplication(s, doc, connection);
+  const applicationFill = !partner && !doc.archivedAt && !!onFillApplication && canFillCompanyApplication(s, doc, connection);
   const [loaded, setLoaded] = useState<{ doc: VaultDoc; url?: string; text?: string; pdf?: Blob; error?: string } | null>(null);
   const current = loaded?.doc === doc ? loaded : null;
   const url = current?.url || "";
@@ -302,16 +311,17 @@ export function DocumentPreview({
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="document-modal">
         <DialogHeader>
-          <DialogTitle>{doc.name}</DialogTitle>
+          <DialogTitle>{documentDisplayName(doc)}</DialogTitle>
           <DialogDescription>
             {companyById(s, doc.companyId).name} · {doc.category} · Version{" "}
             {doc.version}
           </DialogDescription>
         </DialogHeader>
-        {applicationFill && <section className="panel application-document-action" aria-label="Fill company application">
+        {applicationFill && <details><summary>Read / Import Application Details (optional)</summary><section className="panel application-document-action" aria-label="Fill company application">
           <div><h3>Fill application details</h3><p className="form-note">Read this completed application into {companyById(s, doc.companyId).name}’s private form. Check the suggested details, then save. No re-upload needed.</p></div>
           <Button onClick={() => onFillApplication?.(doc)}><FileText size={17} />Fill application from this document</Button>
-        </section>}
+        </section></details>}
+        {cabinet && <AgencyDocumentActions doc={doc} />}
         <div className="document-modal-tools">
           <Status value={partner ? "Published" : doc.visibility} />
           <span>{doc.size}</span>
@@ -333,8 +343,31 @@ export function DocumentPreview({
         ) : (
           <div className="empty-state">Loading document…</div>
         )}
-        {!partner && (
-          <div className="document-sharing">
+        {!partner && !doc.archivedAt && (
+          cabinet ? <details><summary>Access settings</summary><div className="document-sharing">
+            <span>
+              <Shield size={15} />
+              {connection ? "Document access" : "Visibility label"}
+            </span>
+            <Picker
+              value={doc.visibility === "Partner" ? "Internal" : doc.visibility}
+              label={connection ? "Change document access" : "Change visibility label"}
+              options={["Internal", "Restricted"]}
+              onChange={async (v) =>
+                await update(
+                  (d) => {
+                    d.documents.find((x) => x.id === doc.id)!.visibility =
+                      v as VaultDoc["visibility"];
+                  },
+                  connection ? "Document access updated" : "Document visibility label updated",
+                  doc.name,
+                )
+              }
+            />
+            <small>
+              Partner sharing requires the separate publication review below.
+            </small>
+          </div></details> : <div className="document-sharing">
             <span>
               <Shield size={15} />
               {connection ? "Document access" : "Visibility label"}
@@ -359,8 +392,8 @@ export function DocumentPreview({
             </small>
           </div>
         )}
-        {!partner && (applicationFill ? <details><summary>Read or copy document text</summary><DocumentTextReview key={`${doc.id}:${doc.version}:${doc.assetId}:text`} doc={doc} /></details> : <DocumentTextReview key={`${doc.id}:${doc.version}:${doc.assetId}:text`} doc={doc} />)}
-        {!partner && <PublicationManager key={doc.id} documentId={doc.id} />}
+        {!partner && !doc.archivedAt && (applicationFill ? <details><summary>Read or copy document text</summary><DocumentTextReview key={`${doc.id}:${doc.version}:${doc.assetId}:text`} doc={doc} /></details> : cabinet ? <details><summary>Read or copy document text (optional)</summary><DocumentTextReview key={`${doc.id}:${doc.version}:${doc.assetId}:text`} doc={doc} /></details> : <DocumentTextReview key={`${doc.id}:${doc.version}:${doc.assetId}:text`} doc={doc} />)}
+        {!partner && !doc.archivedAt && (cabinet ? <details><summary>Share with Partner Portal</summary><p className="form-note">Choose a version and audience, then complete the publication review. Uploading or moving a file never shares it.</p><PublicationManager key={doc.id} documentId={doc.id} /></details> : <PublicationManager key={doc.id} documentId={doc.id} />)}
         {!partner && doc.orderId && (
           <DeliveryManager key={`${doc.id}:delivery`} documentId={doc.id} />
         )}

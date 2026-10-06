@@ -112,13 +112,13 @@ export function documentIdentity(d: VaultDoc) {
   ]);
 }
 export function latestDocument(s: Workspace, d: VaultDoc) {
-  return !s.documents.some(
-    (n) => sameDocumentFamily(d, n) && n.version > d.version,
+  return !d.archivedAt && !s.documents.some(
+    (n) => !n.archivedAt && sameDocumentFamily(d, n) && n.version > d.version,
   );
 }
 export function publicationEligible(d: VaultDoc) {
   return (
-    !d.publicationBlocked &&
+    !d.archivedAt && !d.publicationBlocked &&
     d.visibility !== "Restricted" &&
     d.category !== "Applications"
   );
@@ -126,7 +126,7 @@ export function publicationEligible(d: VaultDoc) {
 function materialDoc(s: Workspace, item: CompanyMaterial) {
   return s.documents.find(
     (d) =>
-      d.id === item.documentId &&
+      !d.archivedAt && d.id === item.documentId &&
       d.companyId === item.companyId &&
       !d.orderId &&
       d.category !== "Applications",
@@ -370,7 +370,7 @@ export function approveMaterial(
 }
 function releaseDoc(s: Workspace, p: DocumentPublication) {
   return s.documents.find(
-    (d) => d.id === p.documentId && d.companyId === p.companyId,
+    (d) => !d.archivedAt && d.id === p.documentId && d.companyId === p.companyId,
   );
 }
 function releaseSnapshot(s: Workspace, p: DocumentPublication) {

@@ -88,6 +88,11 @@ try {
       console.log('Migration backfill: 9 assertions passed for existing grants, exclusions, renamed/recycled identities and revoke');
     }
   }
+  // Exercise the current commit function without loading the independent
+  // encrypted-intake archive trigger into this staff-only fixture database.
+  const agencyCommit = fs.readFileSync(path.join(root,'supabase/migrations/20261006152132_title_agency_document_archive_guard.sql'),'utf8').match(/create or replace function public\.title_commit\([\s\S]*?\nend \$\$;/)?.[0];
+  assert.ok(agencyCommit,'current Agency title_commit definition is present');
+  sql(agencyCommit);
   const tests=fs.readFileSync(path.join(root,'web/tests/staff-lifecycle.test.sql'),'utf8');
   for(let round=1;round<=5;round++) console.log(`Round ${round}: ${sql(tests).match(/\d+ staff lifecycle SQL assertions passed/)?.[0]}`);
   const emailTests=fs.readFileSync(path.join(root,'web/tests/invitation-email.test.sql'),'utf8');
@@ -240,6 +245,17 @@ try {
   setup();
   await blocked(commitAssigned,`select public.title_revoke_member('${w}','${owner}','owner@example.test',1,'${staff}',1);`,
     {label:'assignment may commit before later revocation without deadlock'});
+  assert.equal(sql(`select state->'tasks'->0->>'assigneeId' from public.title_workspaces where id='${w}';`).trim(),staff);
+  const globalState=JSON.stringify({companies:[{id:'A'}],tasks:[{id:'global-task',companyId:'',scope:'agency',owner:'staff@example.test',assigneeId:staff,phaseOne:{kind:'maintenance',maintenanceId:'agency-credential'}}],orders:[],agencyMaintenance:{records:[{id:'agency-credential',scope:'agency'}]}});
+  const commitGlobal=`select public.title_commit('${w}','${owner}','owner@example.test',1,0,gen_random_uuid(),'global-assignment','${globalState}','["updateAgencyTask"]','{}');`;
+  setup();sql(`update public.title_memberships set role='onboarding',all_companies=true where workspace_id='${w}' and user_id='${staff}';`);
+  await blocked(`select public.title_revoke_member('${w}','${owner}','owner@example.test',1,'${staff}',1);`,commitGlobal,
+    {failure:/selected staff account no longer/,label:'revocation blocks agency-wide maintenance assignment atomically'});
+  assert.equal(sql(`select revision from public.title_workspaces where id='${w}';`).trim(),'0');
+  assert.equal(sql(`select count(*) from public.title_command_receipts;`).trim(),'0');
+  setup();sql(`update public.title_memberships set role='onboarding',all_companies=true where workspace_id='${w}' and user_id='${staff}';`);
+  await blocked(commitGlobal,`select public.title_revoke_member('${w}','${owner}','owner@example.test',1,'${staff}',1);`,
+    {label:'agency-wide maintenance assignment before revocation commits without deadlock'});
   assert.equal(sql(`select state->'tasks'->0->>'assigneeId' from public.title_workspaces where id='${w}';`).trim(),staff);
   assert.equal(sql(`select active::text from public.title_memberships where workspace_id='${w}' and user_id='${staff}';`).trim(),'false');
   // Three sessions exercise the nested import edge: an unrelated workspace

@@ -21,6 +21,7 @@
 /.statusdoc/
 /supabase/functions/title-missive-events/bundle.js
 /supabase/functions/title-jv-public/bundle.js
+/supabase/functions/title-maintenance/bundle.js
 /services/title-applications/public/app.js
 /services/title-applications/public/app.css
 /services/title-applications/public/brand/

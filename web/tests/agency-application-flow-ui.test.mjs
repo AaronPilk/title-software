@@ -48,7 +48,7 @@ before(async () => {
     stdin: { resolveDir: web, loader: "tsx", contents: `
       import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
       import {JVApplicationPanel} from './components/title/jv-application';import {DocumentPreview} from './components/title/documents';import {useWorkspace} from '@/lib/title/store';import {useWorkspaceView} from './components/title/use-workspace-view';
-      function App(){const {s}=useWorkspace();const [key,setKey]=useState(0);const [sourceId,setSourceId]=useState('');const [preview,setPreview]=useState(true);window.reopenApplication=()=>setKey(v=>v+1);const q=new URLSearchParams(location.search);const route=useWorkspaceView({userId:'fictional-owner',email:'owner@example.test',role:'owner',workspaceId:'fictional-workspace'},'Fictional');window.navigationResults||=[];if(q.has('stored')&&!sourceId)return <main>{s.documents[0]&&preview?<DocumentPreview doc={s.documents[0]} onClose={()=>setPreview(false)} onFillApplication={doc=>{setSourceId(doc.id);setPreview(false)}}/>:<p>Waiting for stored original</p>}</main>;return <main>{q.has('navigation')&&<nav aria-label="Fixture workspace navigation"><button onClick={()=>window.navigationResults.push(route.navigate('Settings'))}>Open settings</button><button onClick={()=>window.navigationResults.push(route.switchView('production'))}>Switch to Production</button><button onClick={()=>window.navigationResults.push(route.navigate('Onboarding'))}>Return to applications</button><output aria-label="Current workspace route">{route.view+'/'+route.page}</output></nav>}{!q.has('navigation')||route.page==='Onboarding'?<JVApplicationPanel key={key} sourceDocumentId={sourceId} company={s.companies[0]} existingCompany={!q.has('new')} initiallyOpen onDocuments={()=>window.documentNavigations++}/>:<h2>Another workspace page</h2>}</main>;}createRoot(document.getElementById('root')).render(<App/>);
+      function App(){const {s}=useWorkspace();const [key,setKey]=useState(0);const [sourceId,setSourceId]=useState('');const [preview,setPreview]=useState(true);window.reopenApplication=()=>setKey(v=>v+1);const q=new URLSearchParams(location.search);const route=useWorkspaceView({userId:'fictional-owner',email:'owner@example.test',role:'owner',workspaceId:'fictional-workspace'},'Fictional');window.navigationResults||=[];if(q.has('stored')&&!sourceId)return <main>{s.documents[0]&&preview?<DocumentPreview doc={s.documents[0]} onClose={()=>setPreview(false)} onFillApplication={doc=>{setSourceId(doc.id);setPreview(false)}}/>:<p>Waiting for stored original</p>}</main>;return <main>{q.has('navigation')&&<nav aria-label="Fixture workspace navigation"><button onClick={()=>window.navigationResults.push(route.navigate('Settings'))}>Open settings</button><button onClick={()=>window.navigationResults.push(route.switchView('production'))}>Switch to Production</button><button onClick={()=>window.navigationResults.push(route.navigate('Onboarding'))}>Return to applications</button><output aria-label="Current workspace route">{route.view+'/'+route.page}</output></nav>}{!q.has('navigation')||route.page==='Onboarding'?<JVApplicationPanel key={key} sourceDocumentId={sourceId} company={s.companies[0]} existingCompany={!q.has('new')} initiallyOpen={!q.has('storage')} onDocuments={()=>window.documentNavigations++}/>:<h2>Another workspace page</h2>}</main>;}createRoot(document.getElementById('root')).render(<App/>);
     ` }, plugins: [{ name: "fictional-agency-application-transport", setup(builder) {
       builder.onResolve({ filter: /^@\/lib\/title\/store$/ }, () => ({ path: "store", namespace: "fixture" }));
       builder.onLoad({ filter: /^store$/, namespace: "fixture" }, () => ({ loader: "tsx", resolveDir: web, contents: `
@@ -100,15 +100,15 @@ async function open(query = "", mobile = false) {
   await page.waitForFunction(() => !!window.privateApplicationRequests);
   await page.locator("main").waitFor({ state: "attached" });
 }
-async function upload(file = applicationPdf()) {
+async function upload(file = applicationPdf(), read = true) {
   await page.getByRole("button", { name: "Upload completed application", exact: true }).click();
   assert.equal(await page.getByLabel("Upload company", { exact: true }).count(), 0);
   assert.equal(await page.getByLabel("Document category", { exact: true }).count(), 0);
   assert.equal(await page.getByLabel("Document visibility", { exact: true }).count(), 0);
   await page.getByText("Private company application · Restricted access", { exact: true }).waitFor();
   await page.getByLabel("Select completed application", { exact: true }).setInputFiles(file);
-  await page.getByRole("button", { name: "Upload and read application", exact: true }).click();
-  await page.getByText("application suggestions for", { exact: false }).waitFor({ timeout: 15000 });
+  await page.getByRole("button", { name: "Save completed application", exact: true }).click();
+  if (read) { await page.getByRole("button", { name: "Read / Import Application Details", exact: true }).last().click(); await page.getByText("application suggestions for", { exact: false }).waitFor({ timeout: 15000 }); }
   return file;
 }
 async function reviewClear() {
@@ -148,7 +148,7 @@ test("a real two-page PDF uploads to restricted applications, fills both people 
   assert.equal(saved.payload.applicants[0].businessName, "Fictional Owner LLC");assert.equal(saved.payload.applicants[0].residenceHistory[0].address, "100 Fictional Lane");
   assert.equal(saved.payload.applicants[0].employmentHistory[0].employer, "Fictional Employer");assert.equal(saved.payload.logoPreferences, "Navy and white wordmark");
   assert.deepEqual(saved.payload.sourceDocumentIds, [doc.id]);assert.equal(saved.status, "Draft");assert.ok(saved.payload.steps.every(step => step.status === "Not started"));
-  assert.deepEqual(await page.evaluate(() => window.applicationWorkspace().s.companies[0]), before, "importing an existing company's application does not restart its operating/launch status");
+  assert.deepEqual(await page.evaluate(() => { const company=structuredClone(window.applicationWorkspace().s.companies[0]);delete company.desk;return company; }), ((company)=>{const copy=structuredClone(company);delete copy.desk;return copy;})(before), "importing an existing company's application does not restart its operating/launch status");
   await page.evaluate(() => window.reopenApplication());await page.getByText("Avery Example · Jordan Example", { exact: true }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.readPrivateApplication()), saved);
   assert.deepEqual(await page.evaluate(() => ({ local: Object.keys(localStorage), session: Object.keys(sessionStorage) })), { local: [], session: [] });
@@ -173,7 +173,7 @@ test("the supplied application's split labels and instructions fill a returned P
   assert.equal(person.name, "Avery Fictional");assert.equal(person.email, "avery@example.test");assert.equal(person.ssn, "123456789");assert.equal(person.ownershipType, "individual");
   assert.equal(person.residenceHistory.length, 1);assert.equal(person.employmentHistory.length, 1);
   assert.equal(saved.payload.logoPreferences, "Navy and silver, use a simple wordmark.");assert.equal(saved.payload.notes, "Call after 3 pm.");
-  assert.deepEqual(await page.evaluate(() => window.applicationWorkspace().s.companies[0]), company);
+  assert.deepEqual(await page.evaluate(() => { const company=structuredClone(window.applicationWorkspace().s.companies[0]);delete company.desk;return company; }), ((value)=>{const copy=structuredClone(value);delete copy.desk;return copy;})(company));
 });
 
 test("new ventures offer their private recipient link without uploading a file or sending an email", async () => {
@@ -256,7 +256,7 @@ test("an authorization failure while saving extracted answers clears private sug
 test("revoking restricted access during original upload cannot allocate documents or save private answers", async () => {
   await open();await page.getByRole("button", { name: "Upload completed application", exact: true }).click();
   await page.getByLabel("Select completed application", { exact: true }).setInputFiles(applicationPdf());await page.evaluate(() => window.holdApplicationUpload = true);
-  await page.getByRole("button", { name: "Upload and read application", exact: true }).click();await page.waitForFunction(() => window.applicationPending.length === 1);
+  await page.getByRole("button", { name: "Save completed application", exact: true }).click();await page.waitForFunction(() => window.applicationPending.length === 1);
   await page.evaluate(() => window.changeApplicationAccess());await page.evaluate(() => window.applicationPending.shift()());
   assert.equal(await page.getByRole("button", { name: "Upload completed application", exact: true }).count(), 0);
   assert.deepEqual(await page.evaluate(() => window.applicationWorkspace().s.documents), []);
@@ -305,6 +305,7 @@ test("loading and saving a real application block global navigation without a di
 test("a saved application opens autofill directly from its document without uploading again", async () => {
   await open("stored=1");
   await page.evaluate(bytes=>window.installApplicationOriginal(bytes),Array.from(applicationPdf().buffer));
+  await page.getByText("Read / Import Application Details (optional)",{exact:true}).click();
   await page.getByRole("button",{name:"Fill application from this document",exact:true}).click();
   await page.getByText("application suggestions for",{exact:false}).waitFor({timeout:15000});
   assert.equal(await page.getByLabel("Application original",{exact:true}).inputValue(),"stored-app");
@@ -332,6 +333,7 @@ test("flattened answers painted after questions fill the saved private applicati
   const positioned=[...rows.map(([text],i)=>({text,x:40,y:700-i*35})),...rows.map(([,text],i)=>({text,x:230,y:700-i*35})).reverse(),{text:'RESIDENCE LAST 5 YEARS:',x:40,y:390},{text:'100 Fictional Lane - since 2017',x:230,y:394},{text:'EMPLOYMENT HISTORY',x:40,y:300},{text:'Fictional Employer - Analyst',x:230,y:304},{text:'Since January 2019',x:230,y:284},{text:'LAST 5YEARS:',x:40,y:280}];
   const original=applicationPdf([['Welcome to the fictional application'],positioned,['Additional notes: Fictional notes for the company','Continuation of the same answer']]);
   await open('stored=1');await page.evaluate(bytes=>window.installApplicationOriginal(bytes),Array.from(original.buffer));
+  await page.getByText('Read / Import Application Details (optional)',{exact:true}).click();
   await page.getByRole('button',{name:'Fill application from this document',exact:true}).click();
   await page.getByText('application suggestions for',{exact:false}).waitFor({timeout:15000});
   await page.getByLabel('Application date format',{exact:true}).selectOption('mdy');
@@ -340,4 +342,11 @@ test("flattened answers painted after questions fill the saved private applicati
   assert.equal(person.name,'Avery Fictional');assert.equal(person.email,'avery@example.test');assert.equal(person.phone,'7045550101');assert.equal(person.dob,'1988-03-04');assert.equal(person.ssn,'123456789');assert.equal(person.driverLicense,'EX123456');assert.equal(person.currentAddress,'100 Fictional Lane, Example NC 28000');
   assert.match(saved.payload.notes,/100 Fictional Lane - since 2017/);assert.match(saved.payload.notes,/Fictional Employer - Analyst/);assert.match(saved.payload.notes,/Since January 2019/);assert.match(saved.payload.notes,/Continuation of the same answer/);
   assert.deepEqual(person.residenceHistory,[]);assert.deepEqual(person.employmentHistory,[]);assert.equal(person.ownershipType,'undecided');assert.equal(saved.status,'Draft');assert.deepEqual(await page.evaluate(()=>window.applicationUploads),[]);
+});
+
+
+test("storing a completed application does not load private intake, read the original, or send an application link",async()=>{
+ await open("storage=1");const original=await upload(applicationPdf(),false);await page.getByText("Application saved",{exact:true}).waitFor();
+ const result=await page.evaluate(()=>({reads:window.assetReads,private:window.privateApplicationRequests,portal:window.applicationPortalRequests,uploads:window.applicationUploads,documents:window.applicationWorkspace().s.documents}));
+ assert.equal(result.reads,0);assert.deepEqual(result.private,[]);assert.deepEqual(result.portal,[]);assert.equal(result.documents.length,1);assert.equal(result.documents[0].visibility,"Restricted");assert.deepEqual(result.uploads[0].bytes,Array.from(original.buffer));assert.equal(await page.getByRole("button",{name:"Read / Import Application Details",exact:true}).count(),1);assert.equal(await page.getByLabel("Read an application into fields",{exact:true}).count(),0);
 });

@@ -6,9 +6,16 @@ export type OwnerEntity = {
   formationStatus: "Unknown" | "Being formed" | "Formed" | "Not applicable";
   formationBy: "Not confirmed" | "Agency" | "Owner / outside professional";
   formationState: string; formationReference: string; documentIds: string[];
+  setupKind?: "existing" | "new"; compliance?: EntityCompliance;
 };
 export type AgreementTerm = { memberId: string; label: string; percentage: string };
-export type CompanyAgreement = { id: string; title: string; effectiveOn: string; reference: string; documentIds: string[]; terms: AgreementTerm[]; notes: string };
+export type EntityCompliance = { status: "Unknown" | "Current" | "Delinquent" | "Inactive" | "Dissolved" | "Suspended"; statusCheckedOn: string; annualReportFiledOn: string; annualReportDueOn: string; documentIds: string[] };
+export const emptyEntityCompliance = (): EntityCompliance => ({ status: "Unknown", statusCheckedOn: "", annualReportFiledOn: "", annualReportDueOn: "", documentIds: [] });
+export type FinancialTerms = { status: "Draft" | "Confirmed"; effectiveOn: string; distribution: { memberId: string; percentage: string }[]; managementFeePercentage: string; agreementMode: "single" | "separate"; jvAgreementId: string; operatingAgreementId: string };
+export const emptyFinancialTerms = (): FinancialTerms => ({ status: "Draft", effectiveOn: "", distribution: [], managementFeePercentage: "", agreementMode: "single", jvAgreementId: "", operatingAgreementId: "" });
+export type BankingMetadata = { bankEstablished: boolean; bankName: string; confirmation: string; paymentEstablished: boolean; cardholder: string; lastFour: string };
+export const emptyBankingMetadata = (): BankingMetadata => ({ bankEstablished: false, bankName: "", confirmation: "", paymentEstablished: false, cardholder: "", lastFour: "" });
+export type CompanyAgreement = { kind?: "combined" | "jv" | "operating" | "other"; executed?: boolean; id: string; title: string; effectiveOn: string; reference: string; documentIds: string[]; terms: AgreementTerm[]; notes: string };
 export type ApplicationFieldSource = "company.name" | "company.states" | "company.ein" | "owner.name" | "owner.ein" | "owner.share" | "contact.name" | "contact.email" | "contact.phone" | "owner.formationState" | "owner.formationReference";
 export const applicationFieldSources: { value: ApplicationFieldSource; label: string }[] = [
   { value: "company.name", label: "Title company name" }, { value: "company.states", label: "Operating states" }, { value: "company.ein", label: "Title company EIN" },
@@ -17,12 +24,12 @@ export const applicationFieldSources: { value: ApplicationFieldSource; label: st
   { value: "owner.formationState", label: "Owner formation state" }, { value: "owner.formationReference", label: "Owner formation reference" },
 ];
 export type ApplicationWorksheet = { id: string; title: string; version: string; documentId: string; fields: { id: string; label: string; source: ApplicationFieldSource }[] };
-export type CompanyRecords = { companyEin: string; owners: OwnerEntity[]; agreements: CompanyAgreement[]; worksheets: ApplicationWorksheet[] };
+export type CompanyRecords = { companyEin: string; owners: OwnerEntity[]; agreements: CompanyAgreement[]; worksheets: ApplicationWorksheet[]; financialTerms?: FinancialTerms; banking?: BankingMetadata; companyCompliance?: EntityCompliance };
 export const emptyCompanyRecords = (): CompanyRecords => ({ companyEin: "", owners: [], agreements: [], worksheets: [] });
 const invalid = (): never => { throw new Error("Check the private owner and company record fields."); };
-function obj(v: unknown, keys: string[]): Record<string, unknown> {
+function obj(v: unknown, keys: string[], optional: string[] = []): Record<string, unknown> {
   if (!v || typeof v !== "object" || Array.isArray(v) || ![Object.prototype, null].includes(Object.getPrototypeOf(v))) return invalid();
-  if (Reflect.ownKeys(v).length !== keys.length || keys.some(k => !Object.hasOwn(v, k) || !Object.getOwnPropertyDescriptor(v, k)?.enumerable || !Object.hasOwn(Object.getOwnPropertyDescriptor(v, k)!, "value"))) return invalid();
+  if (Reflect.ownKeys(v).some(k => typeof k !== "string" || ![...keys, ...optional].includes(k) || !Object.getOwnPropertyDescriptor(v, k)?.enumerable || !Object.hasOwn(Object.getOwnPropertyDescriptor(v, k)!, "value")) || keys.some(k => !Object.hasOwn(v, k) || !Object.getOwnPropertyDescriptor(v, k)?.enumerable || !Object.hasOwn(Object.getOwnPropertyDescriptor(v, k)!, "value"))) return invalid();
   return v as Record<string, unknown>;
 }
 function text(v: unknown, max = 500, multiline = false): string {
@@ -41,7 +48,7 @@ function choice<T extends string>(v: unknown, values: readonly T[]): T { return 
 export function normalizedEin(v: unknown) { const s = text(v, 10); return !s || /^(\d{9}|\d{2}-\d{7})$/.test(s) ? s.replace("-", "") : invalid(); }
 function date(v: unknown) { const s = text(v, 10); return !s || /^\d{4}-\d{2}-\d{2}$/.test(s) && !s.startsWith("0000") && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s ? s : invalid(); }
 function owner(v: unknown): OwnerEntity {
-  const r = obj(v, ["id", "memberId", "kind", "legalName", "ein", "representatives", "formationStatus", "formationBy", "formationState", "formationReference", "documentIds"]);
+  const r = obj(v, ["id", "memberId", "kind", "legalName", "ein", "representatives", "formationStatus", "formationBy", "formationState", "formationReference", "documentIds"], ["setupKind", "compliance"]);
   const kind = choice(r.kind, ["individual", "llc", "other"] as const), ein = normalizedEin(r.ein);
   if (kind === "individual" && (ein || r.formationState !== "" || r.formationReference !== "" || r.formationBy !== "Not confirmed" || !["Unknown", "Not applicable"].includes(String(r.formationStatus)) || !Array.isArray(r.documentIds) || r.documentIds.length)) return invalid();
   const formationState = text(r.formationState, 2); if (formationState && !/^[A-Z]{2}$/.test(formationState)) return invalid();
@@ -49,15 +56,23 @@ function owner(v: unknown): OwnerEntity {
     representatives: unique(list(r.representatives, 10, v => { const r = obj(v, ["id", "name", "email", "phone"]); const email = text(r.email, 254); if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return invalid(); return { id: id(r.id), name: text(r.name, 150), email, phone: text(r.phone, 60) }; })),
     formationStatus: choice(r.formationStatus, ["Unknown", "Being formed", "Formed", "Not applicable"] as const),
     formationBy: choice(r.formationBy, ["Not confirmed", "Agency", "Owner / outside professional"] as const), formationState,
-    formationReference: text(r.formationReference, 1000), documentIds: documents(r.documentIds) };
+    formationReference: text(r.formationReference, 1000), documentIds: documents(r.documentIds),
+    ...(Object.hasOwn(r, "setupKind") ? { setupKind: kind === "individual" ? invalid() : choice(r.setupKind, ["existing", "new"] as const) } : {}),
+    ...(Object.hasOwn(r, "compliance") ? { compliance: kind === "individual" ? invalid() : compliance(r.compliance) } : {}) };
 }
+function compliance(value: unknown): EntityCompliance {
+  const r = obj(value, ["status", "statusCheckedOn", "annualReportFiledOn", "annualReportDueOn", "documentIds"]);
+  return { status: choice(r.status, ["Unknown", "Current", "Delinquent", "Inactive", "Dissolved", "Suspended"] as const), statusCheckedOn: date(r.statusCheckedOn), annualReportFiledOn: date(r.annualReportFiledOn), annualReportDueOn: date(r.annualReportDueOn), documentIds: documents(r.documentIds) };
+}
+function percentage(value: unknown) { const v = text(value, 7); return !v || /^\d{1,3}(\.\d{1,3})?$/.test(v) && Number(v) <= 100 ? v : invalid(); }
+export function distributionTotal(terms: FinancialTerms) { return terms.distribution.reduce((sum, row) => sum + Math.round(Number(row.percentage || 0) * 1000), 0) / 1000; }
 export function validateCompanyRecords(value: unknown): CompanyRecords {
-  const r = obj(value, ["companyEin", "owners", "agreements", "worksheets"]);
+  const r = obj(value, ["companyEin", "owners", "agreements", "worksheets"], ["financialTerms", "banking", "companyCompliance"]);
   const owners = unique(list(r.owners, 40, owner));
   if (new Set(owners.map(o => o.memberId)).size !== owners.length) return invalid();
   const agreements = unique(list(r.agreements, 40, v => {
-    const r = obj(v, ["id", "title", "effectiveOn", "reference", "documentIds", "terms", "notes"]);
-    return { id: id(r.id), title: text(r.title, 200), effectiveOn: date(r.effectiveOn), reference: text(r.reference, 1000), documentIds: documents(r.documentIds), notes: text(r.notes, 4000, true),
+    const r = obj(v, ["id", "title", "effectiveOn", "reference", "documentIds", "terms", "notes"], ["kind", "executed"]);
+    return { ...(Object.hasOwn(r, "kind") ? { kind: choice(r.kind, ["combined", "jv", "operating", "other"] as const) } : {}), ...(Object.hasOwn(r, "executed") ? { executed: typeof r.executed === "boolean" ? r.executed : invalid() } : {}), id: id(r.id), title: text(r.title, 200), effectiveOn: date(r.effectiveOn), reference: text(r.reference, 1000), documentIds: documents(r.documentIds), notes: text(r.notes, 4000, true),
       terms: list(r.terms, 80, v => { const t = obj(v, ["memberId", "label", "percentage"]), percentage = text(t.percentage, 7); if (percentage && (!/^\d{1,3}(\.\d{1,3})?$/.test(percentage) || Number(percentage) > 100)) return invalid(); return { memberId: id(t.memberId), label: text(t.label, 150), percentage }; }) };
   }));
   const worksheets = unique(list(r.worksheets, 30, v => {
@@ -66,12 +81,39 @@ export function validateCompanyRecords(value: unknown): CompanyRecords {
     return { id: id(r.id), title: text(r.title, 200), version: text(r.version, 80), documentId: originalId,
       fields: unique(list(r.fields, 100, v => { const f = obj(v, ["id", "label", "source"]); return { id: id(f.id), label: text(f.label, 200), source: choice(f.source, applicationFieldSources.map(f => f.value)) }; })) };
   }));
-  return { companyEin: normalizedEin(r.companyEin), owners, agreements, worksheets };
+  let financialTerms: FinancialTerms | undefined, banking: BankingMetadata | undefined;
+  if (Object.hasOwn(r, "financialTerms")) {
+    const f = obj(r.financialTerms, ["status", "effectiveOn", "distribution", "managementFeePercentage", "agreementMode", "jvAgreementId", "operatingAgreementId"]);
+    financialTerms = { status: choice(f.status, ["Draft", "Confirmed"] as const), effectiveOn: date(f.effectiveOn), distribution: list(f.distribution, 40, value => { const row = obj(value, ["memberId", "percentage"]); return { memberId: id(row.memberId), percentage: percentage(row.percentage) }; }), managementFeePercentage: percentage(f.managementFeePercentage), agreementMode: choice(f.agreementMode, ["single", "separate"] as const), jvAgreementId: text(f.jvAgreementId, 150), operatingAgreementId: text(f.operatingAgreementId, 150) };
+    const f2 = financialTerms;
+    if (new Set(f2.distribution.map(row => row.memberId)).size !== f2.distribution.length || f2.agreementMode === "single" && f2.operatingAgreementId) return invalid();
+    for (const agreementId of [f2.jvAgreementId, f2.operatingAgreementId]) if (agreementId && !agreements.some(a => a.id === agreementId)) return invalid();
+    if (f2.status === "Confirmed") {
+      const governing = agreements.find(a => a.id === f2.jvAgreementId), operating = agreements.find(a => a.id === f2.operatingAgreementId);
+      if (!f2.effectiveOn || f2.managementFeePercentage === "" || !f2.distribution.length || f2.distribution.some(row => row.percentage === "") || distributionTotal(f2) !== 100 || !governing?.executed || !governing.documentIds.length || governing.kind !== (f2.agreementMode === "single" ? "combined" : "jv") || f2.agreementMode === "separate" && (!operating?.executed || !operating.documentIds.length || operating.kind !== "operating" || operating.id === governing.id)) return invalid();
+    }
+  }
+  if (Object.hasOwn(r, "banking")) {
+    const b = obj(r.banking, ["bankEstablished", "bankName", "confirmation", "paymentEstablished", "cardholder", "lastFour"]);
+    if (typeof b.bankEstablished !== "boolean" || typeof b.paymentEstablished !== "boolean") return invalid();
+    const lastFour = text(b.lastFour, 4); if (lastFour && !/^\d{4}$/.test(lastFour)) return invalid();
+    if ([b.bankName, b.confirmation, b.cardholder].some(value => typeof value === "string" && /(?:\d[ -]?){12,19}/.test(value))) return invalid();
+    banking = { bankEstablished: b.bankEstablished, bankName: text(b.bankName, 200), confirmation: text(b.confirmation, 500), paymentEstablished: b.paymentEstablished, cardholder: text(b.cardholder, 200), lastFour };
+  }
+  return { companyEin: normalizedEin(r.companyEin), owners, agreements, worksheets, ...(financialTerms ? { financialTerms } : {}), ...(banking ? { banking } : {}), ...(Object.hasOwn(r, "companyCompliance") ? { companyCompliance: compliance(r.companyCompliance) } : {}) };
 }
 export function companyRecordSources(records?: CompanyRecords) {
   return records ? [
-    ...records.owners.flatMap(o => o.documentIds.map(id => ({ id, categories: ["Formation", "Company records"] }))),
+    ...(records.companyCompliance?.documentIds || []).map(id => ({ id, categories: ["Formation", "Company records"] })),
+    ...records.owners.flatMap(o => [...o.documentIds, ...(o.compliance?.documentIds || [])].map(id => ({ id, categories: ["Formation", "Company records", "Partner entities"] }))),
     ...records.agreements.flatMap(a => a.documentIds.map(id => ({ id, categories: ["Agreements"] }))),
     ...records.worksheets.filter(w => w.documentId).map(w => ({ id: w.documentId, categories: ["Applications", "Agreements", "Disclosures", "Company records"] })),
   ] : [];
+}
+
+export function companyRecordMemberIds(records?: CompanyRecords) { return records ? [...records.owners.map(o => o.memberId), ...records.agreements.flatMap(a => a.terms.map(t => t.memberId)), ...(records.financialTerms?.distribution.map(row => row.memberId) || [])] : []; }
+
+export function validateConfirmedDistributionMembers(records: CompanyRecords | undefined, memberIds: string[]) {
+  const terms = records?.financialTerms;
+  if (terms?.status === "Confirmed" && (terms.distribution.length !== memberIds.length || memberIds.some(id => !terms.distribution.some(row => row.memberId === id)))) throw new Error("Confirmed terms require a distribution percentage for every owner; enter 0% where applicable.");
 }

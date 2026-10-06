@@ -49,7 +49,7 @@ import {
 } from "@/lib/title/business";
 
 export function OnboardingHub({ onOpen, onNew }: {
-  onOpen: (id: string, tab?: "Overview" | "Documents" | "Application") => void;
+  onOpen: (id: string, tab?: "Overview" | "Documents" | "Application" | "Setup") => void;
   onNew: () => void;
 }) {
   const { s, connection } = useWorkspace();
@@ -75,7 +75,7 @@ export function OnboardingHub({ onOpen, onNew }: {
     if (value === lane || !leaveApplication()) return;
     setApplicationDirty(false); setLane(value); setSelected(""); setQuery("");
   }
-  function openCompany(tab: "Overview" | "Documents") {
+  function openCompany(tab: "Overview" | "Documents" | "Setup") {
     if (c && !applicationBusy) onOpen(c.id, tab);
   }
   return <>
@@ -106,10 +106,10 @@ export function OnboardingHub({ onOpen, onNew }: {
         </header>
         {canEditApplication ? <JVApplicationPanel key={`jv-${c.id}`} company={c} existingCompany={companyDisplayStage(c) === "Active"} initiallyOpen onDirtyChange={setApplicationDirty} onBusyChange={setApplicationBusy} onDocuments={() => openCompany("Documents")} />
           : <section className={`panel ${styles.empty}`}><h3>Application access needed</h3><p className="form-note">An administrator can give you access to this company’s private applications. Company documents and permitted records remain available below.</p></section>}
-        <div className={styles.supportLinks}><Button variant="ghost" onClick={() => openCompany("Documents")}>Other company documents <ArrowRight /></Button></div>
+        <div className={styles.supportLinks}><Button variant="outline" onClick={() => openCompany("Setup")}>Setup & approvals <ArrowRight /></Button><Button variant="ghost" onClick={() => openCompany("Documents")}>Other company documents <ArrowRight /></Button></div>
         <details className={styles.support} key={`authority-${c.id}`}>
-          <summary>{companyDisplayStage(c) === "Active" ? "Licensing, records & approval history" : "Formation & launch checklist"}</summary>
-          <p>{companyDisplayStage(c) === "Active" ? "Keep existing formation and approval records here. Adding an application does not restart the company’s launch process." : "Track formation, licensing and approvals as the new venture gets ready to operate."}</p>
+          <summary>Earlier licensing & approval records</summary>
+          <p>{companyDisplayStage(c) === "Active" ? "Keep existing formation and approval records here. Adding an application does not restart the company’s launch process." : "Use Setup & approvals for the current checklist. Earlier evidence stays available here."}</p>
           <CompanyOperatingStates company={c} />
           {evidenceVisible && <OnboardingCasePanel company={c} />}
           <CredentialCenter key={`${c.id}-${(c.operatingStates || [c.jurisdiction]).join("-")}`} company={c} />

@@ -67,6 +67,8 @@ try{
  const migration=process.env.TITLE_JV_TEST_MIGRATION||path.join(root,'supabase/migrations',fs.readdirSync(path.join(root,'supabase/migrations')).find(name=>name.endsWith('_title_jv_intake.sql')));
  sql(fs.readFileSync(migration,'utf8'));
  sql(fs.readFileSync(path.join(root,'supabase/migrations/20260925182800_title_company_workspace_records.sql'),'utf8'));
+ sql(fs.readFileSync(path.join(root,'supabase/migrations/20261006152024_title_phase_one_private_terms_feedback.sql'),'utf8'));
+ sql(fs.readFileSync(path.join(root,'web/tests/phase-one-private-records.test.sql'),'utf8'));
  sql(fs.readFileSync(process.env.TITLE_JV_TEST_SQL||path.join(root,'web/tests/jv-intake.test.sql'),'utf8'));console.log('Rollback SQL access/schema/CAS/review/encrypted-envelope/audit regression fixture passed.');
  setup();await blocked(call('save',input(0)),call('save',input(0)),'concurrent initial save has one winner',/Private application changed/);assert.equal(run('load').version,1);
  const revoke=`select public.title_revoke_member('${w}','${owner}','owner@example.test',1,'${staff}',1);`;
@@ -119,4 +121,26 @@ try{
  linked.companyRecords.worksheets[0].documentId='';assert.equal(run('save',input(7,'Draft',linked)).version,8);
  console.log('Company records SQL: schema parity, Vault roundtrip, private audit, member restore invalidation, purpose-bound originals and reconciliation passed.');
  console.log('JV SQL: authorization, real PostgreSQL races, source invalidation, atomic encryption-boundary writes, and role denial passed.');
+ setup();
+ const confirmed={...p,sourceDocumentIds:[],companyRecords:ownerRecordsFixture()};
+ confirmed.companyRecords.agreements[0].kind='combined';confirmed.companyRecords.agreements[0].executed=true;confirmed.companyRecords.agreements[0].documentIds=['D1'];
+ confirmed.companyRecords.financialTerms={status:'Confirmed',effectiveOn:'2026-10-06',distribution:[{memberId:'member-a',percentage:'100'}],managementFeePercentage:'15',agreementMode:'single',jvAgreementId:confirmed.companyRecords.agreements[0].id,operatingAgreementId:''};
+ sql(`update public.title_workspaces set state=jsonb_set(jsonb_set(state,'{companies,0,members}','[{"id":"member-a","name":"Fictional LLC","share":49},{"id":"member-b","name":"Fictional Other","share":51}]'),'{documents,0,category}','"Agreements"') where id='${w}';`);
+ assert.throws(()=>run('save',input(0,'Draft',confirmed)),/Invalid private application request/);
+ confirmed.companyRecords.financialTerms.status='Draft';assert.equal(run('save',input(0,'Draft',confirmed)).version,1);
+ confirmed.companyRecords.financialTerms.status='Confirmed';confirmed.companyRecords.financialTerms.distribution.push({memberId:'member-b',percentage:'0'});assert.equal(run('save',input(1,'Draft',confirmed)).version,2);
+ console.log('Confirmed financial terms require every owner; Draft permits partial coverage and Confirmed permits explicit zero.');
+ sql(fs.readFileSync(path.join(root,'supabase/migrations/20261006152132_title_agency_document_archive_guard.sql'),'utf8'));
+ const trash=`update public.title_workspaces set state=jsonb_set(state,'{documents,0,archivedAt}','"2026-10-06T12:00:00.000Z"') where id='${w}';`;
+ setup();run('save',input(0));assert.throws(()=>sql(trash),/linked to a private company record/);
+ assert.throws(()=>sql(`update public.title_workspaces set state=jsonb_set(state,'{documents}','[]') where id='${w}';`),/linked to a private company record/);
+ assert.throws(()=>sql(`set title_test.vault_read_failure='yes';${trash}`),/evidence could not be checked/);
+ setup();await blocked(call('save',input(0)),trash,'private reference wins before trash; original remains available',/linked to a private company record/);
+ setup();await blocked(trash,call('save',input(0)),'trash wins before private save; archived original rejected',/Private application access changed/);
+ setup();run('save',input(0));const detached={...p,sourceDocumentIds:[]};
+ run('save',{...input(1,'Draft',detached),sourceManifest:[]});sql(trash);
+ assert.equal(sql(`select state->'documents'->0->>'archivedAt' from public.title_workspaces where id='${w}';`).trim(),'2026-10-06T12:00:00.000Z');
+ for(const role of ['anon','authenticated','service_role']) assert.throws(()=>sql(`set role ${role};select title_private.guard_agency_document_archive();`),/permission denied/);
+ console.log('Company cabinet SQL: private application linkage, failed evidence lookup, removal/trash guards and both concurrent ordering cases passed.');
+
 }finally{if(started)command('pg_ctl',['-D',data,'-m','immediate','-w','stop']);fs.rmSync(dir,{recursive:true,force:true});}

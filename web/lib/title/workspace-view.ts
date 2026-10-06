@@ -6,7 +6,7 @@ export type ViewIdentity = { userId: string; email: string; role: string; worksp
 export type WorkspaceLocation = { view: WorkspaceView; page: Page };
 
 export const workspaceViewPages: Record<WorkspaceView, Page[]> = {
-  agency: ["Overview", "Companies", "Onboarding", "Handoffs", "Financials", "Partner portal", "Documents", "Tasks", "Inbox", "Assistant", "Automations", "Connections"],
+  agency: ["Overview", "Companies", "Tasks", "Documents", "Onboarding", "Handoffs", "Financials", "Partner portal", "Inbox", "Assistant", "Automations", "Connections"],
   production: ["Overview", "Inbox", "Orders", "Commitments", "Policy workbench", "Policy products", "Revisions", "Documents", "Tasks", "Companies", "Assistant"],
 };
 export const workspacePages: Page[] = [...new Set([...workspaceViewPages.agency, ...workspaceViewPages.production, "Settings" as Page])];

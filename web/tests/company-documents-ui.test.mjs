@@ -79,9 +79,10 @@ test("one Documents tab keeps scoped files, preview, package review and one uplo
   const companyFiles = state.documents.filter(doc => doc.companyId === "c1" && !doc.orderId);
   const names = await page.locator('[aria-label="Company file library"] button strong').allTextContents(); assert.deepEqual(names, companyFiles.map(doc => doc.name));
   assert.ok(names.every(name => name.startsWith("Cedar ")));
-  await page.locator('[aria-label="Company file library"]').getByRole("button", { name: /Cedar Company overview.txt/ }).click();
+  await page.locator('[aria-label="Company file library"]').getByRole("button", { name: /^Cedar Company overview.txt/ }).click();
   assert.deepEqual(await page.evaluate(() => window.documentPreviews), ["d0-1"]);
   await page.getByRole("button", { name: "Upload", exact: true }).click(); assert.deepEqual(await page.evaluate(() => window.uploadCompanies), ["c1"]);
+  await page.getByText("Optional document reading", { exact: true }).click();
   await page.getByRole("button", { name: "Read document package", exact: true }).click();
   const packageDialog = page.getByRole("dialog", { name: "Read and review a document package", exact: true });
   const included = await packageDialog.getByRole("checkbox").evaluateAll(nodes => nodes.map(node => node.getAttribute("aria-label")));

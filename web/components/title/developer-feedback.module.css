@@ -81,3 +81,6 @@
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { .overlay { -webkit-backdrop-filter: none; backdrop-filter: none; background: #14284073; } .dialog { background: #fff; border-color: #9fb6cd; } }
 @media (forced-colors: active) { .launcher, .dialog, .primary, .secondary { background: Canvas; color: CanvasText; border: 1px solid ButtonText; box-shadow: none; } .overlay { backdrop-filter: none; } }
+
+.attachment { display: grid; gap: 10px; padding: 12px; border: 1px solid #dedfdf; border-radius: 10px; overflow-wrap: anywhere; }
+.preview { display: block; width: auto; max-width: 100%; max-height: 300px; object-fit: contain; border-radius: 6px; }

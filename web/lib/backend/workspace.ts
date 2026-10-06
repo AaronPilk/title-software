@@ -1,3 +1,7 @@
+import * as AS from "../title/agency-setup";
+import * as AM from "../title/agency-maintenance";
+import * as AD from "../title/agency-documents";
+import { businessDay } from "../title/business-date";
 import { validateCompanyDesk, validateCompanyWorkspace } from "../title/company-workspace";
 import { projectPartnerSummary } from "./partner-summary";
 import { validateCompanyIntake, companyProfileMissing, companyCandidateKey } from "../title/company-intake";
@@ -231,6 +235,12 @@ const recordTables = [
 ];
 const rowId = (r: RecordIdentity) => (r.id || r.companyId || r.orderId)!;
 function checkScope(before: Workspace, after: Workspace, a: Access) {
+  if (!eq(before.agencySetupTemplates, after.agencySetupTemplates) || !eq(before.agencyMaintenance?.notifications || AM.defaultMaintenanceNotifications(), after.agencyMaintenance?.notifications || AM.defaultMaintenanceNotifications())) permitWorkspaceAdmin(a);
+  for (const record of AM.maintenanceState(after).records) {
+    const prior = AM.maintenanceState(before).records.find(r => r.id === record.id);
+    if (!eq(prior, record) && (record.companyId ? !canCompany(a, record.companyId) : !workspaceAdmin(a))) fail("Maintenance is outside your company access.", 403);
+  }
+
   for (const table of recordTables) {
     const old = collection(before, table),
       next = collection(after, table);
@@ -253,6 +263,9 @@ function checkScope(before: Workspace, after: Workspace, a: Access) {
 }
 function ensureShape(s: Workspace) {
   validateCompanyWorkspace(s);
+  AS.validateAgencySetup(s);
+  AM.validateAgencyMaintenance(s);
+  AD.validateAgencyDocuments(s);
   if (s.orders.some(o => !fieldReviewHistoryShapeValid(o.fieldReviewHistory))) fail("Invalid source field review history.");
   if (s.orders.some(o => o.finalPreparation !== undefined && !FP.finalPreparationShapeValid(o.finalPreparation))) fail("Invalid final preparation worksheet.");
   if (s.orders.some(o => !P.referencedSourcesShapeValid(o.production?.referencedSources))) fail("Invalid referenced-source checklist.");
@@ -700,6 +713,7 @@ function applyEdit(
   if (edit.table === "tasks") {
     const current = s.tasks.find(r => rowId(r) === edit.id)!;
     permit(a, "tasks");
+    if (current?.phaseOne) fail("Update setup and maintenance tasks through their reviewed task actions.");
     keys(v, ["id", "scope", "title", "companyId", "owner", "assigneeId", "due", "done", "priority", "createdAt"]);
     if (has(v, "scope") && !isOneOf(v.scope, ["agency", "production"])) fail("Choose an agency or production task.");
     if (productionOnlyRole(a.role)) {
@@ -974,6 +988,8 @@ function applyEdit(
     if (productionOnlyRole(a.role) && !productionDocument(s, { ...current, ...v } as VaultDoc))
       fail("Production documents must belong to an available title file.", 403);
     if (edit.insert) {
+      for (const key of ["displayName", "archivedAt", "archivedBy", "archiveReason", "designation"])
+        if (has(v, key)) fail("Use the company document action to change its lifecycle.");
       nonempty(v.name, "document name");
       if (!isOneOf(v.visibility, ["Internal", "Restricted"]))
         fail("Use reviewed publication to share documents.");
@@ -1199,11 +1215,81 @@ function validateWorkflowCommand(cmd: WorkspaceCommand) {
     }
   }
 }
-const handlers = { ...B, ...P, ...FP, ...M, ...F, ...S, ...T, ...D, ...O, ...OR, executeRules };
+const handlers = { ...B, ...P, ...FP, ...M, ...F, ...S, ...T, ...D, ...O, ...OR, ...AS, ...AM, ...AD, executeRules };
 function dispatch(name: string, state: Workspace, args: unknown[]) {
   const handler = handlers[name as keyof typeof handlers];
   if (typeof handler !== "function") fail("Unknown action.");
   Reflect.apply(handler, handlers, [state, ...args]);
+}
+const agencyCommands: Record<string, string[]> = {
+  configureAgencySetup: ["companyId", "expectedVersion", "templateVersion", "owners", "agreementCount", "eoCovered"],
+  saveAgencySetupTemplate: ["expectedVersion", "name", "items"],
+  updateAgencyTask: ["taskId", "expectedRevision", "status", "due", "completedOn", "effectiveOn", "notes", "documentIds", "owner", "assigneeId"],
+  activateAgencyCompany: ["companyId", "expectedVersion"],
+  saveAgencyMaintenance: ["expectedRevision", "record"],
+  completeAgencyMaintenance: ["maintenanceId", "expectedRevision", "cycleOn", "completedOn", "notes", "documentIds", "nextDueOn"],
+  saveAgencyMaintenanceNotifications: ["expected", "enabled", "recipient"],
+  renameAgencyDocument: ["documentId", "expected", "displayName"],
+  moveAgencyDocument: ["documentId", "expected", "folderId"],
+  archiveAgencyDocument: ["documentId", "expected", "reason", "actor", "at"],
+  restoreAgencyDocument: ["documentId", "expected"],
+  designateAgencyDocument: ["documentId", "expected", "designation"],
+};
+function executeAgencyCommand(s: Workspace, cmd: WorkspaceCommand, a: Access, timestamp: string) {
+  permit(a, "company");
+  const args = structuredClone(cmd.args);
+  if (["syncAgencySetup", "syncAgencyMaintenance"].includes(cmd.name)) {
+    if (cmd.name === "syncAgencySetup") {
+      if (args.length !== 1 || typeof args[0] !== "string" || !canCompany(a, args[0])) fail("Choose an available company.", 403);
+    } else {
+      // Staff may materialize only their company's tasks. The server supplies today.
+      if (args.length < 1 || args.length > 2) fail("Invalid maintenance synchronization.");
+      args[0] = businessDay();
+      const visibleMaintenance = new Set(AM.maintenanceState(projectWorkspace(s, a)).records.map(record => record.id));
+      if (AM.upcomingMaintenance(s, businessDay()).some(record => (!args[1] || record.companyId === args[1]) && !visibleMaintenance.has(record.id)))
+        fail("Maintenance synchronization includes records outside your access.", 403);
+      if (args[1] === undefined || args[1] === "") permitWorkspaceAdmin(a);
+      else if (typeof args[1] !== "string" || !canCompany(a, args[1])) fail("Choose an available company.", 403);
+    }
+    workflowError(() => dispatch(cmd.name, s, args));
+    return;
+  }
+  if (args.length !== 1) fail("Invalid agency action.");
+  const v = object(args[0]); keys(v, agencyCommands[cmd.name]);
+  if (["saveAgencySetupTemplate", "saveAgencyMaintenanceNotifications"].includes(cmd.name)) permitWorkspaceAdmin(a);
+  let companyId = typeof v.companyId === "string" ? v.companyId : "";
+  if (v.documentId) {
+    const doc = s.documents.find(d => d.id === v.documentId);
+    if (!doc) fail("Document not found.", 404);
+    companyId = doc.companyId;
+    if (doc.visibility === "Restricted" && !a.restricted) fail("Restricted document access is required.", 403);
+    if (cmd.name === "designateAgencyDocument") {
+      const family = s.documents.filter(d => d.companyId === doc.companyId && d.orderId === doc.orderId && d.name === doc.name);
+      if (family.some(d => d.designation && d.visibility === "Restricted") && !a.restricted) fail("This document family requires restricted access.", 403);
+    }
+    if (cmd.name === "archiveAgencyDocument") { v.actor = a.userId; v.at = timestamp; }
+  }
+  if (cmd.name === "updateAgencyTask") {
+    const task = s.tasks.find(t => t.id === v.taskId);
+    if (!task?.phaseOne) fail("Choose a setup or maintenance task.");
+    companyId = task.companyId;
+    validateAssignment(v, task, companyId, a, "task");
+    if (v.assigneeId && !["owner", "admin", "onboarding"].includes(a.assignableStaff?.find(m => m.userId === v.assigneeId)?.role || "")) fail("Assign Agency work to Agency staff.");
+  }
+  if (cmd.name === "saveAgencyMaintenance") {
+    const record = object(v.record);
+    companyId = typeof record.companyId === "string" ? record.companyId : "";
+    const current = AM.maintenanceState(s).records.find(r => r.id === record.id);
+    if (record.assigneeId || record.owner || current?.assigneeId || current?.owner) validateAssignment(record, current, companyId, a, "task");
+    if (record.assigneeId && !["owner", "admin", "onboarding"].includes(a.assignableStaff?.find(m => m.userId === record.assigneeId)?.role || "")) fail("Assign Agency work to Agency staff.");
+  }
+  if (cmd.name === "completeAgencyMaintenance") {
+    const record = AM.maintenanceState(s).records.find(r => r.id === v.maintenanceId);
+    if (!record) fail("Choose a maintenance record.");
+    companyId = record.companyId;
+  }
+  if (companyId ? !canCompany(a, companyId) : !workspaceAdmin(a)) fail("This record is outside your company access.", 403);
+  workflowError(() => dispatch(cmd.name, s, args));
 }
 function referencesHidden(value: unknown, hidden: Set<string>): boolean {
   if (typeof value === "string")
@@ -1230,6 +1316,9 @@ function requireReadableReferences(
     for (const row of collection(s, table))
       if (row.id && !ids.has(rowId(row))) hidden.add(row.id);
   }
+  const visibleMaintenance = AM.maintenanceState(visible);
+  for (const record of AM.maintenanceState(s).records) if (!visibleMaintenance.records.some(row => row.id === record.id)) hidden.add(record.id);
+  for (const event of AM.maintenanceState(s).history) if (!visibleMaintenance.history.some(row => row.id === event.id)) hidden.add(event.id);
   if (referencesHidden(cmd.args, hidden))
     fail("This action references a record outside your access.", 403);
   if ((OR.orchestrationActionNames as readonly string[]).includes(cmd.name)) {
@@ -1272,6 +1361,8 @@ export function executeCommands(
         if (!Array.isArray(cmd.args[0])) fail("Invalid draft edits.");
         for (const edit of cmd.args[0] as DraftEdit[])
           applyEdit(next, edit, a, prior, timestamp);
+      } else if (Object.hasOwn(agencyCommands, cmd.name) || ["syncAgencySetup", "syncAgencyMaintenance"].includes(cmd.name)) {
+        executeAgencyCommand(next, cmd, a, timestamp);
       } else if ((OR.orchestrationActionNames as readonly string[]).includes(cmd.name)) {
         const configuration = ["saveCompanyProfile", "saveExternalFieldMap", "setOrchestrationControl", "attestReadiness"].includes(cmd.name);
         permit(a, configuration ? "admin" : "production");
@@ -1362,6 +1453,17 @@ export function executeCommands(
           }
         }
       }
+      if (["owner", "admin", "onboarding"].includes(a.role)) {
+        const changedCompanies = new Set<string>();
+        for (const table of ["companies", "documents", "business.onboarding"] as const) {
+          for (const row of collection(next, table)) {
+            const previous = collection(prior, table).find(r => rowId(r) === rowId(row));
+            if (!eq(previous, row)) changedCompanies.add(companyOf(next, table, row));
+          }
+        }
+        for (const id of [...changedCompanies].sort()) if (canCompany(a, id) && next.companies.find(c => c.id === id)?.agencySetup)
+          workflowError(() => AS.syncAgencySetup(next, id));
+      }
       for (const task of next.tasks) {
         const previous = prior.tasks.find(t => t.id === task.id);
         if (!previous) task.createdAt = timestamp;
@@ -1370,6 +1472,7 @@ export function executeCommands(
       workflowError(() => recordFieldReviewChanges(prior, next, a.email, timestamp));
       B.validateBusinessMutation(prior, next);
       workflowError(() => FP.validateFinalPreparationMutation(prior, next));
+      workflowError(() => AD.validateAgencyDocumentMutation(prior, next));
       immutableHistory(prior, next);
       ensureShape(next);
       checkScope(prior, next, a);
@@ -1405,6 +1508,7 @@ export function projectWorkspace(source: Workspace, a: Access): Workspace {
         result.companies.push({
           ...c,
           desk: undefined,
+          agencySetup: undefined,
           stage: companyDisplayStage(c),
           operatingStatus: undefined,
           contact: "",
@@ -1495,6 +1599,14 @@ export function projectWorkspace(source: Workspace, a: Access): Workspace {
       return id ? canCompany(a, id) : admin(a);
     }));
   }
+  if (productionOnlyRole(a.role)) {
+    delete s.agencySetupTemplates; delete s.agencyMaintenance;
+  } else if (s.agencyMaintenance) {
+    s.agencyMaintenance.records = s.agencyMaintenance.records.filter(r => r.companyId ? canCompany(a, r.companyId) : workspaceAdmin(a));
+    const ids = new Set(s.agencyMaintenance.records.map(r => r.id));
+    s.agencyMaintenance.history = s.agencyMaintenance.history.filter(h => ids.has(h.maintenanceId));
+    if (!workspaceAdmin(a)) delete s.agencyMaintenance.notifications;
+  }
   const hidden = new Set<string>();
   for (const order of s.orders) {
     const input = order.finalPreparation?.input;
@@ -1574,6 +1686,12 @@ export function projectWorkspace(source: Workspace, a: Access): Workspace {
         }
       }
     }
+  }
+  if (s.agencyMaintenance && hidden.size) {
+    s.agencyMaintenance.records = s.agencyMaintenance.records.filter(r => !referencesHidden(r, hidden));
+    const ids = new Set(s.agencyMaintenance.records.map(r => r.id));
+    s.agencyMaintenance.history = s.agencyMaintenance.history.filter(h => ids.has(h.maintenanceId) && !referencesHidden(h, hidden));
+    s.tasks = s.tasks.filter(t => !t.phaseOne?.maintenanceId || ids.has(t.phaseOne.maintenanceId));
   }
   if (!admin(a) && a.role !== "finance") {
     s.business!.closes = [];

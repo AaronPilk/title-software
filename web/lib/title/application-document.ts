@@ -7,7 +7,7 @@ export function canFillCompanyApplication(state: Pick<Workspace, "documents" | "
   return !!access && ["owner", "admin", "onboarding"].includes(access.role) && access.restricted &&
     (access.allCompanies || access.companyIds.includes(doc.companyId)) &&
     state.companies.some(company => company.id === doc.companyId) &&
-    state.documents.some(current => current.id === doc.id && current.version === doc.version && current.assetId === doc.assetId && current.companyId === doc.companyId && current.category === doc.category && current.visibility === doc.visibility && current.orderId === doc.orderId && current.mime === doc.mime) &&
-    !doc.orderId && doc.category === "Applications" && doc.visibility === "Restricted" && !!doc.assetId &&
+    state.documents.some(current => !current.archivedAt && current.id === doc.id && current.version === doc.version && current.assetId === doc.assetId && current.companyId === doc.companyId && current.category === doc.category && current.visibility === doc.visibility && current.orderId === doc.orderId && current.mime === doc.mime) &&
+    !doc.archivedAt && !doc.orderId && doc.category === "Applications" && doc.visibility === "Restricted" && !!doc.assetId &&
     ["application/pdf", "image/png", "image/jpeg", "text/plain"].includes(doc.mime || "");
 }

@@ -5,6 +5,7 @@ export type FeedbackStatus = "new" | "in_progress" | "done";
 export type FeedbackView = "agency" | "production" | "partner";
 export type FeedbackCursor = { createdAt: string; id: string };
 export type FeedbackItem = {
+  screenshot?: { fileName: string; mime: "image/png" | "image/jpeg"; byteSize: number; width: number; height: number } | null;
   id: string;
   workspace_id: string;
   author_id: string;

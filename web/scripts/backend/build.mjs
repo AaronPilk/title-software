@@ -19,3 +19,8 @@ await build({
   outfile: "../supabase/functions/title-jv-public/bundle.js",
   bundle: true, format: "esm", platform: "neutral", target: "es2022", external: ["npm:*"],
 });
+await build({
+  entryPoints: ["../supabase/functions/title-maintenance/index.ts"],
+  outfile: "../supabase/functions/title-maintenance/bundle.js",
+  bundle: true, format: "esm", platform: "neutral", target: "es2022", external: ["npm:*"],
+});

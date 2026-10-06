@@ -33,7 +33,7 @@ before(async () => {
         if(query.has('legacy'))members.forEach(m=>delete m.id);
         const company={id:'company-one',name:'Fictional Title One',jurisdiction:'NC',operatingStates:['NC','SC'],members};
         const base={companyId:company.id,version:1,date:'2026-09-25',size:'1 KB',visibility:'Restricted',assetId:'fictional-asset',mime:'application/pdf'};
-        let snapshot={s:{currentCompanyId:company.id,companies:[company,{...company,id:'company-two',name:'Fictional Title Two',members:[{id:'member-c',name:'Other Member',share:100}]}],orders:[],documents:[
+        let snapshot={s:{currentCompanyId:company.id,companies:[company,{...company,id:'company-two',name:'Fictional Title Two',members:[{id:'member-c',name:'Other Member',share:100}]}],orders:[],tasks:[],user:"Fictional Staff",documents:[
           {...base,id:'application-source',name:'Original application.pdf',category:'Applications'},
           {...base,id:'formation-a',name:'Alder formation.pdf',category:'Formation'},
           {...base,id:'form-one',name:'Official worksheet form.pdf',category:query.has('reclassified')?'Formation':'Applications'},
@@ -300,4 +300,31 @@ test('removing a selected representative cannot reuse a different person silentl
   assert.deepEqual(await page.evaluate(() => window.fixtureDownloads), []);
   await select('Prepare for representative').selectOption('rep-b1'); await download.click(); const exported = await page.evaluate(() => window.fixtureDownloads[0].content);
   assert.match(exported, /Blair One/); assert.doesNotMatch(exported, /Blair Two|blair2@example.test/);
+});
+
+test('dedicated distribution and fee save independently of ownership; safe payment remains private and masked', async () => {
+  await records();
+  await page.getByRole('button',{name:'Set financial terms',exact:true}).click();
+  await page.getByLabel('Distribution % — Legacy Alder Member',{exact:true}).fill('25');
+  await page.getByLabel('Distribution % — Legacy Birch Member',{exact:true}).fill('75');
+  await page.getByLabel('Management / operating fee %',{exact:true}).fill('15');
+  await page.getByLabel('Financial terms effective date',{exact:true}).fill('2026-10-06');
+  await page.getByText('Banking & payment method',{exact:true}).click();
+  await page.getByLabel('Company payment method established',{exact:true}).check();
+  await page.getByLabel('Cardholder / company name',{exact:true}).fill('Fictional Title One');
+  await page.getByLabel('Payment card last four digits',{exact:true}).fill('1234');
+  assert.equal(await page.getByLabel('Payment card last four digits',{exact:true}).getAttribute('type'),'password');
+  const saved=await save();assert.deepEqual(saved.payload.companyRecords.financialTerms.distribution.map(r=>r.percentage),['25','75']);assert.equal(saved.payload.companyRecords.financialTerms.managementFeePercentage,'15');assert.equal(saved.payload.companyRecords.banking.lastFour,'1234');
+  const state=await page.evaluate(()=>window.fixtureWorkspace().s);assert.deepEqual(state.companies[0].members.map(m=>m.share),[60,40]);assert.doesNotMatch(JSON.stringify(state),/lastFour|cardholder|managementFeePercentage/);
+});
+
+test('noncurrent ownership entity status is flagged and saved in the private record', async () => {
+  await records(); const section=ownerSection(0);
+  await section.getByText('Owner entity annual report & status',{exact:true}).click();
+  await section.getByLabel('Owner entity current status',{exact:false}).selectOption('Delinquent');
+  await section.getByLabel('Owner entity status checked on',{exact:true}).fill('2026-10-06');
+  await section.getByLabel('Owner entity annual report notice due date',{exact:true}).fill('2027-04-15');
+  await section.getByRole('alert').filter({hasText:'This entity was recorded as not current.'}).waitFor();
+  const saved=await save();assert.equal(saved.payload.companyRecords.owners[0].compliance.status,'Delinquent');assert.equal(saved.payload.companyRecords.owners[0].compliance.annualReportDueOn,'2027-04-15');
+  const shared=await page.evaluate(()=>window.fixtureWorkspace().s);assert.equal(shared.agencyMaintenance.records.length,2);assert.equal(shared.agencyMaintenance.records.find(r=>r.kind==='Annual report').nextDueOn,'2027-04-15');assert.doesNotMatch(JSON.stringify(shared),/111111111|222222222|annualReportDueOn|representatives/);
 });

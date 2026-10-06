@@ -75,101 +75,57 @@ async function open(query = "", viewport = { width: 1360, height: 1000 }) {
   await page.getByRole("heading", { name: "Agency overview", exact: true }).waitFor();
 }
 const section = (name) => page.getByRole("region", { name });
-test("legacy checklist ticks do not imply reviewed evidence or complete licensing", async () => {
+test("legacy ticks do not manufacture Phase One setup completion", async () => {
   await open("new=1");
-  const row = section("Applications").getByRole("button").filter({ hasText: "Agency Test Title" });
-  assert.match(await row.innerText(), /Next: Review application/);
-  assert.match(await row.innerText(), /0 \/ 7 evidence steps current/);
-  assert.match(await section("Company readiness").innerText(), /2 companies need evidence or credential review/);
-  assert.match(await section("Company readiness").innerText(), /2 companies need ownership totaling 100%/);
-  assert.equal(await page.locator(".metric").filter({ hasText: "Authority records to review" }).locator("strong").innerText(), "0");
+  const setup = await page.locator('[aria-labelledby="agency-next-steps"]').innerText();
+  assert.match(setup, /Choose the setup steps that apply/);
+  assert.doesNotMatch(setup, /Ready for activation|7 of 7|steps complete/);
 });
-test("current document evidence advances a case while a replacement sends it back to review", async () => {
-  await open("evidence=1&new=1");
-  let row = section("Applications").getByRole("button").filter({ hasText: "Agency Test Title" });
-  assert.match(await row.innerText(), /Next: Licensing review/);
-  assert.match(await row.innerText(), /3 \/ 7 evidence steps current/);
-  await page.goto(`${origin}/?evidence=1&stale=1&new=1`);
-  row = section("Applications").getByRole("button").filter({ hasText: "Agency Test Title" });
-  await row.waitFor();
-  assert.match(await row.innerText(), /Next: Company formation/);
-  assert.match(await row.innerText(), /2 \/ 7 evidence steps current/);
-});
-test("a John display name does not grant company creation or financial navigation", async () => {
-  await open();
-  assert.equal(await page.getByRole("button", { name: "Add company", exact: true }).count(), 0);
-  assert.equal(await page.getByRole("button", { name: /Monthly close & member reports/ }).count(), 0);
-  assert.match(await section("Company team follow-ups").innerText(), /John/);
-  const rows = await section("Company team follow-ups").getByRole("button").allTextContents();
-  assert.match(rows[1], /Review formation records/);
-  assert.match(rows[2], /Collect company materials/);
-  assert.doesNotMatch(await page.locator("body").innerText(), /Unavailable company task/);
-  assert.equal(await page.locator(".metric").filter({ hasText: "Open company tasks" }).locator("strong").innerText(), "2");
-});
-test("withheld application cases are described as unavailable, while visible credentials and ownership remain usable", async () => {
-  await open("limited=1");
-  const onboarding = await section("Applications").innerText();
-  assert.match(onboarding, /Application evidence requires additional access/);
-  assert.doesNotMatch(onboarding, /Not started|Review application|0 \/ 7|No company reviews outstanding/);
-  const readiness = await section("Company readiness").innerText();
-  assert.match(readiness, /Review the credential records available to your account/);
-  assert.doesNotMatch(readiness, /companies need evidence or credential review/);
-  assert.match(readiness, /2 companies need ownership totaling 100%/);
-  assert.equal(await page.locator(".metric").filter({ hasText: "Authority records to review" }).locator("strong").innerText(), "1");
-  await section("Company portfolio records").getByRole("button").filter({ hasText: "Agency Test Title" }).click();
-  assert.deepEqual(await page.evaluate(() => window.agencyActions), [{ company: "A" }]);
-});
-test("authorized agency actions open existing company, onboarding, document and finance flows", async () => {
+test("existing active companies are a portfolio, not incomplete new applications", async () => {
   await open("role=owner&all=1");
-  await page.getByRole("button", { name: "Add company", exact: true }).click();
-  await section("Company portfolio records").getByRole("button").filter({ hasText: "Agency Test Title" }).click();
-  await page.getByRole("button", { name: "All applications", exact: true }).click();
-  await page.getByRole("button", { name: /Company document vault/ }).click();
-  await page.getByRole("button", { name: /Monthly close & member reports/ }).click();
-  assert.deepEqual(await page.evaluate(() => window.agencyActions), [{ newCompany: true }, { company: "A" }, { page: "Onboarding" }, { page: "Documents" }, { page: "Financials" }]);
+  assert.match(await page.locator('[aria-labelledby="agency-next-steps"]').innerText(), /No new companies in setup/);
+  assert.equal(await page.locator('.metric').filter({hasText:'Active companies'}).locator('strong').innerText(), '2');
+  assert.equal(await section('Company portfolio records').getByRole('button').filter({hasText:'Agency Test Title'}).count(), 1);
+  assert.doesNotMatch(await page.locator('body').innerText(), /Next: Review application|Upload completed application/);
 });
-test("a scoped admin cannot add a company; the empty demo offers a truthful first step", async () => {
-  await open("role=admin");
-  assert.equal(await page.getByRole("button", { name: "Add company", exact: true }).count(), 0);
-  await page.goto(`${origin}/?empty=1&demo=1`);
-  await page.getByRole("heading", { name: "Start with a company", exact: true }).waitFor();
-  assert.match(await section("Company readiness").innerText(), /No companies available yet/);
-  await page.getByRole("button", { name: "Add your first company", exact: true }).click();
-  assert.deepEqual(await page.evaluate(() => window.agencyActions), [{ newCompany: true }]);
-});
-test("agency rows remain usable without horizontal overflow on a phone-sized viewport", async () => {
-  await open("role=owner&all=1", { width: 390, height: 844 });
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
-  await section("Company portfolio records").getByRole("button").filter({ hasText: "Review Test Title" }).click();
-  assert.deepEqual(await page.evaluate(() => window.agencyActions), [{ company: "B" }]);
-});
-test("confirmed existing companies count and display as active while their incomplete evidence stays in the review queue", async () => {
-  await open("confirmed=1&role=owner&all=1");
-  const metric = page.locator(".metric").filter({ hasText: "Active companies" });
-  assert.equal(await metric.locator("strong").innerText(), "1"); assert.match(await metric.innerText(), /1 new company in setup/);
-  const portfolio = section("Company portfolio records").getByRole("button").filter({ hasText: "Agency Test Title" });
-  assert.equal(await portfolio.locator(".status").innerText(), "Active");
-  const evidence = section("Applications").getByRole("button").filter({ hasText: "Agency Test Title" });
-  assert.match(await evidence.innerText(), /Upload completed application/);
-  assert.doesNotMatch(await evidence.innerText(), /0 \/ 7|Review application/);
-  assert.match(await section("Company readiness").innerText(), /2 companies need evidence or credential review/);
-  const state = await page.evaluate(() => window.agencyFixture.s);
-  assert.equal(state.companies[0].stage, "Onboarding"); assert.ok(state.companies[0].steps.every(step => step === false));
-  assert.deepEqual(state.business.onboarding, []);
-});
-
-test("existing-company application action opens the application directly and does not treat an original as reviewed", async () => {
-  await open("original=1&role=owner&all=1");
-  const row = section("Applications").getByRole("button").filter({hasText:"Agency Test Title"});
-  assert.match(await row.innerText(), /Open application & saved originals/);
-  assert.doesNotMatch(await row.innerText(), /Reviewed|Complete|0 \/ 7/);
-  await row.click();
-  assert.deepEqual(await page.evaluate(()=>window.agencyActions), [{company:"A",tab:"Application"}]);
-});
-
-test("restricted operations staff are not offered an application upload they cannot use", async () => {
+test("company access filters follow-ups and a display name does not grant permissions", async () => {
   await open();
-  const row = section("Applications").getByRole("button").filter({hasText:"Agency Test Title"});
-  assert.match(await row.innerText(), /View company application access/);
-  assert.doesNotMatch(await row.innerText(), /Upload completed application/);
+  assert.equal(await page.getByRole('button',{name:'Add company',exact:true}).count(),0);
+  const rows=await section('Company team follow-ups').getByRole('button').allTextContents();
+  assert.match(rows[1],/Review formation records/);assert.match(rows[2],/Collect company materials/);
+  assert.doesNotMatch(await page.locator('body').innerText(),/Unavailable company task/);
+  assert.equal(await page.locator('.metric').filter({hasText:'Open company tasks'}).locator('strong').innerText(),'2');
+});
+test("limited evidence access does not claim an incomplete or complete application", async () => {
+  await open('limited=1&new=1');
+  const text=await page.locator('[aria-labelledby="agency-next-steps"]').innerText();
+  assert.match(text,/setup available to your account/);
+  assert.doesNotMatch(text,/steps complete|Ready for activation|Review application|Choose the setup steps/);
+});
+test("owner actions open company setup, document cabinet and renewal management", async () => {
+  await open('role=owner&all=1&new=1');
+  await page.getByRole('button',{name:'Add company',exact:true}).click();
+  await page.locator('[aria-labelledby="agency-next-steps"]').getByRole('button').filter({hasText:'Agency Test Title'}).click();
+  await page.getByRole('button',{name:/Company documents Applications/}).click();
+  await page.getByRole('button',{name:/Manage maintenance schedules/}).click();
+  assert.deepEqual(await page.evaluate(()=>window.agencyActions),[{newCompany:true},{company:'A',tab:'Setup'},{page:'Documents'},{page:'Tasks'}]);
+});
+test("scoped admin cannot create companies and empty portfolio stays usable",async()=>{
+  await open('role=admin');assert.equal(await page.getByRole('button',{name:'Add company',exact:true}).count(),0);
+  await page.goto(`${origin}/?empty=1&demo=1`);
+  await page.getByRole('heading',{name:'No companies available',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Add company',exact:true}).click();assert.deepEqual(await page.evaluate(()=>window.agencyActions),[{newCompany:true}]);
+});
+test("agency rows fit a phone viewport and company navigation stays available",async()=>{
+  await open('role=owner&all=1',{width:390,height:844});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
+  await section('Company portfolio records').getByRole('button').filter({hasText:'Review Test Title'}).click();
+  assert.deepEqual(await page.evaluate(()=>window.agencyActions),[{company:'B',tab:'Overview'}]);
+});
+test("confirmed existing operating status is preserved without rewriting incomplete historical evidence",async()=>{
+  await open('confirmed=1&role=owner&all=1');
+  assert.equal(await page.locator('.metric').filter({hasText:'Active companies'}).locator('strong').innerText(),'1');
+  assert.equal(await page.locator('.metric').filter({hasText:'Companies in setup'}).locator('strong').innerText(),'1');
+  assert.equal(await page.locator('[aria-labelledby="agency-next-steps"]').getByRole('button').filter({hasText:'Agency Test Title'}).count(),0);
+  const state=await page.evaluate(()=>window.agencyFixture.s);assert.equal(state.companies[0].stage,'Onboarding');assert.deepEqual(state.business.onboarding,[]);
 });

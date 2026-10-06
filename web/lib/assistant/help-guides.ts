@@ -56,11 +56,11 @@ const catalog: CatalogGuide[] = [
   {
     id: "help:company-workspace", title: "Company details, owners and folders", page: "Companies", views: ["agency"],
     roles: companyEditors, surfaces: ["company"], question: "How do I add a logo, renewal dates, folders or an LLC owner?",
-    summary: "The company Overview brings its main details and owners together.",
+    summary: "Overview holds company details; Ownership keeps private owner records and financial terms together.",
     steps: [
       "Open Agency → Companies → choose a company. Overview → Edit details holds operating-state checkboxes, underwriters and separate Domain, Email and Website renewal dates.",
       "Choose Upload company logo for a PNG or JPG. A company-level Internal Branding original can be selected as the logo; the uploaded original stays in Documents.",
-      "In Documents, choose New folder, give it a name, then upload there. Use a file’s Folder menu to move it, or the folder’s Rename button to change its name. Folders keep the existing document access rules.",
+      "In Documents, choose New folder, give it a name, then upload there. Use a file’s Move or Rename action to organize it; Trash keeps eligible originals recoverable. Folders keep the existing document access rules.",
     ],
     note: "Changing underwriters requires a fresh application and underwriter approval review. Document folders do not grant access or change a document’s category.",
   },
@@ -69,7 +69,7 @@ const catalog: CatalogGuide[] = [
     roles: companyEditors, surfaces: ["company"], question: "How do I record an LLC owner, tax ID and agreement terms?",
     summary: "Keep legal owners and their representatives together without repeating application details.",
     steps: [
-      "On Overview, expand Edit members & ownership interests to add each owner and its percentage. Open owner details to choose whether the person or their LLC owns that interest.",
+      "On Ownership, expand Edit members & ownership interests to add each owner and its percentage. Open owner details to choose whether the person or their LLC owns that interest.",
       "Record representatives, formation responsibility, filing reference and EIN. A tax ID does not require an uploaded document. Use saved application details to copy the selected applicant into the correct owner record, then check the result.",
       "Save owner & company records. Agreements & financial terms records separate percentages without changing ownership calculations.",
       "Application preparation for John maps saved facts into an unsigned preparation sheet. The exact official forms still need to be supplied and checked.",
@@ -82,8 +82,8 @@ const catalog: CatalogGuide[] = [
     summary: "Upload the completed form you already have, or send a new applicant a private link.",
     steps: [
       "Open Agency → Applications and choose the company, or open its Application tab. Existing companies and new joint ventures have separate lists.",
-      "For an existing company, choose Upload completed application. The original is saved privately to that company and the reader finds application details for you.",
-      "Compare each suggested value with its page evidence, check the information you reviewed, then apply it and save the private application. Unreadable or missing answers can be completed in the details editor; existing values require explicit replacement review.",
+      "For an existing company, choose Upload completed application. The original is saved privately to that company. Uploading stores the form without starting a scan.",
+      "If you want to import answers, choose the optional Read / import action. Compare each suggested value with its page evidence, check the information you reviewed, then apply it and save the private application. Unreadable or missing answers can be completed in the details editor; existing values require explicit replacement review.",
       "For a new joint venture, choose Send application link, prepare the request and send or copy its private link. Submitted answers return for review before they are applied.",
     ],
     note: "A connected workspace, company access, an owner/admin/onboarding role and restricted evidence access are required. Applicant details are stored separately from general workspace records and exports. Reviewing the application or completing a checklist does not license a company, grant authority, send a vendor application or approve launch. Existing companies can continue with basic details and documents.",
@@ -94,7 +94,7 @@ const catalog: CatalogGuide[] = [
     summary: "Agency organizes companies and business operations. Production organizes title files and requests.",
     steps: [
       "Use Agency or Production under Your workspace to switch views.",
-      "In Agency, use Companies for company profiles, ownership and documents; use Applications to upload completed forms or request a new application by private link.",
+      "In Agency, use Companies for company profiles, ownership and documents; use Applications to store completed forms or request a new application by private link. More tools holds the additional workflows.",
       "In Production, use Orders for title files, Inbox for incoming requests, and Policy workbench for source review and policy preparation.",
       "Use Settings → Account to see your signed-in account and assigned company access.",
     ],
@@ -312,6 +312,28 @@ const catalog: CatalogGuide[] = [
     note: "Feedback includes your message, email and page. Screenshots and documents are not attached automatically. Leave passwords, API keys and client details out; upload authorized originals through Documents instead.",
   },
   {
+    id: "help:agency-setup", title: "Work through company setup", page: "Companies", views: ["agency"], roles: companyEditors, surfaces: ["company"],
+    question: "How do I complete a new company's setup?",
+    summary: "Setup uses one shared task checklist based on the company and its owners.",
+    steps: [
+      "Open Companies → choose the company → Setup. Choose its owner types, agreement count and E&O coverage in Setup choices.",
+      "Open Edit task to assign staff, set its date and status, add notes and link required uploaded originals. An application upload does not require reading to count as stored.",
+      "Confirm the required steps and license renewal schedules. When all applicable requirements are met, Mark Ready / Active records the setup review. Existing active companies stay active while adding their records.",
+    ],
+    note: "Administrators can save new template versions. This checklist records external approvals; it does not issue licenses, obtain underwriter authority or change Production requirements.",
+  },
+  {
+    id: "help:agency-maintenance", title: "Track renewals and maintenance", page: "Tasks", views: ["agency"], roles: companyEditors,
+    question: "Where do I record renewal dates and reminders?",
+    summary: "Company, ownership-entity and agency renewals keep separate schedules and completion history.",
+    steps: [
+      "Open Agency → Tasks → Renewals & maintenance. Add or edit the applicable schedule and verify its date against the provider or regulator notice.",
+      "Due maintenance creates a shared task. Use Complete cycle to record the completion, supporting originals and next renewal; the previous cycle remains in history.",
+      "An organization-wide administrator can enter the shared reminder inbox and enable reminders. Delivery stays disabled until a recipient is configured and enabled; automatic delivery also requires the scheduled worker to be active.",
+    ],
+    note: "Agency E&O and the agency credential are recorded once. Ownership entity annual reports and good standing are separate from the title company. A reminder is not evidence that a license was renewed.",
+  },
+  {
     id: "help:tasks", title: "Assign and follow up on a task", page: "Tasks", views: staffViews,
     roles: ["owner", "admin", "operations", "onboarding", "finance"], question: "How do I assign a task or show that I am waiting on someone?",
     summary: "Tasks keeps the company, responsible staff member and next follow-up together.",
@@ -320,7 +342,7 @@ const catalog: CatalogGuide[] = [
       "Use the owner filter to find your assigned work and open linked company or title-file context when provided.",
       "When blocked, record what you are Waiting on, the Detail and Waiting since, then Mark waiting. When resolved, record What unblocked it and choose Record resolution.",
     ],
-    note: "Choose an active staff account with access to the selected company. Recording a task or waiting status does not send a message or complete the underlying business review.",
+    note: "Choose an active staff account with access to the selected company. Agency setup and maintenance use Edit task, and renewal completion uses Complete cycle. Recording a task or waiting status does not send a message or complete the underlying business review.",
   },
   {
     id: "help:partner-navigation", title: "Use your partner portal", page: "Partner portal", views: ["partner"],
