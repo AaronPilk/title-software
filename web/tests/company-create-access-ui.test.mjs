@@ -143,6 +143,7 @@ for (const [role, all] of [["onboarding", false], ["operations", true]]) {
 test("an allowed company form creates its applicable setup checklist with explicit unassigned tasks", async () => {
   await open("owner", true);
   await add().click();
+  await page.getByLabel("Company type", {exact:true}).selectOption("new");
   assert.doesNotMatch(await page.getByRole("dialog").innerText(), /task assigned to you/);
   await page.getByLabel("Company name", {exact:true}).fill("New Synthetic Title");
   await page.getByLabel("Company contact (optional)", {exact:true}).fill("Test Contact");
@@ -167,6 +168,7 @@ test("an allowed company form creates its applicable setup checklist with explic
 });
 test("local sample company creation starts the same unassigned setup checklist", async () => {
   await open("demo", true);await add().click();
+  await page.getByLabel("Company type", {exact:true}).selectOption("new");
   await page.getByLabel("Company name", {exact:true}).fill("Fictional Demo Title");
   await page.getByLabel("Company contact (optional)", {exact:true}).fill("Test Contact");
   await page.getByLabel("Contact email (optional)", {exact:true}).fill("demo@example.test");
@@ -174,4 +176,55 @@ test("local sample company creation starts the same unassigned setup checklist",
   await page.getByRole("dialog").getByRole("button", {name:"Add company",exact:true}).click();await page.getByRole("dialog").waitFor({state:"detached"});
   const state=await page.evaluate(()=>window.readFixtureCompanyState());const company=state.companies.find(row=>row.name==="Fictional Demo Title");const tasks=state.tasks.filter(row=>row.companyId===company.id);
   assert.ok(tasks.length>1);assert.ok(tasks.every(task=>task.phaseOne.kind==='setup' && task.owner==='' && task.assigneeId===undefined));
+});
+
+for (const role of ["owner", "admin"]) {
+  test(`${role} can add an existing active company without starting onboarding tasks`, async () => {
+    await open(role, true); await add().click();
+    await page.getByLabel("Company type", {exact:true}).selectOption("existing");
+    await page.getByLabel("Company name", {exact:true}).fill("Established Synthetic Title");
+    await page.getByLabel("City", {exact:true}).fill("Raleigh");
+    await page.getByRole("dialog").getByRole("button", {name:"Add company", exact:true}).click();
+    await page.getByRole("dialog").waitFor({state:"detached"});
+    const state = await page.evaluate(() => window.readFixtureCompanyState());
+    const company = state.companies.find(row => row.name === "Established Synthetic Title");
+    assert.equal(company.operatingStatus.status, "Active");
+    assert.equal(company.operatingStatus.confirmedBy, "staff@example.test");
+    assert.equal(company.stage, "Onboarding", "existing operations do not fabricate launch completion");
+    assert.deepEqual(company.steps, Array(7).fill(false));
+    assert.equal(company.agencySetup, undefined);
+    assert.deepEqual(state.tasks.filter(task => task.companyId === company.id), []);
+    assert.match(await page.getByRole("button", {name:/Established Synthetic Title/}).innerText(), /Active/);
+    assert.deepEqual(await page.evaluate(() => window.companyUpdates), [{title:"Company added", detail:"Established Synthetic Title · existing active company"}]);
+  });
+}
+
+test("onboarding staff can create a new venture but cannot confirm existing operations", async () => {
+  await open("onboarding", true); await add().click();
+  const type = page.getByLabel("Company type", {exact:true});
+  assert.deepEqual(await type.locator("option").evaluateAll(options => options.map(option => option.value)), ["", "new"]);
+  await type.selectOption("new");
+  await page.getByLabel("Company name", {exact:true}).fill("Onboarding Synthetic Title");
+  await page.getByLabel("City", {exact:true}).fill("Raleigh");
+  await page.getByRole("dialog").getByRole("button", {name:"Add company", exact:true}).click();
+  await page.getByRole("dialog").waitFor({state:"detached"});
+  const state = await page.evaluate(() => window.readFixtureCompanyState());
+  const company = state.companies.find(row => row.name === "Onboarding Synthetic Title");
+  assert.equal(company.stage, "Onboarding");
+  assert.equal(company.operatingStatus, undefined);
+  assert.ok(company.agencySetup);
+  assert.ok(state.tasks.some(task => task.companyId === company.id && task.phaseOne?.kind === "setup"));
+});
+
+test("losing administrator permission cannot submit a previously chosen existing-company confirmation", async () => {
+  await open("owner", true); await add().click();
+  await page.getByLabel("Company type", {exact:true}).selectOption("existing");
+  await page.getByLabel("Company name", {exact:true}).fill("Unconfirmed Synthetic Title");
+  await page.getByLabel("City", {exact:true}).fill("Raleigh");
+  await page.evaluate(() => window.setFixtureCompanyAccess("onboarding", true));
+  assert.equal(await page.getByLabel("Company type", {exact:true}).locator('option[value="existing"]').count(), 0);
+  await page.getByRole("dialog").getByRole("button", {name:"Add company", exact:true}).click();
+  assert.deepEqual(await page.evaluate(() => window.companyUpdates), []);
+  assert.equal(await page.getByRole("dialog", {name:"Add a company", exact:true}).count(), 1);
+  assert.equal(await page.evaluate(() => window.readFixtureCompanyState().companies.some(company => company.name === "Unconfirmed Synthetic Title")), false);
 });

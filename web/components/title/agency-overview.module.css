@@ -49,6 +49,13 @@
 .readinessRow small { color: #5c6e83; font-size: 11px; line-height: 1.6; }
 .taskRow { align-items: flex-start; }
 .panelFooter { padding: 14px 23px; color: #5c6e83; font-size: 11px; line-height: 1.5; border-top: 1px solid #edf0f4; background: #fafbfd; }
+.attention { margin-bottom: 24px; }
+.attentionRow { display: flex; align-items: center; gap: 18px; padding: 16px 23px; border-top: 1px solid #edf0f4; }
+.attentionCopy { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.attentionCopy strong { color: #283d53; font-size: 13px; }
+.attentionCopy ul { margin: 6px 0 0; padding-left: 18px; color: #5c6e83; font-size: 12px; line-height: 1.65; }
+.attentionCopy summary { margin-top: 5px; cursor: pointer; font-size: 12px; color: #466888; }
+.attentionActions { display: flex; flex-wrap: wrap; gap: 8px; max-width: 340px; }
 @media (max-width: 1120px) {
   .mainGrid { grid-template-columns: 1fr; }
   .welcome { flex-wrap: wrap; }
@@ -66,6 +73,8 @@
   .portfolioRow > svg:last-child { margin-left: auto; }
   .taskRow { flex-wrap: wrap; }
   .taskRow .rowCopy { flex-basis: 100%; }
+  .attentionRow { align-items: stretch; flex-direction: column; padding: 17px; gap: 12px; }
+  .attentionActions { max-width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   .caseRow, .portfolioRow, .taskRow, .readinessRow { transition: none; }

@@ -2,6 +2,7 @@ import type { VaultDoc, Workspace } from "./model";
 import { traceMutation } from "./command-log";
 import { companyDesk } from "./company-workspace";
 import { sameDocumentFamily } from "./production";
+import { isAutomaticApplicationTask, syncAgencySetup } from "./agency-setup";
 
 export const isAgencyDocumentArchived = (doc: Pick<VaultDoc, "archivedAt">) => !!doc.archivedAt;
 export const documentDisplayName = (doc: Pick<VaultDoc, "displayName" | "name">) => doc.displayName || doc.name;
@@ -20,7 +21,7 @@ function references(value: unknown, documentId: string, key = ""): boolean {
 export function agencyDocumentArchiveProblem(state: Workspace, doc: VaultDoc): string {
   if (productionBound(doc)) return "Production and imported source documents must stay with their original workflow.";
   if (doc.visibility === "Partner") return "Remove partner sharing through publication review before moving this file to Trash.";
-  const dependencies = Object.entries(state).filter(([key]) => !["documents", "activity"].includes(key));
+  const dependencies = Object.entries(state).filter(([key]) => !["documents", "activity"].includes(key)).map(([key, value]) => [key, key === "tasks" && doc.category === "Applications" && doc.visibility === "Restricted" ? state.tasks.map(task => isAutomaticApplicationTask(task, doc.companyId) ? { ...task, documentIds: [] } : task) : value]);
   if (dependencies.some(([, value]) => references(value, doc.id)) || state.documents.some(other => other.id !== doc.id && other.parentDocumentId === doc.id))
     return "This file is linked to a logo, task, approval, private record, or sharing history. Keep its original available and use a replacement where needed.";
   return "";
@@ -73,11 +74,13 @@ export function archiveAgencyDocument(state: Workspace, input: Target & { reason
     const doc = target(state, input), problem = agencyDocumentArchiveProblem(state, doc);
     if (problem) throw new Error(problem);
     delete doc.designation; doc.archivedAt = input.at; doc.archivedBy = input.actor; doc.archiveReason = input.reason.trim(); validateAgencyDocuments(state);
+    if (doc.category === "Applications") syncAgencySetup(state, doc.companyId);
   });
 }
 export function restoreAgencyDocument(state: Workspace, input: Target) {
   return traceMutation(state, "restoreAgencyDocument", [input], () => {
     const doc = target(state, input, true); delete doc.archivedAt; delete doc.archivedBy; delete doc.archiveReason;
+    if (doc.category === "Applications") syncAgencySetup(state, doc.companyId);
   });
 }
 export function designateAgencyDocument(state: Workspace, input: Target & { designation: "Current" | "Final" | "" }) {

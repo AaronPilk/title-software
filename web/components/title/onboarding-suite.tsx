@@ -79,7 +79,7 @@ export function OnboardingHub({ onOpen, onNew }: {
     if (c && !applicationBusy) onOpen(c.id, tab);
   }
   return <>
-    <Heading title="Applications" description="Upload a completed application, or request one with a private link.">
+    <Heading title="Applications" description="Store completed applications with each company.">
       {canAddCompany && <Button disabled={applicationBusy} onClick={onNew}><Plus />Add company</Button>}
     </Heading>
     <div className={styles.lanes}>
@@ -104,7 +104,7 @@ export function OnboardingHub({ onOpen, onNew }: {
           <div className={styles.headerCopy}><h2>{c.name}</h2><p>{companyDisplayStage(c) === "Active" ? "Existing joint venture · add the records you already have" : "New joint venture · collect the application"}</p></div>
           <Button variant="outline" onClick={() => openCompany("Overview")}>Company details <ArrowRight /></Button>
         </header>
-        {canEditApplication ? <JVApplicationPanel key={`jv-${c.id}`} company={c} existingCompany={companyDisplayStage(c) === "Active"} initiallyOpen onDirtyChange={setApplicationDirty} onBusyChange={setApplicationBusy} onDocuments={() => openCompany("Documents")} />
+        {canEditApplication ? <JVApplicationPanel key={`jv-${c.id}`} company={c} existingCompany={companyDisplayStage(c) === "Active"} onDirtyChange={setApplicationDirty} onBusyChange={setApplicationBusy} onDocuments={() => openCompany("Documents")} />
           : <section className={`panel ${styles.empty}`}><h3>Application access needed</h3><p className="form-note">An administrator can give you access to this company’s private applications. Company documents and permitted records remain available below.</p></section>}
         <div className={styles.supportLinks}><Button variant="outline" onClick={() => openCompany("Setup")}>Setup & approvals <ArrowRight /></Button><Button variant="ghost" onClick={() => openCompany("Documents")}>Other company documents <ArrowRight /></Button></div>
         <details className={styles.support} key={`authority-${c.id}`}>

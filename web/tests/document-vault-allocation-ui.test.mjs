@@ -16,7 +16,7 @@ before(async () => {
     stdin: { resolveDir: web, loader: "tsx", contents: `
       import React from 'react';import {createRoot} from 'react-dom/client';
       import {Documents} from './components/title/documents';
-      createRoot(document.getElementById('root')).render(<><Documents onDoc={doc=>window.previews.push(doc.id)} onUpload={(company,destination)=>window.uploadCompanies.push({company:company??null,destination:destination??null})}/><span id="ready"/></>);
+      createRoot(document.getElementById('root')).render(<><Documents agencyMode={new URLSearchParams(location.search).has("agency")} onDoc={doc=>window.previews.push(doc.id)} onUpload={(company,destination)=>window.uploadCompanies.push({company:company??null,destination:destination??null})}/><span id="ready"/></>);
     ` },
     plugins: [{ name: "fictional-document-vault", setup(builder) {
       builder.onResolve({ filter: /^\.\/document-upload$/ }, () => ({ path: "upload", namespace: "fixture-upload" }));
@@ -53,11 +53,11 @@ before(async () => {
 });
 afterEach(async () => { await context?.close(); assert.deepEqual(errors, []); });
 after(async () => { await browser?.close(); if (server) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); } });
-async function open() {
+async function open(query = "") {
   await context?.close(); errors = []; context = await browser.newContext();
   await context.route("**/*", route => { if (!route.request().url().startsWith(`${origin}/`)) { errors.push("Unexpected external request"); return route.abort(); } return route.continue(); });
   page = await context.newPage(); page.setDefaultTimeout(4000); page.on("pageerror", e => errors.push(e.message));
-  await page.goto(origin); await page.locator("#ready").waitFor({ state: "attached" });
+  await page.goto(origin + "/?" + query); await page.locator("#ready").waitFor({ state: "attached" });
 }
 const names = () => page.locator(".document-name strong").allTextContents();
 const filing = name => page.getByRole("tab", { name, exact: true });
@@ -135,5 +135,22 @@ test("preview actions retain the exact company and title-file original after fil
   await pick("Document company", "Pine Fictional Title");
   await page.getByRole("button", { name: "Pine policy.pdf", exact: true }).click();
   assert.deepEqual(await page.evaluate(() => window.previews), ["cedar-application", "cedar-deed", "pine-policy"]);
+  assert.deepEqual(await page.evaluate(() => window.readVault()), before);
+});
+
+
+test("Agency document search excludes property workflows and keeps advanced filters secondary", async () => {
+  await open("agency=1"); const before = await page.evaluate(() => window.readVault());
+  assert.deepEqual(await names(), ["Cedar logo.pdf", "Cedar application.pdf", "Pine agreement.pdf"]);
+  assert.equal(await page.getByRole("heading", {name: "Company documents", exact: true}).count(), 1);
+  assert.equal(await page.getByRole("combobox", {name: "Document access filter", exact: true}).count(), 0);
+  assert.equal(await page.getByRole("columnheader", {name: "Visibility", exact: true}).count(), 0);
+  assert.equal(await filing("Title-file documents").count(), 0);
+  assert.doesNotMatch(await page.locator("body").innerText(), /Partner|publication|Restricted|Internal/);
+  assert.equal(await page.getByRole("combobox", {name: "Document type filter", exact: true}).isVisible(), false);
+  await pick("Document company", "Cedar Fictional Title"); await page.getByText("More filters", {exact:true}).click();
+  await pick("Document type filter", "Applications"); assert.deepEqual(await names(), ["Cedar application.pdf"]);
+  await page.getByRole("button", {name: "Upload document", exact:true}).click();
+  assert.deepEqual(await page.evaluate(() => window.uploadCompanies), [{company: "c1", destination: "company"}]);
   assert.deepEqual(await page.evaluate(() => window.readVault()), before);
 });

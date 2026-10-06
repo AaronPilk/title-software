@@ -9,6 +9,10 @@
 .steps span { display: grid; place-items: center; width: 24px; height: 24px; border: 1px solid #d4e2ef; border-radius: 50%; background: white; color: #0a416c; font-size: 11px; font-weight: 650; }
 .primaryActions,.secondaryActions { display: flex; flex-wrap: wrap; gap: 9px; }
 .primaryActions button { min-height: 42px; }
+.primaryActions { margin-top: 18px; }
+.optionalTools { margin-top: 24px; padding-top: 18px; border-top: 1px solid #d6e3ef; }
+.optionalTools > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: #52677c; }
+.optionalTools > p { margin: 12px 0; }
 .savedHeader { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding-top: 21px; }
 .savedHeader p { display: flex; align-items: center; gap: 5px; flex: 1; margin: 0; }
 .savedHeader button { margin-left: auto; }

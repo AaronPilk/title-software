@@ -42,9 +42,11 @@ import { toast } from "sonner";
 export function Documents({
   onDoc,
   onUpload,
+  agencyMode = false,
 }: {
   onDoc: (d: VaultDoc) => void;
   onUpload: (companyId?: string, destination?: "company" | "title") => void;
+  agencyMode?: boolean;
 }) {
   const { s, connection } = useWorkspace();
   const [q, setQ] = useState("");
@@ -52,14 +54,15 @@ export function Documents({
   const [category, setCategory] = useState("All documents");
   const [filing, setFiling] = useState("All documents");
   const [lifecycle, setLifecycle] = useState("active"), [type, setType] = useState(""), [folder, setFolder] = useState(""), [since, setSince] = useState("");
-  const companyRows = s.documents.filter(d => !d.archivedAt && (company === "all" || d.companyId === company));
+  const companyRows = s.documents.filter(d => !d.archivedAt && (!agencyMode || !d.orderId) && (company === "all" || d.companyId === company));
   const rows = s.documents.filter(
     (d) =>
+      (!agencyMode || !d.orderId) &&
       (lifecycle === "trash" ? !!d.archivedAt : !d.archivedAt) &&
       (!type || d.category === type) && (!folder || d.folderId === folder) && (!since || d.date >= since) &&
       (company === "all" || d.companyId === company) &&
-      (category === "All documents" || d.visibility === category) &&
-      (filing === "All documents" || (filing === "Company documents" ? !d.orderId : !!d.orderId)) &&
+      (agencyMode || category === "All documents" || d.visibility === category) &&
+      (agencyMode || filing === "All documents" || (filing === "Company documents" ? !d.orderId : !!d.orderId)) &&
       `${documentDisplayName(d)} ${d.name} ${d.category} ${companyById(s, d.companyId).name}`
         .toLowerCase()
         .includes(q.toLowerCase()),
@@ -67,15 +70,15 @@ export function Documents({
   return (
     <>
       <Heading
-        title="Document vault"
-        description="Company records and property files, with a clear place for every original."
+        title={agencyMode ? "Company documents" : "Document vault"}
+        description={agencyMode ? "Find, open and download files across your companies." : "Company records and property files, with a clear place for every original."}
       >
-        <Button onClick={() => onUpload(company === "all" ? undefined : company, filing === "Title-file documents" ? "title" : "company")}>
+        <Button onClick={() => onUpload(company === "all" ? undefined : company, !agencyMode && filing === "Title-file documents" ? "title" : "company")}>
           <Upload />
           Upload document
         </Button>
       </Heading>
-      <div className="vault-categories document-filing-categories">
+      {!agencyMode && <div className="vault-categories document-filing-categories">
         {[
           { name: "Company documents", icon: FolderClosed, detail: "Formation, applications, agreements and logos", count: companyRows.filter(d => !d.orderId).length },
           { name: "Title-file documents", icon: FileText, detail: "Searches, deeds, finals and policies for a property", count: companyRows.filter(d => !!d.orderId).length },
@@ -97,25 +100,25 @@ export function Documents({
             </div>
           </button>
         ))}
-      </div>
+      </div>}
       <div className="toolbar document-filing-toolbar">
-        <Segments
+        {!agencyMode && <Segments
           value={filing}
           onChange={setFiling}
           items={["All documents", "Company documents", "Title-file documents"]}
-        />
+        />}
         <div className="toolbar-right">
           <SearchBox
             value={q}
             onChange={setQ}
             placeholder="Search documents…"
           />
-          <Picker
+          {!agencyMode && <Picker
             value={category}
             onChange={setCategory}
             label="Document access filter"
             options={[{value:"All documents", label:"All access levels"}, "Internal", "Restricted", "Partner"]}
-          />
+          />}
           <Picker
             value={company}
             onChange={setCompany}
@@ -127,8 +130,8 @@ export function Documents({
           />
         </div>
       </div>
-      <details className="document-filters"><summary>Filter by folder, document type, date or Trash</summary><div className="toolbar"><Picker value={lifecycle} onChange={setLifecycle} label="Document location" options={[{ value: "active", label: "Cabinet" }, { value: "trash", label: "Trash" }]} /><Picker value={type} onChange={setType} label="Document type filter" options={[{ value: "", label: "All document types" }, ...[...new Set(companyRows.map(doc => doc.category))].sort()]} /><Picker value={folder} onChange={setFolder} label="Document folder filter" options={[{ value: "", label: "All folders" }, ...[...new Map(s.companies.filter(c => company === "all" || c.id === company).flatMap(c => companyDesk(c).folders).map(folder => [folder.id, { value: folder.id, label: folder.name }])).values()]]} /><label>Uploaded since <input className="input" aria-label="Uploaded since" type="date" value={since} onChange={event => setSince(event.target.value)} /></label></div></details>
-      {s.documents.some(
+      <details className="document-filters"><summary>{agencyMode ? "More filters" : "Filter by folder, document type, date or Trash"}</summary><div className="toolbar"><Picker value={lifecycle} onChange={setLifecycle} label="Document location" options={[{ value: "active", label: "Cabinet" }, { value: "trash", label: "Trash" }]} /><Picker value={type} onChange={setType} label="Document type filter" options={[{ value: "", label: "All document types" }, ...[...new Set(companyRows.map(doc => doc.category))].sort()]} /><Picker value={folder} onChange={setFolder} label="Document folder filter" options={[{ value: "", label: "All folders" }, ...[...new Map(s.companies.filter(c => company === "all" || c.id === company).flatMap(c => companyDesk(c).folders).map(folder => [folder.id, { value: folder.id, label: folder.name }])).values()]]} /><label>Uploaded since <input className="input" aria-label="Uploaded since" type="date" value={since} onChange={event => setSince(event.target.value)} /></label></div></details>
+      {!agencyMode && s.documents.some(
         (d) =>
           d.visibility === "Partner" &&
           !materials(s).publications.some((p) => p.documentId === d.id),
@@ -143,9 +146,9 @@ export function Documents({
           headers={[
             "Document",
             "Company",
-            "Filed under",
+            ...(!agencyMode ? ["Filed under"] : []),
             "Category",
-            "Visibility",
+            ...(!agencyMode ? ["Visibility"] : []),
             "Modified",
             "Version",
             "",
@@ -162,9 +165,9 @@ export function Documents({
                 </button>
               </TableCell>
               <TableCell>{companyById(s, d.companyId).name}</TableCell>
-              <TableCell>{d.orderId ? <><strong>{d.orderId}</strong><small className="block subtle">{s.orders.find(order => order.id === d.orderId)?.address || "Title file"}</small></> : "Company documents"}</TableCell>
+              {!agencyMode && <TableCell>{d.orderId ? <><strong>{d.orderId}</strong><small className="block subtle">{s.orders.find(order => order.id === d.orderId)?.address || "Title file"}</small></> : "Company documents"}</TableCell>}
               <TableCell>{d.category}</TableCell>
-              <TableCell>
+              {!agencyMode && <TableCell>
                 <Status
                   value={
                     materials(s).publications.some(
@@ -176,7 +179,7 @@ export function Documents({
                         : d.visibility
                   }
                 />
-              </TableCell>
+              </TableCell>}
               <TableCell>{d.date}</TableCell>
               <TableCell>v{d.version}{d.designation ? ` · ${d.designation}` : ""}{d.archivedAt ? " · In Trash" : ""}</TableCell>
               <TableCell>
@@ -214,6 +217,7 @@ export function DocumentPreview({
   partnerMember = "",
   initialPage = 1,
   onFillApplication,
+  agencyMode,
 }: {
   doc: VaultDoc;
   onClose: () => void;
@@ -222,10 +226,13 @@ export function DocumentPreview({
   partnerMember?: string;
   initialPage?: number;
   onFillApplication?: (doc: VaultDoc) => void;
+  agencyMode?: boolean;
 }) {
   const { s, update, connection } = useWorkspace();
   const doc = s.documents.find(row => row.id === selectedDoc.id) || selectedDoc;
   const cabinet = !partner && !doc.orderId;
+  const internalCabinet = cabinet && agencyMode !== false;
+  const companyActions = cabinet && !doc.sourceRole && !doc.providerSource;
   const connected = !!connection;
   const applicationFill = !partner && !doc.archivedAt && !!onFillApplication && canFillCompanyApplication(s, doc, connection);
   const [loaded, setLoaded] = useState<{ doc: VaultDoc; url?: string; text?: string; pdf?: Blob; error?: string } | null>(null);
@@ -298,9 +305,9 @@ export function DocumentPreview({
       <Dialog open onOpenChange={(v) => !v && onClose()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Publication unavailable</DialogTitle>
+            <DialogTitle>{partner ? "Publication unavailable" : "Document unavailable"}</DialogTitle>
             <DialogDescription>
-              This document is no longer published to the selected audience.
+              {partner ? "This document is no longer published to the selected audience." : "This document is no longer available. Close the preview and reopen it from your company files."}
             </DialogDescription>
           </DialogHeader>
           <Button onClick={onClose}>Close</Button>
@@ -321,15 +328,15 @@ export function DocumentPreview({
           <div><h3>Fill application details</h3><p className="form-note">Read this completed application into {companyById(s, doc.companyId).name}’s private form. Check the suggested details, then save. No re-upload needed.</p></div>
           <Button onClick={() => onFillApplication?.(doc)}><FileText size={17} />Fill application from this document</Button>
         </section></details>}
-        {cabinet && <AgencyDocumentActions doc={doc} />}
-        <div className="document-modal-tools">
-          <Status value={partner ? "Published" : doc.visibility} />
+        {companyActions && <AgencyDocumentActions doc={doc} agencyMode={internalCabinet} />}
+        {!(internalCabinet && companyActions) && <div className="document-modal-tools">
+          {!internalCabinet && <Status value={partner ? "Published" : doc.visibility} />}
           <span>{doc.size}</span>
           <Button variant="outline" size="sm" onClick={downloadDoc}>
             <Download />
             Download
           </Button>
-        </div>
+        </div>}
         {error ? (
           <Empty title="File unavailable" text={error} />
         ) : text ? (
@@ -365,7 +372,7 @@ export function DocumentPreview({
               }
             />
             <small>
-              Partner sharing requires the separate publication review below.
+              {internalCabinet ? "Company access applies. Sensitive records also require permission to open restricted documents." : "Partner sharing requires the separate publication review below."}
             </small>
           </div></details> : <div className="document-sharing">
             <span>
@@ -393,7 +400,7 @@ export function DocumentPreview({
           </div>
         )}
         {!partner && !doc.archivedAt && (applicationFill ? <details><summary>Read or copy document text</summary><DocumentTextReview key={`${doc.id}:${doc.version}:${doc.assetId}:text`} doc={doc} /></details> : cabinet ? <details><summary>Read or copy document text (optional)</summary><DocumentTextReview key={`${doc.id}:${doc.version}:${doc.assetId}:text`} doc={doc} /></details> : <DocumentTextReview key={`${doc.id}:${doc.version}:${doc.assetId}:text`} doc={doc} />)}
-        {!partner && !doc.archivedAt && (cabinet ? <details><summary>Share with Partner Portal</summary><p className="form-note">Choose a version and audience, then complete the publication review. Uploading or moving a file never shares it.</p><PublicationManager key={doc.id} documentId={doc.id} /></details> : <PublicationManager key={doc.id} documentId={doc.id} />)}
+        {!partner && !doc.archivedAt && !internalCabinet && (cabinet ? <details><summary>Share with Partner Portal</summary><p className="form-note">Choose a version and audience, then complete the publication review. Uploading or moving a file never shares it.</p><PublicationManager key={doc.id} documentId={doc.id} /></details> : <PublicationManager key={doc.id} documentId={doc.id} />)}
         {!partner && doc.orderId && (
           <DeliveryManager key={`${doc.id}:delivery`} documentId={doc.id} />
         )}

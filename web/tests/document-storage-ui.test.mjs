@@ -11,14 +11,14 @@ let browser, server, context, page, origin;
 let errors = [];
 before(async () => {
   const bundle = await build({
-    absWorkingDir: web, write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent",
+    absWorkingDir: web, write: false, bundle: true, platform: "browser", format: "esm", jsx: "automatic", logLevel: "silent", loader: {".css":"empty",".module.css":"empty"},
     define: { "process.env.NODE_ENV": '"production"' },
     stdin: { resolveDir: web, loader: "tsx", contents: `
       import React,{useState} from 'react';import {createRoot} from 'react-dom/client';import {Toaster} from 'sonner';
       import {Documents,UploadDocument,DocumentPreview} from './components/title/documents';import {useWorkspace} from '@/lib/title/store';
       function App(){const {s}=useWorkspace();const q=new URLSearchParams(location.search);const [upload,setUpload]=useState(false);const [preview,setPreview]=useState(q.has('preview')?s.documents[0]:undefined);
         return <><Documents onDoc={setPreview} onUpload={()=>setUpload(true)}/>{upload&&<UploadDocument companyId={s.companies[0].id} onClose={()=>setUpload(false)}/>}<Toaster/>
-        {preview&&<DocumentPreview doc={preview} onClose={()=>setPreview(undefined)}/>}<span id="fixture-ready"/></>;
+        {preview&&<DocumentPreview doc={preview} agencyMode={q.has("production")?false:undefined} partner={q.has("partner")} publicationId="qa-publication" onClose={()=>setPreview(undefined)}/>}<span id="fixture-ready"/></>;
       }createRoot(document.getElementById('root')).render(<App/>);
     ` },
     plugins: [{ name: "synthetic-document-storage", setup(builder) {
@@ -27,16 +27,18 @@ before(async () => {
         import {useSyncExternalStore} from 'react';import {createSeed} from './lib/title/model';
         const q=new URLSearchParams(location.search),listeners=new Set(),files=new Map();const state=createSeed();state.companies=state.companies.slice(0,1);state.companies[0].name='QA Cedar Title';state.orders=[];state.documents=[];
         if(q.has('preview'))state.documents.push({id:'qa-doc',companyId:state.companies[0].id,name:'QA source.txt',category:'Company records',visibility:'Internal',date:'2026-09-21',size:'1 KB',version:1,assetId:'qa-asset',mime:'text/plain'});
-        let snapshot={s:state,connection:q.has('local')?undefined:{revision:1,access:{userId:'qa-user',email:'qa@example.test',role:'onboarding',allCompanies:true,companyIds:[],restricted:true}}};
+        if(q.has('production'))state.documents[0].orderId='qa-title';
+        if(q.has('partner'))state.materials={items:[],publications:[{id:'qa-publication',documentId:'qa-doc'}]};
+        let snapshot={s:state,connection:q.has('local')?undefined:{workspaceId:'qa-workspace',revision:1,access:{userId:'qa-user',email:'qa@example.test',role:q.has('partner')?'partner':'onboarding',allCompanies:true,companyIds:[],restricted:true}}};
         window.documentFixtureUpdates=[];window.documentFixtureUploads=[];window.documentFixtureState=()=>structuredClone(snapshot.s);
         export function useWorkspace(){const current=useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn)},()=>snapshot);return {...current,update:async(fn,title,detail)=>{const next=structuredClone(snapshot.s);fn(next);snapshot={...snapshot,s:next};window.documentFixtureUpdates.push({title,detail});listeners.forEach(fn=>fn());return true;}};}
         export async function saveAsset(id,file,binding){if(q.has('uploaderror'))throw Error('Synthetic upload failure');files.set(id,file);window.documentFixtureUploads.push({id,name:file.name,binding,text:await file.text()});}
         export async function getAsset(id){if(q.has('previewerror'))throw Error('Synthetic download failure');if(q.has('previewwait'))return new Promise(()=>{});return files.get(id)||new Blob(['Fictional company original'],{type:'text/plain'});}
-        export const download=()=>{throw Error('Unexpected synthetic download');};
+        export const getAssetForDocument=async doc=>getAsset(doc.assetId);export const download=()=>{throw Error('Unexpected synthetic download');};
       ` }));
       builder.onResolve({ filter: /^\.\/(document-text-review|publications|deliveries)$/ }, args => ({ path: args.path, namespace: "document-child" }));
-      builder.onLoad({ filter: /.*/, namespace: "document-child" }, args => ({ loader: "tsx", contents: `
-        export const ${args.path.includes('document-text-review') ? 'DocumentTextReview' : args.path.includes('publications') ? 'PublicationManager' : 'DeliveryManager'}=()=>null;
+      builder.onLoad({ filter: /.*/, namespace: "document-child" }, args => ({ loader: "tsx", resolveDir: web, contents: `
+        export const ${args.path.includes('document-text-review') ? 'DocumentTextReview' : args.path.includes('publications') ? 'PublicationManager' : 'DeliveryManager'}=()=> <section aria-label="${args.path.includes('document-text-review')?'Document text review':args.path.includes('publications')?'Publication review':'Document delivery'}">Available</section>;
       ` }));
     } }],
   });
@@ -68,7 +70,7 @@ async function selectFile() {
   assert.deepEqual(await page.evaluate(() => window.documentFixtureUploads), []);
   await page.getByRole("button", { name: "Review documents", exact: true }).click();
   assert.equal(await page.getByLabel("Document category", { exact: true }).inputValue(), "Company records");
-  assert.equal(await page.getByLabel("Document visibility", { exact: true }).inputValue(), "Internal");
+  assert.equal(await page.getByLabel("Document visibility", { exact: true }).inputValue(), "Restricted");
   assert.deepEqual(await page.evaluate(() => window.documentFixtureUpdates), []);
   assert.deepEqual(await page.evaluate(() => window.documentFixtureUploads), []);
 }
@@ -82,14 +84,14 @@ for (const local of [false, true]) {
       assert.match(copy, /Use sample or redacted files in this local demo/);assert.match(copy, /not shared with your team/);
       assert.match(copy, /visibility labels do not grant team access/);assert.doesNotMatch(copy, /private workspace/);
     } else {
-      assert.match(copy, /Upload original company and file documents you are authorized to use/);assert.match(copy, /company and document permissions apply/);
-      assert.match(copy, /Saving does not email or publish these documents/);assert.doesNotMatch(copy, /sample or redacted|no production access controls|Nothing is sent to an external service|stay in this browser/);
+      assert.match(copy, /Save company files for your internal team/);assert.match(copy, /company and document permissions apply/);
+      assert.match(copy, /Files are available to staff who have access to this company/);assert.doesNotMatch(copy, /sample or redacted|no production access controls|Nothing is sent to an external service|stay in this browser/);
     }
     await page.getByRole("button", { name: "Save documents", exact: true }).click();await page.getByRole("dialog").waitFor({ state: "detached" });
     const result = await page.evaluate(() => ({ updates: window.documentFixtureUpdates, uploads: window.documentFixtureUploads, state: window.documentFixtureState() }));
     assert.equal(result.updates[0].title, local ? "Documents saved locally" : "Documents saved to workspace");
     assert.equal(result.uploads.length, 1);assert.equal(result.uploads[0].text, "Fictional company original");assert.equal(result.uploads[0].binding.companyId, result.state.companies[0].id);
-    assert.equal(result.state.documents[0].assetId, result.uploads[0].id);assert.equal(result.state.documents[0].visibility, "Internal");
+    assert.equal(result.state.documents[0].assetId, result.uploads[0].id);assert.equal(result.state.documents[0].visibility, "Restricted");
   });
   test(`${local ? "local" : "connected"} upload failure reports the correct storage without claiming success`, async () => {
     await open(`${local ? "local=1&" : ""}uploaderror=1`);await selectFile();await page.getByRole("button", { name: "Save documents", exact: true }).click();
@@ -105,5 +107,21 @@ for (const local of [false, true]) {
 test("connected preview loads without claiming the original is stored locally", async () => {
   await open("preview=1&previewwait=1");await page.getByText("Loading document…", { exact: true }).waitFor();
   assert.doesNotMatch(await page.getByRole("dialog").innerText(), /Loading local file/);
+  assert.equal(await page.getByRole("combobox", { name: "Change document access" }).count(), 0);
+  await page.getByText("Access settings", { exact: true }).click();
   assert.equal(await page.getByRole("combobox", { name: "Change document access" }).count(), 1);
+});
+
+
+test("Production preview retains publication, document reading and title-file delivery", async () => {
+ await open("preview=1&production=1");
+ await page.getByText("Fictional company original", {exact:true}).waitFor();
+ for(const name of ["Publication review","Document text review","Document delivery"]) assert.equal(await page.getByRole("region",{name,exact:true}).isVisible(),true);
+ assert.equal(await page.getByRole("button",{name:"Download",exact:true}).count(),1);
+ assert.equal(await page.getByRole("combobox",{name:"Change document access",exact:true}).isVisible(),true);
+});
+test("explicit partner preview keeps the published original and never exposes internal management", async () => {
+ await open("preview=1&partner=1");const d=page.getByRole("dialog");await d.getByText("Fictional company original",{exact:true}).waitFor();
+ assert.equal(await d.getByRole("button",{name:"Download",exact:true}).count(),1);assert.equal(await d.getByText("Published",{exact:true}).count(),1);
+ assert.equal(await d.getByRole("combobox",{name:"Change document access",exact:true}).count(),0);assert.equal(await d.getByRole("button",{name:/Copy staff link/}).count(),0);assert.equal(await d.locator("summary").count(),0);
 });

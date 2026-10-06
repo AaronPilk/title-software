@@ -36,6 +36,13 @@ before(async () => {
         s.companies.forEach(company=>{company.stage='Onboarding';company.steps=Array(7).fill(false);});
         s.companies[0].operatingStatus={status:'Active',confirmedBy:'owner@example.test',confirmedAt:'2026-09-23T12:00:00.000Z',note:'Confirmed existing operating business.'};
       }
+      if(q.has('attention')) {
+        const setupTask=(id,companyId,itemId,subject,patch={})=>({...task(id,companyId,id,''),scope:'agency',phaseOne:{kind:'setup',itemId,subject,required:true,applicable:true},...patch});
+        s.tasks=[setupTask('Required license upload','A','license-original','NC'),setupTask('Required underwriter approval','A','underwriter-approved','WFG'),setupTask('Complete license','A','license-approved','SC',{done:true}),setupTask('Production license','A','license-original','Production',{scope:'production'}),setupTask('Unavailable company license','unavailable','license-original','Hidden'),setupTask('Optional license','A','license-original','Optional',{phaseOne:{kind:'setup',itemId:'license-original',subject:'Optional',required:false,applicable:true}}),setupTask('Retired underwriter','A','underwriter-approved','Retired',{phaseOne:{kind:'setup',itemId:'underwriter-approved',subject:'Retired',required:true,applicable:false}}),setupTask('Application missing','B','application-original','')];
+        const schedule=(id,companyId,standing)=>({id,companyId,title:id,scope:'company',memberId:'',kind:'Good standing',active:true,nextDueOn:'2099-01-01',standing});
+        s.agencyMaintenance={records:[schedule('Review Test Title status','B','Delinquent'),schedule('Unknown entity status','A','Unknown'),schedule('Current company status','B','Current'),schedule('Unavailable company status','unavailable','Suspended')],history:[]};
+        if(q.has('quiet')) {s.tasks=s.tasks.filter(task=>task.phaseOne.itemId==='application-original');s.agencyMaintenance.records=s.agencyMaintenance.records.filter(record=>record.standing==='Unknown'||record.standing==='Current');}
+      }
       window.agencyFixture={s,connection:q.has('demo')?undefined:{access:{role:q.get('role')||'operations',allCompanies:q.has('all'),restricted:!q.has('limited'),email:'staff@example.test'}}};
       window.agencyActions=[];
       createRoot(document.getElementById('root')).render(<AgencyOverview navigate={page=>window.agencyActions.push({page})} newCompany={()=>window.agencyActions.push({newCompany:true})} openCompany={(id,tab)=>window.agencyActions.push({company:id,...(tab?{tab}:{})})}/>);
@@ -128,4 +135,39 @@ test("confirmed existing operating status is preserved without rewriting incompl
   assert.equal(await page.locator('.metric').filter({hasText:'Companies in setup'}).locator('strong').innerText(),'1');
   assert.equal(await page.locator('[aria-labelledby="agency-next-steps"]').getByRole('button').filter({hasText:'Agency Test Title'}).count(),0);
   const state=await page.evaluate(()=>window.agencyFixture.s);assert.equal(state.companies[0].stage,'Onboarding');assert.deepEqual(state.business.onboarding,[]);
+});
+
+test("attention includes undated required licensing and approval work with actionable reasons",async()=>{
+  await open('attention=1&role=owner&all=1');
+  const attention=section('Needs attention');
+  await attention.getByText('NC license document outstanding',{exact:true}).waitFor();
+  await attention.getByText('WFG approval pending',{exact:true}).waitFor();
+  await attention.getByText('Review Test Title status · Delinquent',{exact:true}).waitFor();
+  assert.equal(await page.locator('.metric').filter({hasText:'Companies needing attention'}).locator('strong').innerText(),'2');
+  await attention.getByRole('button',{name:'Review Agency Test Title setup',exact:true}).click();
+  await attention.getByRole('button',{name:'Review Review Test Title maintenance',exact:true}).click();
+  assert.deepEqual(await page.evaluate(()=>window.agencyActions),[{company:'A',tab:'Setup'},{page:'Tasks'}]);
+  assert.equal(await page.locator('.metric').filter({hasText:'Companies in setup'}).locator('strong').innerText(),'0');
+});
+test("attention excludes optional, completed, retired, Production and unavailable-company work",async()=>{
+  await open('attention=1&limited=1');
+  const text=await section('Needs attention').innerText();
+  assert.doesNotMatch(text,/SC license|Production|Optional|Retired|Hidden|Unavailable|Unknown|Current company|Application missing/);
+  assert.doesNotMatch(await page.locator('body').innerText(),/Unavailable company license|Unavailable company status/);
+  assert.match(text,/NC license document outstanding/);
+});
+test("unknown standing and missing historical applications do not flag existing companies",async()=>{
+  await open('attention=1&quiet=1');
+  assert.equal(await section('Needs attention').count(),0);
+  assert.equal(await page.locator('.metric').filter({hasText:'Companies needing attention'}).locator('strong').innerText(),'0');
+  assert.equal(await page.locator('.metric').filter({hasText:'Active companies'}).locator('strong').innerText(),'2');
+  assert.match(await page.locator('[aria-labelledby="agency-next-steps"]').innerText(),/No new companies in setup/);
+});
+test("attention reasons and actions fit a phone viewport",async()=>{
+  await open('attention=1&role=owner&all=1',{width:390,height:844});
+  const attention=section('Needs attention');
+  await attention.getByText('NC license document outstanding',{exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
+  await attention.getByRole('button',{name:'Review Agency Test Title setup',exact:true}).click();
+  assert.deepEqual(await page.evaluate(()=>window.agencyActions),[{company:'A',tab:'Setup'}]);
 });

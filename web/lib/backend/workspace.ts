@@ -621,6 +621,14 @@ function applyEdit(
       if (!intake && !/^[A-Z]{2}$/.test(String(v.jurisdiction)))
         fail("Choose an operating state.");
       if (!intake && v.operatingStates !== undefined && (!Array.isArray(v.operatingStates) || !v.operatingStates.length || v.operatingStates.length > 50 || v.operatingStates.some(x => typeof x !== "string" || !/^[A-Z]{2}$/.test(x)) || !v.operatingStates.includes(v.jurisdiction) || new Set(v.operatingStates).size !== v.operatingStates.length)) fail("Choose valid operating states.");
+      let operatingStatus: Company["operatingStatus"];
+      if (has(v, "operatingStatus") && v.operatingStatus !== null) {
+        permitWorkspaceAdmin(a);
+        const confirmation = object(v.operatingStatus);
+        keys(confirmation, ["status", "confirmedBy", "confirmedAt", "note"]);
+        if (confirmation.status !== "Active" || typeof confirmation.note !== "string") fail("Confirm that this company already operates.");
+        workflowError(() => { operatingStatus = buildOperatingConfirmation(a.email, confirmation.note as string, timestamp); });
+      }
       list.unshift({
         id: edit.id,
         name: v.name,
@@ -635,6 +643,7 @@ function applyEdit(
         stage: "Onboarding",
         steps: Array(7).fill(false),
         members: [],
+        ...(operatingStatus ? { operatingStatus } : {}),
         ...(intake ? { intake, operatingStates: [] } : v.operatingStates ? { operatingStates: v.operatingStates } : {}),
       });
     } else {

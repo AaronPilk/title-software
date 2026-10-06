@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -68,6 +69,7 @@ import { ProductionInbox } from "@/components/title/production-inbox";
 import type { Page, VaultDoc } from "@/lib/title/model";
 import { Overview } from "@/components/title/overview";
 import { AgencyOverview } from "@/components/title/agency-overview";
+import { readInternalDocumentLink } from "@/lib/title/internal-document-link";
 import { WorkspaceSwitcher } from "@/components/title/workspace-switcher";
 import { useWorkspaceView } from "@/components/title/use-workspace-view";
 import { pageVisibleInWorkspace, workspaceViewPages, type WorkspaceView } from "@/lib/title/workspace-view";
@@ -147,6 +149,7 @@ function Workspace() {
   const { id: companyId, tab: companyTab, sourceId: applicationSourceId } = companyNavigation.entry;
   const [productionCompanyId, setProductionCompanyId] = useState("");
   const [docId, setDocId] = useState("");
+  const [documentLink, setDocumentLink] = useState<ReturnType<typeof readInternalDocumentLink>>(null);
   const [docTarget, setDocTarget] = useState<{ identity: string; page: number } | null>(null);
   const [newOrder, setNewOrder] = useState(false);
   const [newOrderCompany, setNewOrderCompany] = useState<string | undefined>();
@@ -310,6 +313,25 @@ function Workspace() {
     companyNavigation.open(id, tab);
   }
   const doc = s.documents.find((d) => d.id === docId);
+  useEffect(() => {
+    const read = () => setDocumentLink(readInternalDocumentLink(window.location.hash));
+    read(); window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
+  }, []);
+  /* eslint-disable react-hooks/set-state-in-effect -- A staff link is external URL state; restore its dialog only after the authorized workspace and route have loaded. */
+  useEffect(() => {
+    if (!ready || !documentLink || view !== "agency" || page !== "Documents") return;
+    if (!allowWorkspaceNavigation()) {
+      window.history.replaceState(window.history.state, "", "#agency/documents");
+      setDocumentLink(null); return;
+    }
+    const original = connection?.workspaceId === documentLink.workspaceId && connection.access.role !== "partner"
+      ? s.documents.find(d => d.id === documentLink.documentId && !d.archivedAt && !d.orderId) : undefined;
+    if (original) { setDocTarget(null); setDocId(original.id); }
+    else { toast.error("This file is not available to your account in this workspace."); window.history.replaceState(window.history.state, "", "#agency/documents"); }
+    setDocumentLink(null);
+  }, [ready, documentLink, view, page, connection, s.documents]);
+  /* eslint-enable react-hooks/set-state-in-effect */
   const helpPage = connection?.access.role === "partner" ? page : doc ? "Documents" : companyId ? "Companies" : orderId ? "Orders" : page;
   const hasOpenForm = !!(companyId || orderId || doc || uploadOpen || newCompany || newOrder || search || notifications);
   function navigateFromHelp(destination: Page) {
@@ -395,7 +417,7 @@ function Workspace() {
       );
       break;
     case "Documents":
-      content = <Documents onDoc={openDoc} onUpload={upload} />;
+      content = <Documents agencyMode={view === "agency"} onDoc={openDoc} onUpload={upload} />;
       break;
     case "Inbox":
       content = (
@@ -486,7 +508,7 @@ function Workspace() {
             {(connection?.access.role === "partner" ? navigation : workspaceViewPages[view].map(label => navigation.find(n => n.label === label)!))
               .filter(
                 (n) =>
-                  pageVisibleInWorkspace(n.label, connection?.access.role) && (view !== "agency" || connection?.access.role === "partner" || agencyMore || ["Overview", "Companies", "Tasks", "Documents", "Onboarding"].includes(n.label) || page === n.label),
+                  (n.label !== "Partner portal" || connection?.access.role === "partner") && pageVisibleInWorkspace(n.label, connection?.access.role) && (view !== "agency" || connection?.access.role === "partner" || agencyMore || ["Overview", "Companies", "Tasks", "Documents", "Onboarding"].includes(n.label) || page === n.label),
               )
               .map(({ label, icon: Icon }) => (
                 <SidebarMenuItem
@@ -524,7 +546,7 @@ function Workspace() {
               {connection ? "Shared workspace" : "Local demo workspace"}
               <small>
                 {connection
-                  ? connection.access.role + " · saved to Supabase"
+                  ? "Changes saved for your team"
                   : ready
                     ? "Fictional data · saved in this browser"
                     : "loading records"}
@@ -631,7 +653,7 @@ function Workspace() {
             <CommandList>
               <CommandEmpty>No matching records found.</CommandEmpty>
               <CommandGroup heading="Workspace">
-                {pageNames.filter(p => pageVisibleInWorkspace(p, connection?.access.role)).map((p) => (
+                {pageNames.filter(p => (p !== "Partner portal" || connection?.access.role === "partner") && pageVisibleInWorkspace(p, connection?.access.role) && (p === "Settings" || workspaceViewPages[view].includes(p))).map((p) => (
                   <CommandItem key={p} onSelect={() => navigate(p)}>
                     {p}
                     <ChevronRight size={14} />
@@ -739,14 +761,16 @@ function Workspace() {
         <DocumentPreview
           key={documentScanIdentity(doc, connection)}
           doc={doc}
+          agencyMode={view === "agency"}
           onFillApplication={view === "agency" ? fillApplicationFromDocument : undefined}
           initialPage={docTarget?.identity === documentScanIdentity(doc, connection) ? docTarget.page : 1}
           partner={page === "Partner portal"}
-          onClose={() => { setDocId(""); setDocTarget(null); }}
+          onClose={() => { setDocId(""); setDocTarget(null); if (readInternalDocumentLink(window.location.hash)) window.history.replaceState(window.history.state, "", "#agency/documents"); }}
         />
       )}{" "}
       {uploadOpen && (
         <UploadDocument
+          agencyMode={view === "agency"}
           key={uploadCompany || "general"}
           companyId={uploadCompany}
           initialDestination={uploadDestination}

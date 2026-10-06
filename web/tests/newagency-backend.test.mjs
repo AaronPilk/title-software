@@ -18,3 +18,75 @@ test('projected maintenance, tasks and notifications retain company and restrict
 test('hidden maintenance cannot be edited, completed or synchronized using guessed IDs or company scope',()=>{const s=state();s.documents=[{id:'private-source',companyId:'c1',name:'private.pdf',category:'Company records',visibility:'Restricted',assetId:'asset',mime:'application/pdf',version:1,date:L.businessDay(),size:'1 KB'}];L.saveAgencyMaintenance(s,{expectedRevision:0,record:{...record(),documentIds:['private-source']}});L.syncAgencyMaintenance(s);const access={...scoped,restricted:false};assert.throws(()=>exec(s,'saveAgencyMaintenance',{expectedRevision:1,record:{...record(),revision:2,documentIds:[]}},access));assert.throws(()=>exec(s,'completeAgencyMaintenance',{maintenanceId:'maintenance-one',expectedRevision:1,cycleOn:L.businessDay(),completedOn:L.businessDay(),notes:'Done',documentIds:[],nextDueOn:'2030-10-06'},access));assert.throws(()=>L.executeCommands(s,[{id:crypto.randomUUID(),name:'syncAgencyMaintenance',args:[L.businessDay(),'c1']}],access));});
 
 test('partner projection strips internal setup configuration and other-owner choices',()=>{const s=state();s.companies[0].members=[{id:'m1',name:'Fixture Partner',share:50},{id:'m2',name:'Other Partner',share:50}];L.configureAgencySetup(s,{companyId:'c1',expectedVersion:1,templateVersion:1,owners:[{memberId:'m1',kind:'individual'},{memberId:'m2',kind:'existing'}],agreementCount:2,eoCovered:true});const visible=L.projectWorkspace(s,{...actor,role:'partner',allCompanies:false,companyIds:['c1'],partnerMembers:[{id:'grant',companyId:'c1',memberName:'Fixture Partner'}]});assert.equal(visible.companies.length,1);assert.equal(visible.companies[0].agencySetup,undefined);assert.equal(visible.agencySetupTemplates,undefined);assert.equal(visible.agencyMaintenance,undefined);assert.equal(visible.tasks.length,0);assert.doesNotMatch(JSON.stringify(visible),/m2|Other Partner/);});
+
+
+const proposedOperatingConfirmation = {
+  status: 'Active', confirmedBy: 'forged@example.test', confirmedAt: '2000-01-01T00:00:00.000Z',
+  note: '  Existing operating company; company records are being collected.  ',
+};
+const newCompanyValue = (operatingStatus = proposedOperatingConfirmation) => ({
+  name: 'Established Synthetic Title', initials: 'ST', color: 'blue', contact: '', email: '',
+  location: 'Raleigh', jurisdiction: 'NC', operatingStates: ['NC', 'SC'], stage: 'Onboarding',
+  steps: Array(7).fill(false), members: [], ...(operatingStatus === undefined ? {} : {operatingStatus}),
+});
+const insertCompany = (before, value, access = actor) => L.executeCommands(before, [cmd('editDraft', [
+  {table: 'companies', id: 'existing-synthetic', insert: true, value},
+])], access);
+
+for (const role of ['owner', 'admin']) test(`${role} company insertion stamps existing operations with the authenticated actor and server time`, () => {
+  const before = state(), copy = structuredClone(before), started = Date.now();
+  const access = {...actor, ...staff.find(member => member.role === role)};
+  const result = insertCompany(before, newCompanyValue(), access);
+  const company = result.companies.find(row => row.id === 'existing-synthetic');
+  assert.equal(company.operatingStatus.status, 'Active');
+  assert.equal(company.operatingStatus.confirmedBy, access.email);
+  assert.notEqual(company.operatingStatus.confirmedBy, proposedOperatingConfirmation.confirmedBy);
+  assert.ok(Date.parse(company.operatingStatus.confirmedAt) >= started);
+  assert.ok(Date.parse(company.operatingStatus.confirmedAt) <= Date.now());
+  assert.equal(company.operatingStatus.note, proposedOperatingConfirmation.note.trim());
+  assert.equal(company.stage, 'Onboarding');
+  assert.deepEqual(company.steps, Array(7).fill(false));
+  assert.deepEqual(company.operatingStates, ['NC', 'SC']);
+  assert.equal(company.agencySetup, undefined);
+  assert.deepEqual(result.tasks.filter(task => task.companyId === company.id), []);
+  assert.deepEqual(before, copy, 'command replay must leave its input untouched');
+});
+
+for (const access of [
+  {...actor, role: 'operations'}, {...actor, role: 'onboarding'},
+  {...actor, role: 'admin', allCompanies: false, companyIds: ['c1']},
+]) test(`${access.role} with all-company access ${access.allCompanies} cannot insert an existing-operation confirmation`, () => {
+  const before = state(), copy = structuredClone(before);
+  assert.throws(() => insertCompany(before, newCompanyValue(), access), error => error.status === 403);
+  assert.deepEqual(before, copy);
+});
+
+test('company insertion rejects malformed existing-operation confirmations atomically', () => {
+  for (const operatingStatus of [
+    false, [], {}, {...proposedOperatingConfirmation, status: 'Licensed'},
+    {...proposedOperatingConfirmation, note: ''}, {...proposedOperatingConfirmation, note: '   '},
+    {...proposedOperatingConfirmation, note: 1}, {...proposedOperatingConfirmation, note: 'x'.repeat(1001)},
+    {...proposedOperatingConfirmation, note: 'Bad\u0000note'}, {...proposedOperatingConfirmation, extra: true},
+  ]) {
+    const before = state(), copy = structuredClone(before);
+    assert.throws(() => insertCompany(before, newCompanyValue(operatingStatus)), error => error.status === 400);
+    assert.deepEqual(before, copy);
+  }
+});
+
+test('onboarding staff can still create a new venture and its applicable setup checklist', () => {
+  const before = state(), draft = structuredClone(before), value = newCompanyValue(null);
+  delete value.operatingStatus;
+  const commands = L.captureCommands(draft, workspace => {
+    workspace.companies.unshift({id: 'new-synthetic', ...value});
+    L.configureAgencySetup(workspace, {companyId: 'new-synthetic', expectedVersion: 0, templateVersion: 1, owners: [], agreementCount: 1, eoCovered: false});
+  });
+  const result = L.executeCommands(before, commands, {...actor, ...staff.find(member => member.role === 'onboarding')});
+  const company = result.companies.find(row => row.id === 'new-synthetic');
+  assert.equal(company.operatingStatus, undefined);
+  assert.equal(company.stage, 'Onboarding');
+  assert.ok(company.agencySetup);
+  const tasks = result.tasks.filter(task => task.companyId === company.id);
+  assert.ok(tasks.length > 1);
+  assert.ok(tasks.every(task => task.phaseOne?.kind === 'setup' && task.phaseOne.applicable));
+});

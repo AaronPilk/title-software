@@ -1,6 +1,6 @@
 "use client";
 import { AgencyTaskEditor } from "./agency-setup";
-import { AgencyMaintenance } from "./agency-maintenance";
+import { AgencyMaintenance, type AgencyMaintenanceAction } from "./agency-maintenance";
 import { StaffAssignmentPicker } from "./staff-assignment-picker";
 import { chooseStaffAssignment, useStaffDirectory } from "./use-staff-directory";
 import { IntakeCapture } from "./intake-capture";
@@ -434,6 +434,9 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
   const update: typeof save = (...args) => canEdit ? save(...args) : Promise.resolve(false);
   const [agencyTask, setAgencyTask] = useState("");
   const [agencyDocument, setAgencyDocument] = useState("");
+  const [maintenanceAction, setMaintenanceAction] = useState<AgencyMaintenanceAction | null>(null);
+  const [taskCompany, setTaskCompany] = useState("all");
+  const [taskKind, setTaskKind] = useState("all");
   const [filter, setFilter] = useState("Open");
   const [owner, setOwner] = useState("Everyone");
   const [newTask, setNewTask] = useState(false);
@@ -455,7 +458,8 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
   // The company works on the Carolina calendar; a UTC day flips at 8pm Eastern.
   const today = businessDay();
   const clocks = new Map(s.tasks.map((t) => [t.id, taskClock(t)]));
-  const scopedTasks = s.tasks.filter(t => (!scope || (scope === "agency" ? t.scope !== "production" : t.scope === "production")) && t.phaseOne?.applicable !== false);
+  const scopedTasks = s.tasks.filter(t => (!scope || (scope === "agency" ? t.scope !== "production" : t.scope === "production")) && t.phaseOne?.applicable !== false)
+    .filter(t => scope !== "agency" || (taskCompany === "all" || (taskCompany === "agency" ? !t.companyId : t.companyId === taskCompany)) && (taskKind === "all" || (t.phaseOne?.kind || "manual") === taskKind));
   const rows = scopedTasks.filter((t) => {
     const clock = clocks.get(t.id)!;
     const matchesView =
@@ -563,6 +567,7 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
         </Button>}
       </Heading>
       {scope === "agency" && <details className="panel" style={{ marginBottom: 20 }}><summary style={{ cursor: "pointer", fontWeight: 600 }}>Renewals &amp; maintenance</summary><AgencyMaintenance onDoc={doc => setAgencyDocument(doc.id)} /></details>}
+      {scope === "agency" && maintenanceAction && <AgencyMaintenance key={`${maintenanceAction.maintenanceId}:${maintenanceAction.action}`} initialAction={maintenanceAction} editorOnly onActionClosed={() => setMaintenanceAction(null)} onDoc={doc => setAgencyDocument(doc.id)} />}
       {agencyTask && s.tasks.find(t => t.id === agencyTask) && <AgencyTaskEditor task={s.tasks.find(t => t.id === agencyTask)!} onClose={() => setAgencyTask("")} onDoc={doc => setAgencyDocument(doc.id)} />}
       {agencyDocument && s.documents.find(d => d.id === agencyDocument) && <DocumentPreview doc={s.documents.find(d => d.id === agencyDocument)!} onClose={() => setAgencyDocument("")} />}
       <div className="toolbar">
@@ -577,6 +582,10 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
           label="Filter tasks by owner"
           options={[{ value: "Everyone", label: "Everyone" }, { value: "__mine", label: "My work" }, ...allStaff.staff.map(member => ({ value: member.userId, label: member.label })), ...legacyOwners.map(name => ({ value: name, label: `${name} · existing assignment` }))]}
         />
+        {scope === "agency" && <>
+          <Picker value={taskCompany} onChange={setTaskCompany} label="Filter tasks by company" options={[{ value: "all", label: "All companies" }, { value: "agency", label: "Agency only" }, ...s.companies.map(company => ({ value: company.id, label: company.name }))]} />
+          <Picker value={taskKind} onChange={setTaskKind} label="Filter tasks by type" options={[{ value: "all", label: "All work" }, { value: "setup", label: "Setup" }, { value: "maintenance", label: "Renewals" }, { value: "manual", label: "Other tasks" }]} />
+        </>}
       </div>
       {!!openTasks.length && (
         <p className="subtle task-clock-summary">
@@ -605,6 +614,8 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
             const open = clock.openWaiting;
             const history = taskWaiting(t);
             const isOpen = expanded === t.id;
+            const renewal = scope === "agency" && t.phaseOne?.kind === "maintenance" ? s.agencyMaintenance?.records.find(record => record.id === t.phaseOne?.maintenanceId) : undefined;
+            const canManageRenewal = canEdit && renewal && (renewal.scope !== "agency" || !connection || connection.access.allCompanies && ["owner", "admin"].includes(connection.access.role));
             const main = (
               <TableRow key={`${t.id}:row`} className={t.done ? "completed-row" : ""}>
                 <TableCell>
@@ -664,7 +675,10 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
                 </TableCell>
                 <TableCell>
                   <div className="task-actions">
-                    {t.phaseOne && canEdit && !(t.phaseOne.kind === "maintenance" && t.done) && <Button variant="outline" onClick={() => setAgencyTask(t.id)}>Edit task</Button>}
+                    {canManageRenewal ? <>
+                      {!t.done && renewal.active && renewal.nextDueOn === t.phaseOne?.cycleOn && <Button variant="outline" onClick={() => setMaintenanceAction({ maintenanceId: renewal.id, action: "complete" })}>Complete cycle</Button>}
+                      <Button variant="ghost" onClick={() => setMaintenanceAction({ maintenanceId: renewal.id, action: "edit" })}>Manage schedule</Button>
+                    </> : t.phaseOne && canEdit && (scope !== "agency" || t.phaseOne.kind !== "maintenance") && !(t.phaseOne.kind === "maintenance" && t.done) && <Button variant="outline" onClick={() => setAgencyTask(t.id)}>Edit task</Button>}
                     {!t.done && canEdit && (
                       <Button
                         variant="ghost"

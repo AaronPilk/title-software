@@ -109,6 +109,11 @@ export function eligibleAgencyTaskDocuments(state: Workspace, task: Pick<Task, "
   const requirement = task.phaseOne?.documentRequirement;
   return state.documents.filter(d => (!task.companyId || d.companyId === task.companyId) && !d.orderId && !!d.assetId && !d.archivedAt && d.visibility !== "Partner" && (!requirement || requirement.categories.includes(d.category) && (!requirement.restricted || d.visibility === "Restricted")));
 }
+/** Only this generated task follows application uploads automatically. Other document links retain their history. */
+export function isAutomaticApplicationTask(task: Task, companyId: string): boolean {
+  const meta = task.phaseOne, requirement = meta?.documentRequirement;
+  return task.companyId === companyId && task.scope === "agency" && meta?.kind === "setup" && meta.applicable && meta.itemId === "application-original" && meta.key === `setup:${companyId}:application-original:` && meta.subject === "" && requirement?.minimum === 1 && requirement.restricted && requirement.categories.length === 1 && requirement.categories[0] === "Applications";
+}
 export function agencyTaskDocumentProblem(state: Workspace, task: Task, ids = task.documentIds || []): string {
   const eligible = eligibleAgencyTaskDocuments(state, task);
   if (ids.some(id => !eligible.some(d => d.id === id))) return "Choose available originals belonging to this company and the required category/access level.";
@@ -177,6 +182,7 @@ export function syncAgencySetup(state: Workspace, companyId: string) {
       if (definition.id === "application-original") {
         const originals = eligibleAgencyTaskDocuments(state, task);
         if (originals.length) { const nextIds = originals.map(d => d.id).slice(0, 30); if (!task.done || JSON.stringify(task.documentIds) !== JSON.stringify(nextIds)) task.phaseOne!.revision++; task.documentIds = nextIds; task.done = true; task.status = "Complete"; task.completedOn ||= originals.map(d => d.date).find(d => isCalendarDay(d)) || businessDay(); }
+        else if (isAutomaticApplicationTask(task, companyId) && (task.documentIds?.length || task.done)) { task.documentIds = []; task.done = false; task.status = "Not Started"; task.completedOn = ""; task.phaseOne!.revision++; }
       }
       if (task.done && agencyTaskCompletionProblem(state, task)) { task.done = false; task.status = "In Progress"; task.completedOn = ""; task.phaseOne!.revision++; }
     }

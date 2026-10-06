@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
-const built=await build({stdin:{contents:"export * from './lib/title/agency-documents';export {emptyWorkspace,executeCommands,projectWorkspace} from './lib/backend/workspace';export {captureCommands} from './lib/title/command-log';export {documentIdentity,publicationEligible} from './lib/title/materials';export {canFillCompanyApplication} from './lib/title/application-document';",resolveDir:fileURLToPath(new URL('../',import.meta.url))},bundle:true,write:false,format:'esm',platform:'node'});
+const built=await build({stdin:{contents:"export * from './lib/title/agency-documents';export {configureAgencySetup} from './lib/title/agency-setup';export {emptyWorkspace,executeCommands,projectWorkspace} from './lib/backend/workspace';export {captureCommands} from './lib/title/command-log';export {documentIdentity,publicationEligible} from './lib/title/materials';export {canFillCompanyApplication} from './lib/title/application-document';",resolveDir:fileURLToPath(new URL('../',import.meta.url))},bundle:true,write:false,format:'esm',platform:'node'});
 const lib=await import(`data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString('base64')}`);
 const {emptyWorkspace,executeCommands,captureCommands,agencyDocumentSnapshot,renameAgencyDocument,moveAgencyDocument,archiveAgencyDocument,restoreAgencyDocument,designateAgencyDocument,documentIdentity,publicationEligible,canFillCompanyApplication}=lib;
 const actor={userId:'00000000-0000-4000-8000-000000000001',email:'owner@example.test',role:'owner',allCompanies:true,companyIds:[],restricted:true,version:1,partnerMembers:[]};
@@ -17,3 +17,24 @@ test('server replay rejects stale source snapshots and cross-company folders',()
 test('a nonrestricted administrator cannot clear a hidden sibling designation',()=>{const s=state();s.documents[0].visibility='Internal';s.documents.push({...s.documents[0],id:'hidden-source',visibility:'Restricted',assetId:'hidden-asset',version:2,designation:'Final'});assert.throws(()=>apply(s,d=>designateAgencyDocument(d,{...target(d.documents[0]),designation:'Current'}),{...actor,restricted:false}));assert.equal(s.documents[1].designation,'Final');});
 test('linked document removal is rejected through command replay even when links are deleted in the same batch',()=>{const s=state();s.tasks=[{id:'task',scope:'agency',title:'Review source',companyId:'c1',owner:'Owner',due:'',done:false,priority:'Normal',documentIds:['source']}];assert.throws(()=>apply(s,changes[3]),/linked/);const expected=agencyDocumentSnapshot(s.documents[0]);assert.throws(()=>executeCommands(s,[{id:crypto.randomUUID(),name:'editDraft',args:[[{table:'tasks',id:'task',value:{documentIds:[]}}]]},{id:crypto.randomUUID(),name:'archiveAgencyDocument',args:[{documentId:'source',expected,actor:actor.userId,at:'2026-10-06T12:00:00.000Z',reason:'Duplicate'}]}],actor));});
 test('archived originals cannot be selected for publication or private application import',()=>{const s=state();s.documents[0].category='Applications';assert.equal(canFillCompanyApplication(s,s.documents[0],{access:actor}),true);const archived=apply(s,changes[3]);assert.equal(canFillCompanyApplication(archived,archived.documents[0],{access:actor}),false);assert.equal(publicationEligible({...archived.documents[0],category:'Branding',visibility:'Internal'}),false);});
+
+function applicationState(count=1) {
+ const s=state();s.documents[0].category='Applications';
+ for(let i=1;i<count;i++)s.documents.push({...s.documents[0],id:'duplicate-'+i,assetId:'duplicate-asset-'+i});
+ return apply(s,d=>lib.configureAgencySetup(d,{companyId:'c1',expectedVersion:0,templateVersion:1,owners:[],agreementCount:1,eoCovered:false}));
+}
+const applicationTask=s=>s.tasks.find(t=>t.phaseOne?.itemId==='application-original');
+test('trash of the only auto-linked application reopens its task and restore completes it with the same original',()=>{
+ const before=applicationState(), original=documentIdentity(before.documents[0]);assert.equal(applicationTask(before).done,true);
+ const archived=apply(before,changes[3]);assert.equal(applicationTask(archived).done,false);assert.equal(applicationTask(archived).status,'Not Started');assert.deepEqual(applicationTask(archived).documentIds,[]);assert.equal(applicationTask(archived).completedOn,'');
+ assert.equal(documentIdentity(archived.documents[0]),original);assert.ok(archived.documents[0].archivedAt);
+ const restored=apply(archived,s=>restoreAgencyDocument(s,target(s.documents[0])));assert.equal(applicationTask(restored).done,true);assert.deepEqual(applicationTask(restored).documentIds,['source']);assert.equal(documentIdentity(restored.documents[0]),original);
+});
+test('trash of a duplicate application leaves the required task complete using its remaining original',()=>{
+ const before=applicationState(2), archived=apply(before,changes[3]);assert.equal(applicationTask(archived).done,true);assert.deepEqual(applicationTask(archived).documentIds,['duplicate-1']);assert.equal(before.documents.length,archived.documents.length);
+});
+test('the auto-application exception never removes unrelated task, approval or retained sharing references',()=>{
+ for(const link of [s=>s.tasks.push({id:'manual-review',scope:'agency',title:'Review application',companyId:'c1',owner:'',due:'',done:false,priority:'Normal',documentIds:['source']}),s=>s.business.onboarding.push({companyId:'c1',evidence:[{documentId:'source'}]}),s=>s.materials={items:[],publications:[{id:'retained',documentId:'source',status:'Withdrawn'}]}]){
+  const before=applicationState();link(before);assert.throws(()=>apply(before,changes[3]),/linked/);assert.equal(before.documents[0].archivedAt,undefined);assert.deepEqual(applicationTask(before).documentIds,['source']);
+ }
+});

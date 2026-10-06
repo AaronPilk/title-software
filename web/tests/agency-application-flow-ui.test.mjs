@@ -105,7 +105,7 @@ async function upload(file = applicationPdf(), read = true) {
   assert.equal(await page.getByLabel("Upload company", { exact: true }).count(), 0);
   assert.equal(await page.getByLabel("Document category", { exact: true }).count(), 0);
   assert.equal(await page.getByLabel("Document visibility", { exact: true }).count(), 0);
-  await page.getByText("Private company application · Restricted access", { exact: true }).waitFor();
+  await page.getByText("Completed company application", { exact: true }).waitFor();
   await page.getByLabel("Select completed application", { exact: true }).setInputFiles(file);
   await page.getByRole("button", { name: "Save completed application", exact: true }).click();
   if (read) { await page.getByRole("button", { name: "Read / Import Application Details", exact: true }).last().click(); await page.getByText("application suggestions for", { exact: false }).waitFor({ timeout: 15000 }); }
@@ -122,11 +122,14 @@ async function applyAndSave() {
 }
 
 test("existing companies start with the completed application and keep the manual launch checklist out of the way", async () => {
-  await open();await page.getByRole("button", { name: "Upload completed application", exact: true }).waitFor();
+  await open("storage=1");await page.getByRole("button", { name: "Upload completed application", exact: true }).waitFor();
   await page.screenshot({ path: "/tmp/title-agency-application-start-desktop.png", fullPage: true });
   assert.equal(await page.getByLabel("Applicant name", { exact: true }).count(), 0);
   assert.equal(await page.getByRole("navigation", { name: "Application sections", exact: true }).count(), 0);
   assert.equal(await page.locator(".jv-checklist-row:visible").count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Open private application", exact: true }).isVisible(), false);
+  assert.equal(await page.getByRole("button", { name: "Send application link", exact: true }).isVisible(), false);
+  assert.deepEqual(await page.evaluate(() => window.privateApplicationRequests), []);
   assert.deepEqual(await page.evaluate(() => window.applicationUploads), []);
   assert.deepEqual(await page.evaluate(() => window.applicationPortalRequests), []);
 });
@@ -176,9 +179,13 @@ test("the supplied application's split labels and instructions fill a returned P
   assert.deepEqual(await page.evaluate(() => { const company=structuredClone(window.applicationWorkspace().s.companies[0]);delete company.desk;return company; }), ((value)=>{const copy=structuredClone(value);delete copy.desk;return copy;})(company));
 });
 
-test("new ventures offer their private recipient link without uploading a file or sending an email", async () => {
-  await open("new=1");await page.getByText("Start with an application", { exact: true }).waitFor();
-  assert.equal(await page.getByRole("region", { name: "Joint venture application", exact: true }).getByRole("button").first().innerText(), "Send application link");
+test("new ventures prioritize completed applications and keep recipient links in optional tools", async () => {
+  await open("new=1&storage=1");await page.getByText("Store the completed application", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("region", { name: "Joint venture application", exact: true }).getByRole("button").first().innerText(), "Upload completed application");
+  assert.equal(await page.getByRole("button", { name: "Send application link", exact: true }).isVisible(), false);
+  assert.deepEqual(await page.evaluate(() => window.privateApplicationRequests), []);
+  assert.deepEqual(await page.evaluate(() => window.applicationPortalRequests), []);
+  await page.getByText("Optional application tools", { exact: true }).click();
   await page.getByRole("button", { name: "Send application link", exact: true }).click();
   await page.getByLabel("Recipient name", { exact: true }).waitFor();
   await page.waitForFunction(() => window.applicationPortalRequests.length === 1);

@@ -1,6 +1,6 @@
 "use client";
 import { ConfirmActiveCompaniesButton, CompanyOperatingStatusDetails } from "./company-operating-status";
-import { companyDisplayStage } from "@/lib/title/company-operating-status";
+import { buildOperatingConfirmation, companyDisplayStage } from "@/lib/title/company-operating-status";
 import { canManageOnboardingEvidence } from "@/lib/title/workspace-capabilities";
 import applicationStyles from "./agency-applications.module.css";
 import { AgencySetup } from "./agency-setup";
@@ -142,7 +142,7 @@ export function Companies({
               </div>
             </div>
             <div className="company-card-footer">
-              <span>{companyDisplayStage(c) === "Active" && c.intake?.profileStatus === "incomplete" ? "Add existing application" : c.contact || "Open company"}</span>
+              <span>Open company</span>
               <ChevronRight size={16} />
             </div>
           </button>
@@ -151,8 +151,8 @@ export function Companies({
           <span>
             <Plus size={22} />
           </span>
-          <strong>A new beginning</strong>
-          <p>Add your next title company</p>
+          <strong>Add company</strong>
+          <p>Existing company or new joint venture</p>
         </button>}
       </div>
       {!rows.length && <Empty />}
@@ -169,6 +169,8 @@ export function NewCompany({
   const { s, update, connection } = useWorkspace();
   const canAddCompany = !connection || (connection.access.allCompanies && ["owner", "admin", "onboarding"].includes(connection.access.role));
   const canChooseUnderwriters = canManageOnboardingEvidence(connection);
+  const canConfirmExisting = !connection || ["owner", "admin"].includes(connection.access.role) && connection.access.allCompanies;
+  const [companyType, setCompanyType] = useState<"" | "existing" | "new">("");
   const [states, setStates] = useState<string[]>(["NC"]);
   const [writers, setWriters] = useState<string[]>([]);
   const [name, setName] = useState("");
@@ -201,8 +203,8 @@ export function NewCompany({
     }
     const trimmedName = name.trim(),
       trimmedContact = contact.trim();
-    if (!trimmedName || !states.length) {
-      toast.error("Enter a company name and choose an operating state.");
+    if (!trimmedName || !states.length || !companyType || companyType === "existing" && !canConfirmExisting) {
+      toast.error("Choose the company type, enter its name and choose an operating state.");
       return;
     }
     if (needsAck && !reviewed) {
@@ -238,12 +240,13 @@ export function NewCompany({
             stage: "Onboarding",
             steps: Array(7).fill(false),
             members: [],
+            ...(companyType === "existing" ? { operatingStatus: buildOperatingConfirmation(connection?.access.email || "local@example.test", "Added as an existing operating company.") } : {}),
           });
           if (canChooseUnderwriters && writers.length) saveCompanyUnderwriters(d, { companyId: id, names: writers, expected: [] });
-          configureAgencySetup(d, { companyId: id, expectedVersion: 0, templateVersion: latestAgencySetupTemplate(d).version, owners: [], agreementCount: 1, eoCovered: false });
+          if (companyType === "new") configureAgencySetup(d, { companyId: id, expectedVersion: 0, templateVersion: latestAgencySetupTemplate(d).version, owners: [], agreementCount: 1, eoCovered: false });
         },
         "Company added",
-        `${trimmedName} · onboarding started${acknowledged}`,
+        `${trimmedName} · ${companyType === "existing" ? "existing active company" : "onboarding started"}${acknowledged}`,
       ))
     )
       return;
@@ -261,6 +264,7 @@ export function NewCompany({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="form-stack">
+          <FieldLabel label="Company type"><select className="input" aria-label="Company type" required value={companyType} onChange={e => setCompanyType(e.target.value as typeof companyType)}><option value="">Choose one</option>{canConfirmExisting && <option value="existing">Existing active company — add its records</option>}<option value="new">New joint venture — start setup</option></select></FieldLabel>
           <FieldLabel label="Company name">
             <Input
               name="name"
@@ -304,10 +308,7 @@ export function NewCompany({
             <fieldset><legend className="mb-2 text-sm font-medium">Operating states</legend><div className="flex flex-wrap gap-4">{["NC", "SC"].map(code => <label key={code} className="flex items-center gap-2"><input type="checkbox" checked={states.includes(code)} onChange={e => setStates(e.target.checked ? [...states, code] : states.filter(v => v !== code))} />{code === "NC" ? "North Carolina" : "South Carolina"}</label>)}</div></fieldset>
             {canChooseUnderwriters && <fieldset><legend className="mb-2 text-sm font-medium">Underwriters (optional)</legend><div className="flex flex-wrap gap-4">{["WFG", "Commonwealth", "First American"].map(writer => <label key={writer} className="flex items-center gap-2"><input type="checkbox" checked={writers.includes(writer)} onChange={e => setWriters(e.target.checked ? [...writers, writer] : writers.filter(v => v !== writer))} />{writer}</label>)}</div></fieldset>}
           </div>
-          <p className="form-note">
-            This starts an internal checklist. It does not create an LLC, obtain
-            an EIN, or submit a license application.
-          </p>
+          <p className="form-note">{companyType === "existing" ? "This company is already operating. Add its documents and renewal dates without restarting new-company setup." : companyType === "new" ? "Creates a setup checklist for your team. You can assign the tasks after saving." : "Existing companies start with a document cabinet. New ventures also get a setup checklist."}</p>
           {matches.length > 0 && (
             <div className="notice warning duplicate-warning" role="alert">
               <AlertTriangle size={18} />
@@ -351,7 +352,7 @@ export function NewCompany({
               </div>
             </div>
           )}
-          <p className="form-note">A setup checklist will be created for this company. Assign each task to the person handling it.</p>
+
           <div className="form-actions">
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
@@ -443,33 +444,12 @@ export function CompanyDetail({
                 <h3>{isExisting ? "Active company" : "Company setup"}</h3>
                 <p>{isExisting ? "Keep this company’s records together and track ongoing work." : setup.ready ? "The required setup tasks are complete." : "Follow the setup checklist for this company’s states and underwriters."}</p>
                 <div className={applicationStyles.startActions}>
-                  <Button onClick={() => changeTab("Setup")}>Setup & approvals <ArrowRight /></Button>
-                  <Button variant="outline" onClick={() => changeTab("Documents")}>Open documents <ArrowRight /></Button>
+                  <Button onClick={() => changeTab(isExisting ? "Documents" : "Setup")}>{isExisting ? "Open documents" : "Open setup checklist"} <ArrowRight /></Button>
+                  {!isExisting && <Button variant="outline" onClick={() => changeTab("Documents")}>Open documents <ArrowRight /></Button>}
                 </div>
                 {canEditApplication && <p className="form-note">{savedApplication ? "Completed application saved." : "Add the completed application whenever you have it."} <Button variant="ghost" onClick={() => openApplication(savedApplication ? undefined : "upload")}>{savedApplication ? "Open application" : "Upload completed application"}</Button></p>}
               </section>
-              <div className="detail-grid">
-                <div>
-                  <small>Primary contact</small>
-                  <strong>{c.contact || "Managed by the agency"}</strong>
-                </div>
-                <div>
-                  <small>Contact email</small>
-                  <strong>{c.email || "Agency contact"}</strong>
-                </div>
-                <div>
-                  <small>Operating states</small>
-                  <strong>
-                    {(c.operatingStates || [c.jurisdiction]).filter(Boolean).join(" · ") || "Not yet confirmed"}
-                  </strong>
-                </div>
-                <div>
-                  <small>Company status</small>
-                  <Status value={companyDisplayStage(c)} />
-                </div>
-              </div>
-              <div className={`${applicationStyles.supportLinks} my-5`}><Button variant="outline" onClick={() => changeTab("Documents")}>Company documents & logo <ArrowRight /></Button></div>
-              <Button variant="outline" onClick={() => changeTab("Ownership")}>Ownership & financial terms <ArrowRight /></Button>
+              {c.contact && <p className="form-note">Company contact: {c.contact}</p>}
               {c.intake && <details className={applicationStyles.support}><summary>Company details & Missive source</summary><CompanyIntakeProfile company={c} /></details>}
               <details className="mt-5 border-t pt-5"><summary className="cursor-pointer text-sm font-semibold">Operating status history</summary><CompanyOperatingStatusDetails company={c} /></details>
             </>
@@ -516,10 +496,10 @@ export function CompanyDetail({
             </section>
           )}
           {tab === "Application" && <>
-            <JVApplicationPanel key={c.id} navigationScope="company-detail" company={c} existingCompany={isExisting} initiallyOpen sourceDocumentId={applicationSourceId} entryAction={applicationEntry} onDirtyChange={setApplicationDirty} onBusyChange={setApplicationBusy} onDocuments={() => { setApplicationDirty(false); setApplicationEntry(undefined); setTab("Documents"); }} />
+            <JVApplicationPanel key={c.id} navigationScope="company-detail" company={c} existingCompany={isExisting} sourceDocumentId={applicationSourceId} entryAction={applicationEntry} onDirtyChange={setApplicationDirty} onBusyChange={setApplicationBusy} onDocuments={() => { setApplicationDirty(false); setApplicationEntry(undefined); setTab("Documents"); }} />
             {!canEditApplication && <section className={applicationStyles.empty}><h3>Application access needed</h3><p className="form-note">An administrator can give you access to this company’s private applications. Permitted company records remain available in the other tabs.</p></section>}
             <details className={applicationStyles.support}>
-              <summary>{isExisting ? "Licensing, records & approval history" : "Formation & launch checklist"}</summary>
+              <summary>Earlier licensing & approval records</summary>
               <CompanyOperatingStates company={c} />
               <OnboardingCasePanel company={c} />
               <CredentialCenter key={`${c.id}:${(c.operatingStates || [c.jurisdiction]).join("-")}`} company={c} />
