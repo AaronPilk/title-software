@@ -139,18 +139,28 @@ test("preview actions retain the exact company and title-file original after fil
 });
 
 
-test("Agency document search excludes property workflows and keeps advanced filters secondary", async () => {
+test("Agency starts with company choice, scopes files and uploads, and resets filters when switching companies", async () => {
   await open("agency=1"); const before = await page.evaluate(() => window.readVault());
-  assert.deepEqual(await names(), ["Cedar logo.pdf", "Cedar application.pdf", "Pine agreement.pdf"]);
+  assert.deepEqual(await names(), []);
   assert.equal(await page.getByRole("heading", {name: "Company documents", exact: true}).count(), 1);
+  assert.equal(await page.getByRole("button", {name: "Upload document", exact:true}).count(), 0);
+  await page.getByRole("button", {name: "Open Cedar Fictional Title documents", exact:true}).click();
+  assert.deepEqual(await names(), ["Cedar logo.pdf", "Cedar application.pdf"]);
   assert.equal(await page.getByRole("combobox", {name: "Document access filter", exact: true}).count(), 0);
   assert.equal(await page.getByRole("columnheader", {name: "Visibility", exact: true}).count(), 0);
   assert.equal(await filing("Title-file documents").count(), 0);
   assert.doesNotMatch(await page.locator("body").innerText(), /Partner|publication|Restricted|Internal/);
   assert.equal(await page.getByRole("combobox", {name: "Document type filter", exact: true}).isVisible(), false);
-  await pick("Document company", "Cedar Fictional Title"); await page.getByText("More filters", {exact:true}).click();
+  await page.getByText("More filters", {exact:true}).click();
   await pick("Document type filter", "Applications"); assert.deepEqual(await names(), ["Cedar application.pdf"]);
   await page.getByRole("button", {name: "Upload document", exact:true}).click();
   assert.deepEqual(await page.evaluate(() => window.uploadCompanies), [{company: "c1", destination: "company"}]);
+  await page.getByRole("textbox", {name:"Search documents…",exact:true}).fill("Cedar");
+  await pick("Document company", "Pine Fictional Title");
+  assert.deepEqual(await names(), ["Pine agreement.pdf"]);
+  assert.equal(await page.getByRole("textbox", {name:"Search documents…",exact:true}).inputValue(), "");
+  await page.getByRole("button", {name:"Pine agreement.pdf",exact:true}).click();
+  assert.deepEqual(await page.evaluate(() => window.previews), ["pine-agreement"]);
+  await pick("Document company", "Choose a company…");assert.deepEqual(await names(), []);
   assert.deepEqual(await page.evaluate(() => window.readVault()), before);
 });

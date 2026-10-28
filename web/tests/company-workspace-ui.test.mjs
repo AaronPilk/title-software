@@ -26,6 +26,7 @@ const storeFixture=`
  let snapshot={s:projectWorkspace(canonical,access),connection:{workspaceId:wid,revision,access,saving:false}};
  const emit=()=>{snapshot={s:projectWorkspace(canonical,access),connection:{workspaceId:wid,revision,access,saving:false}};listeners.forEach(fn=>fn())};
  window.readFixture=()=>({state:structuredClone(canonical),revision,access:structuredClone(access),calls:structuredClone(window.calls),assetWrites:structuredClone(window.assetWrites),assetReads:structuredClone(window.assetReads),failures:[...window.fixtureFailures]});
+ window.changeCompany=(id,patch)=>{Object.assign(canonical.companies.find(c=>c.id===id),patch);revision++;emit()};
  window.changeAccess=(patch)=>{access={...access,...patch,version:access.version+1};emit()};
  window.changeFolder=(documentId,folderId)=>{canonical=executeCommands(canonical,[{id:crypto.randomUUID(),name:'editDraft',args:[[{table:'documents',id:documentId,value:{folderId}}]]}],owner);revision++;emit()};
  window.renameFolder=(id,name)=>{canonical.companies[0].desk.folders=canonical.companies[0].desk.folders.map(f=>f.id===id?{...f,name}:f);revision++;emit()};
@@ -48,10 +49,11 @@ before(async()=>{
  const bundle=await build({absWorkingDir:web,bundle:true,write:false,platform:'browser',format:'esm',jsx:'automatic',logLevel:'silent',loader:{'.css':'empty','.module.css':'empty'},define:{'process.env.NODE_ENV':'"production"','process.env.NEXT_PUBLIC_SUPABASE_URL':'""','process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY':'""','process.env.NEXT_PUBLIC_TITLE_HOSTED_PILOT':'"false"'},stdin:{resolveDir:web,loader:'tsx',contents:`
   import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
   import {CompanyOverviewDetails,CompanyFolders} from './components/title/company-workspace';
+  import {CompanyPartnerContacts} from './components/title/company-partner-contacts';
   import {CompanyLogo} from './components/title/company-logo';import {NewCompany} from './components/title/companies';
   import {useWorkspace} from '@/lib/title/store';import {allowWorkspaceNavigation} from './lib/title/workspace-navigation-guard';
   window.tryNavigate=()=>allowWorkspaceNavigation('company-detail');
-  function App(){const {s}=useWorkspace();const [create,setCreate]=useState(new URLSearchParams(location.search).has('new'));const c=s.companies.find(c=>c.id==='C1');return <><main><CompanyLogo company={c}/><CompanyOverviewDetails company={c}/><CompanyFolders company={c} onDoc={d=>window.preview=d.id}/></main>{create&&<NewCompany open onClose={()=>{setCreate(false);window.createdClosed=true}}/>}<div id="ready"/></>;}
+  function App(){const {s}=useWorkspace();const [create,setCreate]=useState(new URLSearchParams(location.search).has('new'));const c=s.companies.find(c=>c.id==='C1');return <><main><CompanyLogo company={c}/><CompanyOverviewDetails company={c}/><CompanyPartnerContacts company={c}/><CompanyFolders company={c} onDoc={d=>window.preview=d.id}/></main>{create&&<NewCompany open onClose={()=>{setCreate(false);window.createdClosed=true}}/>}<div id="ready"/></>;}
   createRoot(document.getElementById('root')).render(<App/>);
  `},plugins:[{name:'fictional-command-transport',setup(b){
   b.onResolve({filter:/^@\/lib\/title\/store$/},()=>({path:'store',namespace:'fixture'}));
@@ -76,7 +78,8 @@ test('three renewals, both states, multiple underwriters and protected logo surv
  assert.deepEqual(await d.getByLabel('Company logo',{exact:true}).locator('option').allTextContents(),['Use initials','Cedar logo.png']);
  await d.getByLabel('Company logo',{exact:true}).selectOption('logo-existing');await d.getByRole('checkbox',{name:'South Carolina',exact:true}).check();
  await d.getByRole('checkbox',{name:'WFG',exact:true}).check();await d.getByRole('checkbox',{name:'Commonwealth',exact:true}).check();
- const expected=[];for(const [i,service] of ['Domain','Email','Website'].entries()){const renewalOn='2027-0'+(i+2)+'-12',provider=service+' provider',reference=service+' reference';expected.push({service,renewalOn,provider,reference});await d.getByLabel(service+' renewal date',{exact:true}).fill(renewalOn);await d.getByLabel(service+' provider',{exact:true}).fill(provider);await d.getByLabel(service+' reference',{exact:true}).fill(reference)}
+ await d.getByText('Renewal dates & providers (optional)',{exact:true}).click();
+ const expected=[];for(const [i,service] of ['Domain','Email','Website'].entries()){const renewalOn='2027-0'+(i+2)+'-12',provider=service+' provider',reference=service+' reference';expected.push({service,renewalOn,provider,reference});await d.getByLabel(service+' renewal date',{exact:true}).fill(renewalOn);await d.getByLabel(service+' provider',{exact:true}).fill(provider);await d.getByText(service+' account notes (optional)',{exact:true}).click();await d.getByLabel(service+' account note',{exact:true}).fill(reference)}
  await page.evaluate(()=>window.confirmAnswer=false);assert.equal(await page.evaluate(()=>window.tryNavigate()),false);
  await d.getByRole('button',{name:'Save company details',exact:true}).click();assert.deepEqual((await state()).failures,[]);await d.waitFor({state:'detached'});
  const saved=await state();assert.deepEqual(saved.failures,[]);assert.deepEqual(saved.state.companies[0].desk.renewals,expected);assert.deepEqual(saved.state.companies[0].operatingStates,['NC','SC']);assert.deepEqual(saved.state.business.onboarding[0].requiredUnderwriters,['WFG','Commonwealth']);assert.equal(saved.state.companies[0].desk.logoDocumentId,'logo-existing');
@@ -107,15 +110,15 @@ test('uncertain upload retry notices a subsequently changed folder',async()=>{
 });
 
 test('new company needs no contact and preserves both selected states and underwriters',async()=>{
- await open('/?new');const d=dialog('Add a company');await d.getByLabel('Company name',{exact:true}).fill('Juniper Synthetic Ventures');await d.getByLabel('City',{exact:true}).fill('Fictional Raleigh');await d.getByRole('checkbox',{name:'South Carolina',exact:true}).check();await d.getByRole('checkbox',{name:'WFG',exact:true}).check();await d.getByRole('checkbox',{name:'First American',exact:true}).check();await d.getByRole('button',{name:'Add company',exact:true}).click();await d.waitFor({state:'detached'});
+ await open('/?new');const d=dialog('Add a company');await d.getByLabel('Company type',{exact:true}).selectOption('new');await d.getByLabel('Company name',{exact:true}).fill('Juniper Synthetic Ventures');await d.getByLabel('City',{exact:true}).fill('Fictional Raleigh');await d.getByRole('checkbox',{name:'South Carolina',exact:true}).check();await d.getByRole('checkbox',{name:'WFG',exact:true}).check();await d.getByRole('checkbox',{name:'First American',exact:true}).check();await d.getByRole('button',{name:'Add company',exact:true}).click();assert.deepEqual((await state()).failures,[]);await d.waitFor({state:'detached'});
  const result=await state();assert.deepEqual(result.failures,[]);const c=result.state.companies.find(c=>c.name==='Juniper Synthetic Ventures');assert.equal(c.contact,'');assert.equal(c.email,'');assert.deepEqual(c.operatingStates,['NC','SC']);assert.deepEqual(result.state.business.onboarding.find(o=>o.companyId===c.id).requiredUnderwriters,['WFG','First American']);assert.ok(result.state.tasks.some(t=>t.companyId===c.id&&t.phaseOne?.kind==='setup'));assert.equal(result.state.tasks.find(t=>t.companyId===c.id).assigneeId,undefined);
 });
 
 test('a company creator without restricted access is not offered an unsavable underwriter selection',async()=>{
- await open('/?new');await page.evaluate(()=>window.changeAccess({restricted:false}));const d=dialog('Add a company');
+ await open('/?new');await page.evaluate(()=>window.changeAccess({restricted:false}));const d=dialog('Add a company');await d.getByLabel('Company type',{exact:true}).selectOption('new');
  assert.equal(await d.getByRole('checkbox',{name:'WFG',exact:true}).count(),0);
  await d.getByLabel('Company name',{exact:true}).fill('Nonrestricted Synthetic Company');await d.getByLabel('City',{exact:true}).fill('Fictional City');
- await d.getByRole('button',{name:'Add company',exact:true}).click();await d.waitFor({state:'detached'});
+ await d.getByRole('button',{name:'Add company',exact:true}).click();assert.deepEqual((await state()).failures,[]);await d.waitFor({state:'detached'});
  const result=await state();assert.deepEqual(result.failures,[]);const company=result.state.companies.find(c=>c.name==='Nonrestricted Synthetic Company');assert.ok(company);
  assert.deepEqual(result.state.business.onboarding.find(row=>row.companyId===company.id)?.requiredUnderwriters || [],[]);
 });
@@ -125,4 +128,41 @@ test('editing states without selecting an underwriter does not silently add WFG'
  await d.getByRole('checkbox',{name:'South Carolina',exact:true}).check();await d.getByRole('button',{name:'Save company details',exact:true}).click();await d.waitFor({state:'detached'});
  const saved=await state();assert.deepEqual(saved.failures,[]);assert.deepEqual(saved.state.business.onboarding[0].requiredUnderwriters,[]);
  await page.getByRole('button',{name:'Edit details',exact:true}).click();assert.equal(await dialog('Company details').getByRole('checkbox',{name:'WFG',exact:true}).isChecked(),false);
+});
+
+test('recording regression: shared address, domain without website and both states save without duplicate details',async()=>{
+ await open();await page.evaluate(()=>window.changeCompany('C2',{desk:{logoDocumentId:'',folders:[],renewals:[],address:'100 Fictional Shared Lane, Raleigh, NC 27601'}}));
+ await page.getByRole('button',{name:'Edit details',exact:true}).click();const d=dialog('Company details');
+ assert.equal(await d.getByLabel('Domain renewal date',{exact:true}).isVisible(),false);
+ await d.getByLabel('Use an existing company address',{exact:true}).selectOption('C2');
+ await d.getByLabel('Company domain',{exact:true}).fill('  https://cedar.example.test/  ');
+ await d.getByLabel('Website Not Needed',{exact:true}).check();assert.equal(await d.getByLabel('Company website',{exact:true}).count(),0);
+ await d.getByRole('button',{name:'Add email address',exact:true}).click();await d.getByLabel('Email address 1',{exact:true}).fill('orders@cedar.example.test');
+ assert.equal(await d.getByLabel('Email description 1 (optional)',{exact:true}).inputValue(),'');
+ assert.equal(await d.getByRole('checkbox',{name:'North Carolina',exact:true}).isEnabled(),true);
+ await d.getByRole('checkbox',{name:'North Carolina',exact:true}).uncheck();await d.getByRole('checkbox',{name:'South Carolina',exact:true}).check();await d.getByRole('checkbox',{name:'North Carolina',exact:true}).check();
+ await d.getByRole('button',{name:'Save company details',exact:true}).click();await d.waitFor({state:'detached'});
+ const saved=await state(),c=saved.state.companies[0];assert.deepEqual(saved.failures,[]);assert.equal(c.desk.address,'100 Fictional Shared Lane, Raleigh, NC 27601');assert.equal(c.desk.domain,'cedar.example.test');assert.equal(c.desk.websiteNotNeeded,true);assert.equal(c.desk.emails[0].label,'');assert.deepEqual([...c.operatingStates].sort(),['NC','SC']);assert.equal(c.email,'orders@cedar.example.test');
+ await page.getByRole('button',{name:'Edit details',exact:true}).click();await dialog('Company details').getByLabel('Company domain',{exact:true}).fill('invalid/domain');await dialog('Company details').getByRole('button',{name:'Save company details',exact:true}).click();await dialog('Company details').getByRole('alert').filter({hasText:'Enter a domain'}).waitFor();assert.equal((await state()).state.companies[0].desk.domain,'cedar.example.test');
+});
+
+test('partner contacts save without ownership percentages or documents and preserve legacy members',async()=>{
+ await open();await page.getByRole('button',{name:'Add partner contacts',exact:true}).click();await page.getByRole('button',{name:'Add a partner',exact:true}).click();
+ await page.getByLabel('Partner 1 name',{exact:true}).fill('Fictional Avery');await page.getByLabel('Partner 1 email (optional)',{exact:true}).fill('avery@example.test');await page.getByLabel('Partner 1 phone (optional)',{exact:true}).fill('555-0101');
+ assert.equal(await page.getByLabel(/ownership percentage/).count(),0);assert.equal(await page.getByRole('button',{name:'Save partner contacts',exact:true}).isEnabled(),true);
+ await page.evaluate(()=>window.confirmAnswer=false);assert.equal(await page.evaluate(()=>window.tryNavigate()),false);
+ await page.getByRole('button',{name:'Save partner contacts',exact:true}).click();await page.getByRole('button',{name:'Edit partner contacts',exact:true}).waitFor();
+ let saved=await state();assert.deepEqual(saved.failures,[]);assert.deepEqual(saved.state.companies[0].members,[]);assert.equal(saved.state.companies[0].desk.partnerContacts[0].name,'Fictional Avery');assert.equal(saved.state.documents.length,3);
+ await page.evaluate(()=>window.changeCompany('C1',{members:[{id:'legacy-partner',name:'Ledger owner LLC',share:100,email:'ledger@example.test'}]}));
+ await page.getByRole('button',{name:'Edit partner contacts',exact:true}).click();await page.getByLabel('Partner 1 phone (optional)',{exact:true}).fill('555-0102');await page.getByRole('button',{name:'Save partner contacts',exact:true}).click();await page.getByRole('button',{name:'Edit partner contacts',exact:true}).waitFor();
+ saved=await state();assert.deepEqual(saved.state.companies[0].members,[{id:'legacy-partner',name:'Ledger owner LLC',share:100,email:'ledger@example.test'}]);assert.equal(saved.state.companies[0].desk.partnerContacts[0].phone,'555-0102');
+});
+
+test('legacy partner contacts prefill without changing ownership and stale edits cannot replace newer contacts',async()=>{
+ await open();await page.evaluate(()=>window.changeCompany('C1',{members:[{id:'legacy-partner',name:'Fictional owner',share:100,email:'owner@example.test',phone:'555-0101'}]}));
+ await page.getByRole('button',{name:'Edit partner contacts',exact:true}).click();assert.equal(await page.getByLabel('Partner 1 email (optional)',{exact:true}).inputValue(),'owner@example.test');
+ await page.getByLabel('Partner 1 name',{exact:true}).fill('Stale contact');
+ await page.evaluate(()=>window.changeCompany('C1',{desk:{logoDocumentId:'',folders:[],renewals:[],partnerContacts:[{id:'legacy-partner',name:'Collaborator contact',email:'new@example.test',phone:''}]}}));
+ await page.getByRole('button',{name:'Save partner contacts',exact:true}).click();await page.getByRole('alert').filter({hasText:'not saved'}).waitFor();assert.equal((await state()).state.companies[0].desk.partnerContacts[0].name,'Collaborator contact');
+ await page.evaluate(()=>window.changeAccess({role:'operations'}));assert.equal(await page.getByLabel('Partner 1 name',{exact:true}).count(),0);assert.equal(await page.getByText('Collaborator contact',{exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'Save partner contacts',exact:true}).count(),0);
 });

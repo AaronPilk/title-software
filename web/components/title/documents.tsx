@@ -1,6 +1,6 @@
 "use client";
 import { AgencyDocumentActions } from "./company-workspace";
-import { companyDesk } from "@/lib/title/company-workspace";
+import { visibleCompanyFolders } from "@/lib/title/company-workspace";
 import { documentDisplayName } from "@/lib/title/agency-documents";
 import { DeliveryManager } from "./deliveries";
 import { canFillCompanyApplication } from "@/lib/title/application-document";
@@ -39,6 +39,7 @@ import {
   Empty,
 } from "./shared";
 import { toast } from "sonner";
+import styles from "./documents.module.css";
 export function Documents({
   onDoc,
   onUpload,
@@ -50,10 +51,16 @@ export function Documents({
 }) {
   const { s, connection } = useWorkspace();
   const [q, setQ] = useState("");
-  const [company, setCompany] = useState("all");
+  const [companyChoice, setCompany] = useState("");
+  const company = companyChoice || (agencyMode ? "" : "all");
   const [category, setCategory] = useState("All documents");
   const [filing, setFiling] = useState("All documents");
   const [lifecycle, setLifecycle] = useState("active"), [type, setType] = useState(""), [folder, setFolder] = useState(""), [since, setSince] = useState("");
+  const selectedCompany = s.companies.find(row => row.id === company);
+  function chooseCompany(value: string) {
+    setCompany(value);
+    if (agencyMode) { setQ(""); setFolder(""); setType(""); setSince(""); setLifecycle("active"); }
+  }
   const companyRows = s.documents.filter(d => !d.archivedAt && (!agencyMode || !d.orderId) && (company === "all" || d.companyId === company));
   const rows = s.documents.filter(
     (d) =>
@@ -67,11 +74,22 @@ export function Documents({
         .toLowerCase()
         .includes(q.toLowerCase()),
   );
+  if (agencyMode && !selectedCompany) return <>
+    <Heading title="Company documents" description="Choose a company to open its files." />
+    {!s.companies.length ? <Empty title="No companies available" text="Add a company or ask your administrator for company access." /> : <section className={styles.companyGrid} aria-label="Choose a company for documents">
+      {[...s.companies].sort((a, b) => a.name.localeCompare(b.name)).map(row => {
+        const count = s.documents.filter(doc => doc.companyId === row.id && !doc.orderId && !doc.archivedAt).length;
+        return <button key={row.id} className={styles.company} aria-label={`Open ${row.name} documents`} onClick={() => chooseCompany(row.id)}>
+          <span className={styles.icon}><FolderClosed size={22} /></span><span><strong>{row.name}</strong><small>{count ? `${count} ${count === 1 ? "file" : "files"}` : "Add company files"}</small></span>
+        </button>;
+      })}
+    </section>}
+  </>;
   return (
     <>
       <Heading
-        title={agencyMode ? "Company documents" : "Document vault"}
-        description={agencyMode ? "Find, open and download files across your companies." : "Company records and property files, with a clear place for every original."}
+        title={agencyMode ? `${selectedCompany!.name} documents` : "Document vault"}
+        description={agencyMode ? "Open, download or add this company’s files." : "Company records and property files, with a clear place for every original."}
       >
         <Button onClick={() => onUpload(company === "all" ? undefined : company, !agencyMode && filing === "Title-file documents" ? "title" : "company")}>
           <Upload />
@@ -121,16 +139,16 @@ export function Documents({
           />}
           <Picker
             value={company}
-            onChange={setCompany}
+            onChange={chooseCompany}
             label="Document company"
             options={[
-              { value: "all", label: "All companies" },
+              { value: agencyMode ? "" : "all", label: agencyMode ? "Choose a company…" : "All companies" },
               ...s.companies.map((c) => ({ value: c.id, label: c.name })),
             ]}
           />
         </div>
       </div>
-      <details className="document-filters"><summary>{agencyMode ? "More filters" : "Filter by folder, document type, date or Trash"}</summary><div className="toolbar"><Picker value={lifecycle} onChange={setLifecycle} label="Document location" options={[{ value: "active", label: "Cabinet" }, { value: "trash", label: "Trash" }]} /><Picker value={type} onChange={setType} label="Document type filter" options={[{ value: "", label: "All document types" }, ...[...new Set(companyRows.map(doc => doc.category))].sort()]} /><Picker value={folder} onChange={setFolder} label="Document folder filter" options={[{ value: "", label: "All folders" }, ...[...new Map(s.companies.filter(c => company === "all" || c.id === company).flatMap(c => companyDesk(c).folders).map(folder => [folder.id, { value: folder.id, label: folder.name }])).values()]]} /><label>Uploaded since <input className="input" aria-label="Uploaded since" type="date" value={since} onChange={event => setSince(event.target.value)} /></label></div></details>
+      <details className="document-filters"><summary>{agencyMode ? "More filters" : "Filter by folder, document type, date or Trash"}</summary><div className="toolbar"><Picker value={lifecycle} onChange={setLifecycle} label="Document location" options={[{ value: "active", label: "Cabinet" }, { value: "trash", label: "Trash" }]} /><Picker value={type} onChange={setType} label="Document type filter" options={[{ value: "", label: "All document types" }, ...[...new Set(companyRows.map(doc => doc.category))].sort()]} /><Picker value={folder} onChange={setFolder} label="Document folder filter" options={[{ value: "", label: "All folders" }, ...[...new Map(s.companies.filter(c => company === "all" || c.id === company).flatMap(c => visibleCompanyFolders(c, s.documents)).map(folder => [folder.id, { value: folder.id, label: folder.name }])).values()]]} /><label>Uploaded since <input className="input" aria-label="Uploaded since" type="date" value={since} onChange={event => setSince(event.target.value)} /></label></div></details>
       {!agencyMode && s.documents.some(
         (d) =>
           d.visibility === "Partner" &&
@@ -145,7 +163,7 @@ export function Documents({
         <DataTable
           headers={[
             "Document",
-            "Company",
+            ...(!agencyMode ? ["Company"] : []),
             ...(!agencyMode ? ["Filed under"] : []),
             "Category",
             ...(!agencyMode ? ["Visibility"] : []),
@@ -164,7 +182,7 @@ export function Documents({
                   <strong>{documentDisplayName(d)}</strong>
                 </button>
               </TableCell>
-              <TableCell>{companyById(s, d.companyId).name}</TableCell>
+              {!agencyMode && <TableCell>{companyById(s, d.companyId).name}</TableCell>}
               {!agencyMode && <TableCell>{d.orderId ? <><strong>{d.orderId}</strong><small className="block subtle">{s.orders.find(order => order.id === d.orderId)?.address || "Title file"}</small></> : "Company documents"}</TableCell>}
               <TableCell>{d.category}</TableCell>
               {!agencyMode && <TableCell>

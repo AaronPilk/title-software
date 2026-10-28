@@ -19,8 +19,11 @@ const storeFixture=`
  const owner={userId:'00000000-0000-4000-8000-000000000002',email:'fixture@example.test',role:'owner',allCompanies:true,restricted:true,companyIds:[],partnerMembers:[],version:1,requireStaffAssignments:true,assignableStaff:[{userId:'00000000-0000-4000-8000-000000000002',email:'fixture@example.test',role:'owner',allCompanies:true,companyIds:[]}]};
  let access=owner,canonical=emptyWorkspace(owner.email),revision=1;
  for(const id of ['C1','C2']) canonical.companies.push({id,name:id==='C1'?'Cedar Fictional Title':'Pine Fictional Title',initials:id==='C1'?'CF':'PF',color:'blue',contact:'',email:'',location:'Fictional City',jurisdiction:'NC',stage:'Onboarding',steps:Array(7).fill(false),members:[]});
+ if(!new URLSearchParams(location.search).has('empty-folders'))canonical.companies[0].desk={logoDocumentId:'',folders:[{id:'agency-folder-2',name:'Company formation'}],renewals:[]};
  const doc=(id,companyId,name,category,mime)=>({id,companyId,name,category,mime,visibility:'Internal',date:'2026-09-25',size:'1 KB',version:1,assetId:'asset-'+id});
  canonical.documents.push(doc('logo-existing','C1','Cedar logo.png','Branding','image/png'),doc('formation','C1','Cedar formation.txt','Formation','text/plain'),doc('foreign-logo','C2','Pine logo.png','Branding','image/png'));
+ const implicitFolder=new URLSearchParams(location.search).get('implicit-folder');
+ if(implicitFolder){delete canonical.companies[0].desk;canonical.documents[1].folderId='agency-folder-1';if(implicitFolder==='trash')Object.assign(canonical.documents[1],{archivedAt:'2026-10-06T12:00:00.000Z',archivedBy:owner.userId,archiveReason:'Fictional legacy archive'});}
  const bytes=Uint8Array.from(atob('${png}'),c=>c.charCodeAt(0));
  const assets=new Map([['asset-logo-existing',new Blob([bytes],{type:'image/png'})],['asset-foreign-logo',new Blob([bytes],{type:'image/png'})],['asset-formation',new Blob(['fictional formation'],{type:'text/plain'})]]);
  window.calls=[];window.assetWrites=[];window.assetReads=[];window.fixtureFailures=[];window.confirmations=[];window.confirmAnswer=true;
@@ -79,14 +82,14 @@ const dialog=name=>page.getByRole('dialog',{name,exact:true});
 async function upload(file){const d=dialog('Upload documents');await d.getByLabel('Select documents',{exact:true}).setInputFiles(file);await d.getByRole('button',{name:'Review documents',exact:true}).click();return d;}
 
 test('company contact editor saves multiple emails, primary address, website applicability, and renewal terms',async()=>{
- await open();await page.getByRole('button',{name:'Edit details',exact:true}).click();const d=dialog('Company details');
+ await open();await page.getByRole('button',{name:'Edit details',exact:true}).click();const d=dialog('Company details');await d.getByText('Renewal dates & providers (optional)',{exact:true}).click();
  await d.getByLabel('Company address',{exact:true}).fill('100 Fictional Lane, Charlotte, NC 28202');
- await d.getByRole('button',{name:'Add email address',exact:true}).click();await d.getByLabel('Email label 1',{exact:true}).fill('Orders');await d.getByLabel('Email address 1',{exact:true}).fill('orders@example.test');
- await d.getByRole('button',{name:'Add email address',exact:true}).click();await d.getByLabel('Email label 2',{exact:true}).fill('Owner');await d.getByLabel('Email address 2',{exact:true}).fill('owner@example.test');
+ await d.getByRole('button',{name:'Add email address',exact:true}).click();await d.getByLabel('Email description 1 (optional)',{exact:true}).fill('Orders');await d.getByLabel('Email address 1',{exact:true}).fill('orders@example.test');
+ await d.getByRole('button',{name:'Add email address',exact:true}).click();await d.getByLabel('Email description 2 (optional)',{exact:true}).fill('Owner');await d.getByLabel('Email address 2',{exact:true}).fill('owner@example.test');
  await d.getByLabel('Company domain',{exact:true}).fill('fictional.example.test');await d.getByLabel('Website Not Needed',{exact:true}).check();
  await d.getByLabel('Domain renewal date',{exact:true}).fill('2028-10-06');await d.getByLabel('Domain renewal term',{exact:true}).selectOption('3');
  await d.getByRole('button',{name:'Save company details',exact:true}).click();await d.waitFor({state:'detached'});
- const saved=await state(),company=saved.state.companies[0];assert.deepEqual(saved.failures,[]);assert.equal(company.email,'orders@example.test');assert.equal(company.desk.emails.length,2);assert.equal(company.desk.emails[0].primary,true);assert.equal(company.desk.websiteNotNeeded,true);assert.equal(company.desk.renewals.find(r=>r.service==='Domain').renewalYears,3);assert.equal(company.desk.folders.length,8);
+ const saved=await state(),company=saved.state.companies[0];assert.deepEqual(saved.failures,[]);assert.equal(company.email,'orders@example.test');assert.equal(company.desk.emails.length,2);assert.equal(company.desk.emails[0].primary,true);assert.equal(company.desk.websiteNotNeeded,true);assert.equal(company.desk.renewals.find(r=>r.service==='Domain').renewalYears,3);assert.equal(company.desk.folders.length,1);
  await page.getByRole('button',{name:'Edit details',exact:true}).click();await dialog('Company details').getByRole('radio',{name:'Primary',exact:true}).nth(1).check();await dialog('Company details').getByRole('button',{name:'Save company details',exact:true}).click();await dialog('Company details').waitFor({state:'detached'});assert.equal((await state()).state.companies[0].email,'owner@example.test');
 });
 test('company cabinet renames and moves a document, marks final, removes to Trash and restores the same original',async()=>{
@@ -99,7 +102,7 @@ test('company cabinet renames and moves a document, marks final, removes to Tras
  const saved=await state(),doc=saved.state.documents.find(d=>d.id==='formation');assert.deepEqual(saved.failures,[]);assert.equal(doc.archivedAt,undefined);assert.equal(doc.name,original.name);assert.equal(doc.assetId,original.assetId);assert.equal(doc.version,original.version);assert.equal(doc.displayName,'Company formation current.txt');assert.equal(doc.folderId,'agency-folder-2');assert.equal(doc.designation,undefined);assert.equal(saved.assetWrites.length,0);assert.equal(saved.state.documents.length,3);
 });
 test('linked logo cannot be deleted and logo controls change after selection then remove only its selection',async()=>{
- await open();await page.getByRole('button',{name:'Edit details',exact:true}).click();const d=dialog('Company details');await d.getByLabel('Company logo',{exact:true}).selectOption('logo-existing');await d.getByRole('button',{name:'Save company details',exact:true}).click();await d.waitFor({state:'detached'});
+ await open();await page.getByRole('button',{name:'Edit details',exact:true}).click();const d=dialog('Company details');await d.getByText('Renewal dates & providers (optional)',{exact:true}).click();await d.getByLabel('Company logo',{exact:true}).selectOption('logo-existing');await d.getByRole('button',{name:'Save company details',exact:true}).click();await d.waitFor({state:'detached'});
  await page.getByRole('button',{name:'Change logo',exact:true}).waitFor();await page.getByLabel('File options for Cedar logo.png',{exact:true}).click();const row=page.locator('div').filter({has:page.getByLabel('Folder for Cedar logo.png',{exact:true})}).filter({has:page.getByRole('button',{name:'Delete',exact:true})}).last();assert.equal(await row.getByRole('button',{name:'Delete',exact:true}).isDisabled(),true);
  await page.getByRole('button',{name:'Remove logo',exact:true}).click();await page.getByRole('button',{name:'Upload company logo',exact:true}).waitFor();const saved=await state();assert.equal(saved.state.companies[0].desk.logoDocumentId,'');assert.ok(saved.state.documents.find(d=>d.id==='logo-existing'));assert.equal(saved.assetWrites.length,0);
 });
@@ -112,19 +115,19 @@ test('company upload defaults sensitive records to Restricted and leaves access 
 
 
 test('profile displays the renewed maintenance date and updates its canonical record with compare-and-swap',async()=>{
- await open();await page.evaluate(()=>window.installMaintenance());await page.getByRole('button',{name:'Edit details',exact:true}).click();const d=dialog('Company details');assert.equal(await d.getByLabel('Domain renewal date',{exact:true}).inputValue(),'2029-01-01');assert.equal(await d.getByLabel('Domain renewal term',{exact:true}).inputValue(),'3');await d.getByLabel('Domain renewal date',{exact:true}).fill('2030-01-01');await d.getByLabel('Domain renewal term',{exact:true}).selectOption('2');await d.getByRole('button',{name:'Save company details',exact:true}).click();await d.waitFor({state:'detached'});const saved=await state();assert.deepEqual(saved.failures,[]);assert.equal(saved.state.agencyMaintenance.records[0].nextDueOn,'2030-01-01');assert.equal(saved.state.agencyMaintenance.records[0].intervalYears,2);assert.equal(saved.state.agencyMaintenance.records[0].revision,2);assert.deepEqual(saved.state.agencyMaintenance.history,[]);assert.ok(saved.calls.at(-1).commands.some(command=>command.name==='saveAgencyMaintenance'));
+ await open();await page.evaluate(()=>window.installMaintenance());await page.getByRole('button',{name:'Edit details',exact:true}).click();const d=dialog('Company details');await d.getByText('Renewal dates & providers (optional)',{exact:true}).click();assert.equal(await d.getByLabel('Domain renewal date',{exact:true}).inputValue(),'2029-01-01');assert.equal(await d.getByLabel('Domain renewal term',{exact:true}).inputValue(),'3');await d.getByLabel('Domain renewal date',{exact:true}).fill('2030-01-01');await d.getByLabel('Domain renewal term',{exact:true}).selectOption('2');await d.getByRole('button',{name:'Save company details',exact:true}).click();await d.waitFor({state:'detached'});const saved=await state();assert.deepEqual(saved.failures,[]);assert.equal(saved.state.agencyMaintenance.records[0].nextDueOn,'2030-01-01');assert.equal(saved.state.agencyMaintenance.records[0].intervalYears,2);assert.equal(saved.state.agencyMaintenance.records[0].revision,2);assert.deepEqual(saved.state.agencyMaintenance.history,[]);assert.ok(saved.calls.at(-1).commands.some(command=>command.name==='saveAgencyMaintenance'));
 });
 
 
 test('company cards show all three renewal dates with explicit unavailable and website-not-needed states',async()=>{
- await open();const dates=page.locator('[aria-label="Company service renewal dates"]');assert.deepEqual(await dates.locator('dt').allTextContents(),['Domain','Email','Website']);assert.deepEqual(await dates.locator('dd').allTextContents(),['No date','No date','No date']);await page.evaluate(()=>window.installMaintenance());assert.deepEqual(await dates.locator('dd').allTextContents(),['2029-01-01','No date','No date']);await page.getByRole('button',{name:'Edit details',exact:true}).click();const d=dialog('Company details');await d.getByLabel('Email renewal date',{exact:true}).fill('2028-02-03');await d.getByLabel('Website Not Needed',{exact:true}).check();await d.getByRole('button',{name:'Save company details',exact:true}).click();await d.waitFor({state:'detached'});assert.deepEqual(await dates.locator('dd').allTextContents(),['2029-01-01','2028-02-03','Not needed']);
+ await open();const dates=page.locator('[aria-label="Company service renewal dates"]');assert.deepEqual(await dates.locator('dt').allTextContents(),['Domain','Email','Website']);assert.deepEqual(await dates.locator('dd').allTextContents(),['No date','No date','No date']);await page.evaluate(()=>window.installMaintenance());assert.deepEqual(await dates.locator('dd').allTextContents(),['2029-01-01','No date','No date']);await page.getByRole('button',{name:'Edit details',exact:true}).click();const d=dialog('Company details');await d.getByText('Renewal dates & providers (optional)',{exact:true}).click();await d.getByLabel('Email renewal date',{exact:true}).fill('2028-02-03');await d.getByLabel('Website Not Needed',{exact:true}).check();await d.getByRole('button',{name:'Save company details',exact:true}).click();await d.waitFor({state:'detached'});assert.deepEqual(await dates.locator('dd').allTextContents(),['2029-01-01','2028-02-03','Not needed']);
 });
 
 
 test('the company cabinet keeps common actions visible and management and filters secondary',async()=>{
  await open();const cabinet=page.locator('[aria-label="Company file library"]');
  assert.equal(await cabinet.getByLabel('Company document folder',{exact:true}).inputValue(),'all');
- assert.equal(await cabinet.getByLabel('Company document folder',{exact:true}).locator('option').count(),10);
+ assert.equal(await cabinet.getByLabel('Company document folder',{exact:true}).locator('option').count(),3);
  assert.equal(await cabinet.getByRole('button',{name:'New folder',exact:true}).count(),0);
  assert.equal(await cabinet.getByRole('button',{name:/^Rename 0/}).count(),0);
  assert.equal(await cabinet.getByLabel('Document access filter',{exact:true}).count(),0);
@@ -151,12 +154,12 @@ test('Agency preview shows one download and no publication flow; staff links cop
 });
 test('saving service dates creates tracking and clearing a date or website opt-out pauses it without deleting history',async()=>{
  await open();const today=await page.evaluate(()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()));
- await page.getByRole('button',{name:'Edit details',exact:true}).click();let d=dialog('Company details');
+ await page.getByRole('button',{name:'Edit details',exact:true}).click();let d=dialog('Company details');await d.getByText('Renewal dates & providers (optional)',{exact:true}).click();
  await d.getByLabel('Domain renewal date',{exact:true}).fill(today);await d.getByLabel('Domain renewal term',{exact:true}).selectOption('2');await d.getByLabel('Website renewal date',{exact:true}).fill(today);
  await d.getByRole('button',{name:'Save company details',exact:true}).click();await d.waitFor({state:'detached'});
  let saved=await state();assert.deepEqual(saved.failures,[]);assert.equal(saved.state.agencyMaintenance.records.length,2);assert.equal(saved.state.agencyMaintenance.records.find(r=>r.kind==='Domain').intervalYears,2);assert.equal(saved.state.tasks.filter(t=>t.phaseOne?.kind==='maintenance'&&t.phaseOne.applicable).length,2);assert.equal(saved.state.agencyMaintenance.notifications.enabled,false);
  await page.evaluate(()=>window.completeDomainCycle());const history=(await state()).state.agencyMaintenance.history;
- await page.getByRole('button',{name:'Edit details',exact:true}).click();d=dialog('Company details');await d.getByLabel('Domain renewal date',{exact:true}).fill('');await d.getByLabel('Website Not Needed',{exact:true}).check();await d.getByRole('button',{name:'Save company details',exact:true}).click();await d.waitFor({state:'detached'});
+ await page.getByRole('button',{name:'Edit details',exact:true}).click();d=dialog('Company details');await d.getByText('Renewal dates & providers (optional)',{exact:true}).click();await d.getByLabel('Domain renewal date',{exact:true}).fill('');await d.getByLabel('Website Not Needed',{exact:true}).check();await d.getByRole('button',{name:'Save company details',exact:true}).click();await d.waitFor({state:'detached'});
  saved=await state();assert.deepEqual(saved.failures,[]);assert.equal(saved.state.agencyMaintenance.records.length,2);assert.equal(saved.state.agencyMaintenance.records.every(r=>!r.active),true);assert.deepEqual(saved.state.agencyMaintenance.history,history);assert.equal(saved.state.tasks.some(t=>!t.done&&t.phaseOne?.kind==='maintenance'&&t.phaseOne.applicable),false);
 });
 
@@ -170,4 +173,34 @@ test('compact folder selection filters files while folder creation and rename st
  const created=(await state()).state.companies[0].desk.folders.find(f=>f.name==='Archive records');await cabinet.getByLabel('Company document folder',{exact:true}).selectOption(created.id);
  await cabinet.getByRole('button',{name:'Rename Archive records',exact:true}).click();d=dialog('Rename folder');await d.getByLabel('Folder name',{exact:true}).fill('Historical records');await d.getByRole('button',{name:'Save folder',exact:true}).click();await d.waitFor({state:'detached'});
  assert.equal(await cabinet.getByLabel('Company document folder',{exact:true}).locator('option:checked').innerText(),'Historical records');assert.deepEqual((await state()).failures,[]);
+});
+
+test('an empty cabinet stays simple after upload and creates folders only when requested',async()=>{
+ await open('/?empty-folders=1');const cabinet=page.locator('[aria-label="Company file library"]');
+ const options=()=>cabinet.getByLabel('Company document folder',{exact:true}).locator('option').allTextContents();
+ assert.deepEqual(await options(),['All files','Unfiled']);
+ await cabinet.getByRole('button',{name:'Upload',exact:true}).click();const uploadDialog=await upload({name:'new-company-record.txt',mimeType:'text/plain',buffer:Buffer.from('Fictional original preserved')});
+ await uploadDialog.getByRole('button',{name:'Save documents',exact:true}).click();await uploadDialog.waitFor({state:'detached'});
+ const before=await state(),original=before.state.documents.find(d=>d.name==='new-company-record.txt');
+ assert.ok(original.assetId);assert.deepEqual(before.state.companies[0].desk?.folders||[],[]);assert.deepEqual(await options(),['All files','Unfiled']);
+ await cabinet.getByText('Manage folders',{exact:true}).click();await cabinet.getByRole('button',{name:'New folder',exact:true}).click();const d=dialog('New folder');await d.getByLabel('Folder name',{exact:true}).fill('Signed agreements');await d.getByRole('button',{name:'Save folder',exact:true}).click();await d.waitFor({state:'detached'});
+ const created=(await state()).state.companies[0].desk.folders;assert.equal(created.length,1);assert.equal(created[0].name,'Signed agreements');
+ await cabinet.getByLabel('File options for new-company-record.txt',{exact:true}).click();await cabinet.getByLabel('Folder for new-company-record.txt',{exact:true}).selectOption(created[0].id);
+ const after=await state(),moved=after.state.documents.find(d=>d.id===original.id);assert.equal(moved.folderId,created[0].id);assert.equal(moved.assetId,original.assetId);assert.equal(moved.visibility,original.visibility);assert.equal(after.assetWrites.length,1);assert.deepEqual(after.failures,[]);
+});
+
+for(const sourceStatus of ['active','trash'])test(`uploads into an implicit legacy folder occupied only by a ${sourceStatus==='active'?'current':'trashed'} original`,async()=>{
+ await open('/?implicit-folder='+sourceStatus);const cabinet=page.locator('[aria-label="Company file library"]');
+ const before=await state(),source=before.state.documents.find(d=>d.id==='formation');assert.equal(before.state.companies[0].desk,undefined);
+ const picker=cabinet.getByLabel('Company document folder',{exact:true});assert.equal(await picker.locator('option').count(),3);await picker.selectOption('agency-folder-1');
+ assert.equal(await cabinet.getByRole('button',{name:'Download Cedar formation.txt',exact:true}).count(),sourceStatus==='active'?1:0);
+ await cabinet.getByRole('button',{name:'Upload',exact:true}).click();const d=await upload({name:'legacy-folder-upload.txt',mimeType:'text/plain',buffer:Buffer.from('Fictional original in recovered folder')});
+ assert.deepEqual(await d.getByRole('alert').allTextContents(),[]);
+ await d.getByRole('button',{name:'Save documents',exact:true}).click();await d.waitFor({state:'detached'});
+ const after=await state(),uploaded=after.state.documents.find(row=>row.name==='legacy-folder-upload.txt');
+ assert.equal(uploaded.companyId,'C1');assert.equal(uploaded.folderId,'agency-folder-1');assert.equal(uploaded.orderId,undefined);assert.equal(uploaded.visibility,'Restricted');assert.ok(uploaded.assetId);
+ assert.deepEqual(after.state.documents.find(row=>row.id==='formation'),source);assert.deepEqual(after.state.companies[0].desk.folders.map(folder=>folder.id),['agency-folder-1']);
+ assert.equal(await cabinet.getByRole('button',{name:'Download legacy-folder-upload.txt',exact:true}).count(),1);assert.equal(await picker.locator('option').count(),3);
+ assert.equal(after.assetWrites.length,1);assert.equal(after.assetWrites[0].id,uploaded.assetId);assert.equal(after.assetWrites[0].binding.companyId,'C1');assert.deepEqual(after.failures,[]);
+ if(sourceStatus==='trash'){await cabinet.getByRole('button',{name:'Trash',exact:true}).click();assert.equal(await cabinet.getByRole('button',{name:'Download Cedar formation.txt',exact:true}).count(),1);assert.equal(await cabinet.getByRole('button',{name:'Download legacy-folder-upload.txt',exact:true}).count(),0);}
 });

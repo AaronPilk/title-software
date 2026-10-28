@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Building2, ChevronRight, FileText, Plus, CalendarClock, ListChecks } from "lucide-react";
+import { ChevronRight, FileText, Plus, CalendarClock, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useWorkspace } from "@/lib/title/store";
 import { type Page } from "@/lib/title/model";
@@ -8,7 +8,7 @@ import { companyDisplayStage } from "@/lib/title/company-operating-status";
 import { agencySetupReadiness } from "@/lib/title/agency-setup";
 import { upcomingMaintenance } from "@/lib/title/agency-maintenance";
 import { businessDay } from "@/lib/title/business-date";
-import { Empty, Heading, Metric, SectionTitle, Status } from "./shared";
+import { Empty, Heading, SectionTitle, Status } from "./shared";
 import { CompanyLogo } from "./company-logo";
 import styles from "./agency-overview.module.css";
 
@@ -56,21 +56,12 @@ export function AgencyOverview({ navigate, newCompany, openCompany }: {
   const attentionCompanies = [...attention.keys()].filter(Boolean).length;
   const open = (id: string, tab: "Overview" | "Application" | "Setup" | "Documents" = "Overview") => openCompany ? openCompany(id, tab) : navigate("Companies");
   return <>
-    <Heading title="Agency overview" eyebrow="Company management" description="Your companies, their setup, and what needs attention next.">
+    <Heading title="Agency overview" eyebrow="Company management" description="Choose a company to work on, or review the team’s outstanding tasks.">
       {canAdd && <Button onClick={() => newCompany ? newCompany() : navigate("Companies")}><Plus /> Add company</Button>}
     </Heading>
-    <section className={`panel ${styles.welcome}`} aria-label="Agency workspace">
-      <div className={styles.welcomeIcon}><Building2 size={27} aria-hidden="true" /></div>
-      <div className={styles.welcomeCopy}><h2>Every company, in one place.</h2><p>Open a company to upload its documents, update its details, or work through setup. Existing active companies keep their active status.</p></div>
-      <Button variant="outline" onClick={() => navigate("Companies")}>Open companies <ArrowRight /></Button>
-    </section>
-    <div className="metrics">
-      <Metric label="Active companies" value={active.length} detail={`${s.companies.length} companies in your portfolio`} />
-      <Metric label="Companies in setup" value={setup.length} detail="New ventures being prepared" />
-      <Metric label="Open company tasks" value={tasks.length} detail={`${overdue.length} past their due date`} />
-      <Metric label="Upcoming renewals" value={renewals.length} detail="Due within 14 days, including overdue" />
-      <Metric label="Companies needing attention" value={attentionCompanies} detail="Approvals, status flags or overdue work" />
-    </div>
+    <dl className={styles.totals} aria-label="Agency totals">
+      {[["Active companies", active.length], ["Companies in setup", setup.length], ["Open company tasks", tasks.length], ["Upcoming renewals", renewals.length], ["Companies needing attention", attentionCompanies]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+    </dl>
     {attention.size > 0 && <section className={`panel ${styles.attention}`} aria-label="Needs attention">
       <SectionTitle title="Needs attention" action="All tasks" onClick={() => navigate("Tasks")} />
       {[...attention].slice(0, 5).map(([companyId, entry]) => {
@@ -83,8 +74,22 @@ export function AgencyOverview({ navigate, newCompany, openCompany }: {
       {attention.size > 5 && <div className={styles.panelFooter}>{attention.size - 5} more companies or agency items need attention. Open All tasks to review their work.</div>}
     </section>}
     <div className={styles.mainGrid}>
-      <section className="panel" aria-labelledby="agency-next-steps">
-        <SectionTitle title="Company setup" action="All companies" onClick={() => navigate("Companies")} />
+      <section className="panel" aria-label="Company portfolio records">
+        <SectionTitle title="Your companies" action="Open companies" onClick={() => navigate("Companies")} />
+        <p className={styles.sectionNote}>Choose a company for its details, partner contacts and documents.</p>
+        {s.companies.slice(0, 5).map(company => <button key={company.id} className={styles.portfolioRow} onClick={() => open(company.id)}><CompanyLogo company={company} /><span className={styles.rowCopy}><strong>{company.name}</strong><small>{(company.operatingStates || [company.jurisdiction]).filter(Boolean).join(" · ") || "Operating state not entered"}</small></span><Status value={companyDisplayStage(company)} /><ChevronRight size={16} /></button>)}
+        {!s.companies.length && <Empty title="No companies available" text="Your administrator can add companies or assign access to existing ones." />}
+        <button className={styles.readinessRow} onClick={() => navigate("Documents")}><FileText size={19} /><span><strong>Company documents</strong><small>Applications, agreements, formation records and more</small></span><ChevronRight size={16} /></button>
+      </section>
+      <section className="panel" aria-label="Company team follow-ups">
+        <SectionTitle title="Team follow-ups" action="All tasks" onClick={() => navigate("Tasks")} />
+        {tasks.slice(0, 5).map(task => <button key={task.id} className={styles.taskRow} onClick={() => navigate("Tasks")}><span className={styles.rowCopy}><strong>{task.title}</strong><small>{s.companies.find(c => c.id === task.companyId)?.name || "Agency"} · {task.owner || "Unassigned"}</small><small>{task.due ? `Due ${task.due}` : "No due date"}</small></span><Status value={task.due && task.due < date ? "Overdue" : task.status || "Open"} /></button>)}
+        {!tasks.length && <Empty title="No open company tasks" text="Setup and maintenance follow-ups appear here as work is added." />}
+      </section>
+    </div>
+    <div className={styles.mainGrid}>
+      <section className="panel" aria-label="Company setup">
+        <SectionTitle title="Company setup" />
         <p className={styles.sectionNote}>One checklist for each new venture. Completed applications stay in its document cabinet.</p>
         {setup.slice(0, 5).map(company => {
           const canReadSetup = !access || access.restricted;
@@ -102,19 +107,6 @@ export function AgencyOverview({ navigate, newCompany, openCompany }: {
         {renewals.slice(0, 5).map(record => <button key={record.id} className={styles.taskRow} onClick={() => navigate("Tasks")}><CalendarClock size={19} /><span className={styles.rowCopy}><strong>{record.title}</strong><small>{record.nextDueOn} · {record.overdue ? "Overdue" : `In ${record.daysUntilDue} days`}</small></span><ChevronRight size={17} /></button>)}
         {!renewals.length && <Empty title="No renewals due in the next 14 days" text="Track company, ownership-entity and agency renewals in Tasks. Confirm dates from the renewal notices." />}
         <button className={styles.readinessRow} onClick={() => navigate("Tasks")}><ListChecks size={19} /><span><strong>Manage maintenance schedules</strong><small>Licenses, annual reports, services and agency coverage</small></span><ChevronRight size={16} /></button>
-      </section>
-    </div>
-    <div className={styles.mainGrid}>
-      <section className="panel" aria-label="Company portfolio records">
-        <SectionTitle title="Your company portfolio" action="View all" onClick={() => navigate("Companies")} />
-        {s.companies.slice(0, 5).map(company => <button key={company.id} className={styles.portfolioRow} onClick={() => open(company.id)}><CompanyLogo company={company} /><span className={styles.rowCopy}><strong>{company.name}</strong><small>{(company.operatingStates || [company.jurisdiction]).filter(Boolean).join(" · ") || "Operating state not entered"}</small></span><Status value={companyDisplayStage(company)} /><ChevronRight size={16} /></button>)}
-        {!s.companies.length && <Empty title="No companies available" text="Your administrator can add companies or assign access to existing ones." />}
-        <button className={styles.readinessRow} onClick={() => navigate("Documents")}><FileText size={19} /><span><strong>Company documents</strong><small>Applications, agreements, formation records and more</small></span><ChevronRight size={16} /></button>
-      </section>
-      <section className="panel" aria-label="Company team follow-ups">
-        <SectionTitle title="Team follow-ups" action="All tasks" onClick={() => navigate("Tasks")} />
-        {tasks.slice(0, 5).map(task => <button key={task.id} className={styles.taskRow} onClick={() => navigate("Tasks")}><span className={styles.rowCopy}><strong>{task.title}</strong><small>{s.companies.find(c => c.id === task.companyId)?.name || "Agency"} · {task.owner || "Unassigned"}</small><small>{task.due ? `Due ${task.due}` : "No due date"}</small></span><Status value={task.due && task.due < date ? "Overdue" : task.status || "Open"} /></button>)}
-        {!tasks.length && <Empty title="No open company tasks" text="Setup and maintenance follow-ups appear here as work is added." />}
       </section>
     </div>
   </>;

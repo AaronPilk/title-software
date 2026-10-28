@@ -69,7 +69,7 @@ export function UploadDocument(props: Props) {
     if (connection && !connection.access.allCompanies && !connection.access.companyIds.includes(company)) return "You no longer have access to this company. Close this dialog and refresh.";
     if (companyId && company !== companyId) return "This upload belongs to a different company. Reopen it from the correct company.";
     if (kind === "company") {
-      if (props.folderId && !state.companies.some(c => c.id === company && companyDesk(c).folders.some(f => f.id === props.folderId))) return "This folder changed. Reopen the upload.";
+      if (props.folderId && !state.companies.some(c => c.id === company && companyDesk(c, state.documents).folders.some(f => f.id === props.folderId))) return "This folder changed. Reopen the upload.";
       if (orderId || output || policyId || cplId || correctionId || commitmentVersion !== undefined || cplVersion !== undefined) return "Open this upload from the title file's document workflow.";
       return "";
     }
@@ -160,7 +160,7 @@ export function UploadDocument(props: Props) {
         assertCurrent();
         const changed = destinationProblem(d); if (changed) throw new Error(changed);
         for (const doc of uploaded) {
-          if (kind === "company") { const owner = d.companies.find(c => c.id === doc.companyId); if (owner) owner.desk = companyDesk(owner); }
+          if (kind === "company") { const owner = d.companies.find(c => c.id === doc.companyId); if (owner) owner.desk = companyDesk(owner, d.documents); }
           if (d.documents.some(existing => existing.id === doc.id)) throw new Error("Some selected documents were already saved. Close this dialog and review the saved documents before uploading again.");
           if (outputRoles.includes(doc.sourceRole!) && d.documents.some(existing => existing.companyId === doc.companyId && existing.orderId === doc.orderId && existing.name === doc.name && !outputRoles.includes(existing.sourceRole!))) throw new Error("Use a distinct filename for this output so it cannot replace a final-source document.");
           doc.version = Math.max(0, ...d.documents.filter(existing => sameDocumentFamily(existing, doc)).map(existing => existing.version)) + 1;

@@ -65,8 +65,8 @@ export function renameAgencyDocument(state: Workspace, input: Target & { display
 export function moveAgencyDocument(state: Workspace, input: Target & { folderId: string }) {
   return traceMutation(state, "moveAgencyDocument", [input], () => {
     const doc = target(state, input), company = state.companies.find(company => company.id === doc.companyId);
-    if (!company || input.folderId && !companyDesk(company).folders.some(folder => folder.id === input.folderId)) throw new Error("Choose a folder in this company.");
-    company.desk = companyDesk(company); doc.folderId = input.folderId;
+    if (!company || input.folderId && !companyDesk(company, state.documents).folders.some(folder => folder.id === input.folderId)) throw new Error("Choose a folder in this company.");
+    company.desk = companyDesk(company, state.documents); doc.folderId = input.folderId;
   });
 }
 export function archiveAgencyDocument(state: Workspace, input: Target & { reason: string; actor: string; at: string }) {

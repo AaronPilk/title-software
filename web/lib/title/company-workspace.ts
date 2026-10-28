@@ -1,20 +1,35 @@
-import type { Company, Workspace } from "./model";
+import type { Company, VaultDoc, Workspace } from "./model";
 
 export type CompanyFolder = { id: string; name: string };
 export type ServiceRenewal = { service: "Domain" | "Email" | "Website"; renewalOn: string; provider: string; reference: string; renewalYears?: number };
 export type CompanyEmail = { id: string; label: string; address: string; primary: boolean };
-export type CompanyDesk = { logoDocumentId: string; folders: CompanyFolder[]; renewals: ServiceRenewal[]; emails?: CompanyEmail[]; address?: string; domain?: string; website?: string; websiteNotNeeded?: boolean };
-export const defaultCompanyFolders = (): CompanyFolder[] => [
+export type CompanyPartnerContact = { id: string; name: string; email: string; phone: string };
+export type CompanyDesk = { partnerContacts?: CompanyPartnerContact[]; logoDocumentId: string; folders: CompanyFolder[]; renewals: ServiceRenewal[]; emails?: CompanyEmail[]; address?: string; domain?: string; website?: string; websiteNotNeeded?: boolean };
+const legacyCompanyFolders = (): CompanyFolder[] => [
   "Application & Agreements", "Company Formation & Tax", "Partner Ownership Entities", "Licensing & Underwriter Approvals",
   "Banking & Accounting", "Brand, Website & Email", "Disclosures & Forms", "SoftPro & Production Setup",
 ].map((name, index) => ({ id: `agency-folder-${index + 1}`, name: `${String(index + 1).padStart(2, "0")} – ${name}` }));
+export const defaultCompanyFolders = (): CompanyFolder[] => [];
 export const emptyCompanyDesk = (): CompanyDesk => ({ logoDocumentId: "", folders: defaultCompanyFolders(), renewals: [] });
-export const companyDesk = (company: Company): CompanyDesk => {
+export const companyDesk = (company: Company, documents: readonly VaultDoc[] = []): CompanyDesk => {
   const desk = company.desk || emptyCompanyDesk();
-  return { ...desk, folders: [...desk.folders, ...defaultCompanyFolders().filter(seed => !desk.folders.some(folder => folder.id === seed.id || folder.name.trim().toLowerCase() === seed.name.toLowerCase()))] };
+  // Older uploads could reference an implicit preset without saving it on the
+  // company. Keep that folder reachable, including files retained in Trash.
+  const used = new Set(documents.filter(doc => doc.companyId === company.id && !doc.orderId).map(doc => doc.folderId));
+  return { ...desk, folders: [...desk.folders, ...legacyCompanyFolders().filter(seed => used.has(seed.id) && !desk.folders.some(folder => folder.id === seed.id))] };
 };
+/** Unused presets stay stored for compatibility; custom and occupied folders stay visible. */
+export function visibleCompanyFolders(company: Company, documents: readonly VaultDoc[]): CompanyFolder[] {
+  const used = new Set(documents.filter(doc => doc.companyId === company.id && !doc.orderId).map(doc => doc.folderId));
+  const legacy = legacyCompanyFolders();
+  return companyDesk(company, documents).folders.filter(folder => used.has(folder.id) || !legacy.some(seed => seed.id === folder.id && seed.name === folder.name));
+}
 export function companyEmails(company: Company): CompanyEmail[] {
   return company.desk?.emails || (company.email ? [{ id: "legacy-primary", label: "Primary company email", address: company.email, primary: true }] : []);
+}
+/** Partner contacts are independent of legal ownership percentages and dated accounting history. */
+export function companyPartnerContacts(company: Company): CompanyPartnerContact[] {
+  return company.desk?.partnerContacts || company.members.map((member, index) => ({ id: member.id || `legacy-partner-${index}`, name: member.name, email: member.email || "", phone: member.phone || "" }));
 }
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown, max: number) => typeof v === "string" && v.length <= max && !/[\u0000-\u001f\u007f]/.test(v);
@@ -22,7 +37,7 @@ const id = (v: unknown) => text(v, 150) && /^[\w-]+$/.test(v as string);
 const exact = (v: Record<string, unknown>, keys: string[]) => Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v, k));
 export const validRenewalDate = (v: string) => v === "" || /^\d{4}-\d{2}-\d{2}$/.test(v) && !v.startsWith("0000") && Number.isFinite(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v;
 export function validateCompanyDesk(value: unknown): CompanyDesk {
-  if (!object(value) || !["logoDocumentId", "folders", "renewals"].every(key => Object.hasOwn(value, key)) || Object.keys(value).some(key => !["logoDocumentId", "folders", "renewals", "emails", "address", "domain", "website", "websiteNotNeeded"].includes(key)) || !text(value.logoDocumentId, 180) ||
+  if (!object(value) || !["logoDocumentId", "folders", "renewals"].every(key => Object.hasOwn(value, key)) || Object.keys(value).some(key => !["logoDocumentId", "folders", "renewals", "emails", "address", "domain", "website", "websiteNotNeeded", "partnerContacts"].includes(key)) || !text(value.logoDocumentId, 180) ||
       !Array.isArray(value.folders) || value.folders.length > 100 || !Array.isArray(value.renewals) || value.renewals.length > 3)
     throw new Error("Check the company logo, folders and renewal details.");
   for (const folder of value.folders) if (!object(folder) || !exact(folder, ["id", "name"]) || !id(folder.id) || !text(folder.name, 100) || !(folder.name as string).trim())
@@ -37,6 +52,13 @@ export function validateCompanyDesk(value: unknown): CompanyDesk {
     if (!Array.isArray(value.emails) || value.emails.length > 20) throw new Error("Use up to 20 company email addresses.");
     for (const email of value.emails) if (!object(email) || !exact(email, ["id", "label", "address", "primary"]) || !id(email.id) || !text(email.label, 100) || !text(email.address, 254) || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(String(email.address)) || typeof email.primary !== "boolean") throw new Error("Give each company email a valid address and label.");
     if (new Set(value.emails.map(e => e.id)).size !== value.emails.length || new Set(value.emails.map(e => e.address.trim().toLowerCase())).size !== value.emails.length || value.emails.filter(e => e.primary).length !== (value.emails.length ? 1 : 0)) throw new Error("Choose one primary email and remove duplicate addresses.");
+  }
+  if (value.partnerContacts !== undefined) {
+    if (!Array.isArray(value.partnerContacts) || value.partnerContacts.length > 100) throw new Error("Use up to 100 partner contacts per company.");
+    for (const contact of value.partnerContacts) {
+      if (!object(contact) || !exact(contact, ["id", "name", "email", "phone"]) || !id(contact.id) || !text(contact.name, 200) || !String(contact.name).trim() || !text(contact.email, 254) || contact.email !== "" && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(String(contact.email)) || !text(contact.phone, 60)) throw new Error("Give each partner a name and check any email address or phone number.");
+    }
+    if (new Set(value.partnerContacts.map(contact => contact.id)).size !== value.partnerContacts.length) throw new Error("Keep a separate identity for each partner contact.");
   }
   for (const field of ["address", "domain", "website"]) if (value[field] !== undefined && !text(value[field], field === "address" ? 500 : 300)) throw new Error("Check the company address, domain and website.");
   if (value.domain && !/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/i.test(String(value.domain))) throw new Error("Enter a domain such as company.com without a path.");
@@ -58,7 +80,7 @@ export function validateCompanyWorkspace(state: Workspace) {
   }
   for (const doc of state.documents) if (doc.folderId !== undefined && doc.folderId !== "") {
     const c = state.companies.find(c => c.id === doc.companyId);
-    if (!id(doc.folderId) || doc.orderId || !c || !companyDesk(c).folders.some(f => f.id === doc.folderId))
+    if (!id(doc.folderId) || doc.orderId || !c || !companyDesk(c, state.documents).folders.some(f => f.id === doc.folderId))
       throw new Error("Choose a document folder belonging to this company.");
   }
 }

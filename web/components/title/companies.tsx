@@ -8,6 +8,7 @@ import { agencySetupReadiness, configureAgencySetup, latestAgencySetupTemplate }
 import { isAgencyDocumentArchived } from "@/lib/title/agency-documents";
 import { CompanyLogo } from "./company-logo";
 import { CompanyRecordsPanel } from "./company-records";
+import { CompanyPartnerContacts } from "./company-partner-contacts";
 import { CompanyOverviewDetails, CompanyFolders, CompanyCardFacts } from "./company-workspace";
 import { OwnershipHistoryPanel } from "./ownership";
 import { OnboardingCasePanel, CredentialCenter, CompanyOperatingStates } from "./onboarding-suite";
@@ -390,13 +391,14 @@ export function CompanyDetail({
   const [deskDirty, setDeskDirty] = useState(false), [deskBusy, setDeskBusy] = useState(false);
   const [ownerDirty, setOwnerDirty] = useState(false), [ownerBusy, setOwnerBusy] = useState(false);
   const [folderDirty, setFolderDirty] = useState(false), [folderBusy, setFolderBusy] = useState(false);
+  const [partnerDirty, setPartnerDirty] = useState(false), [partnerBusy, setPartnerBusy] = useState(false);
   const [memberDirty, setMemberDirty] = useState(false), [memberBusy, setMemberBusy] = useState(false);
   const [profileCapture, setProfileCapture] = useState<(CompanyProfileCapture & { companySnapshot: string }) | null>(null);
   const c = s.companies.find((x) => x.id === id);
   if (!c) return null;
   const isExisting = companyDisplayStage(c) === "Active";
   const canEditApplication = canManageOnboardingEvidence(connection);
-  const leaveApplication = () => !setupBusy && !applicationBusy && !deskBusy && !ownerBusy && !folderBusy && !memberBusy && (!(setupDirty || applicationDirty || deskDirty || ownerDirty || folderDirty || memberDirty) || window.confirm("Discard unsaved company or application changes? Save them first to keep your work."));
+  const leaveApplication = () => !setupBusy && !applicationBusy && !deskBusy && !ownerBusy && !folderBusy && !memberBusy && !partnerBusy && (!(partnerDirty || setupDirty || applicationDirty || deskDirty || ownerDirty || folderDirty || memberDirty) || window.confirm("Discard unsaved company or application changes? Save them first to keep your work."));
   function changeTab(value: string) {
     if (value === tab || !leaveApplication()) return;
     setApplicationDirty(false); setApplicationEntry(undefined); setTab(value);
@@ -455,11 +457,15 @@ export function CompanyDetail({
             </>
           )}
           {tab === "Setup" && <AgencySetup company={c} onDoc={onDoc} onDirtyChange={setSetupDirty} onBusyChange={setSetupBusy} />}
-          {tab === "Ownership" && <>              <section className="panel my-5"><div className="section-heading"><h3>Owners</h3></div>{c.members.length ? c.members.map(m => <div key={m.id || m.name} className="detail-grid"><strong>{m.name}</strong><span>{m.share}% ownership</span></div>) : <p className="form-note">Add the people or LLCs that own this company.</p>}
+          {tab === "Ownership" && <>
+            <CompanyPartnerContacts key={c.id} company={c} onDirtyChange={setPartnerDirty} onBusyChange={setPartnerBusy} />
+            <details className="panel my-5"><summary className="cursor-pointer font-semibold">Ownership records & financial terms</summary>
+              <p className="form-note">Optional records for legal interests, accounting and owner details. Upload all company files in Documents.</p>
+              {c.members.length > 0 && c.members.map(m => <div key={m.id || m.name} className="detail-grid"><strong>{m.name}</strong><span>{m.share}% ownership</span></div>)}
               {canEditProfile && <details className="my-4"><summary className="cursor-pointer font-semibold">Edit members & ownership interests</summary><CompanyMembers key={c.id} company={c} onDirtyChange={setMemberDirty} onBusyChange={setMemberBusy} /></details>}
               <CompanyRecordsPanel company={c} onDirtyChange={setOwnerDirty} onBusyChange={setOwnerBusy} />
-              </section>
-</>}
+            </details>
+          </>}
           {tab === "Documents" && (
             <section className="company-documents" aria-label="Company documents">
               <div className="company-documents-heading">

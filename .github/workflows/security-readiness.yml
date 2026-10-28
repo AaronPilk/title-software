@@ -66,6 +66,7 @@ jobs:
           npm --prefix web run test:jv:portal
           npm --prefix web run test:company-status
           npm --prefix web run test:company-workspace
+          npm --prefix web run test:agency:phase-one
           npm --prefix web run test:jv:sql
           npm --prefix web run test:jv:portal:sql
           npm --prefix web run test:workspace:views

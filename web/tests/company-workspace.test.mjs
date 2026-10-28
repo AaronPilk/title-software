@@ -116,3 +116,14 @@ test('private dated evidence updates shared maintenance without copying private 
  lib.syncCompanyRecordMaintenance(s,'c1',after,updated);assert.equal(s.agencyMaintenance.records.find(r=>r.kind==='Annual report').nextDueOn,'2028-04-15');assert.equal(s.agencyMaintenance.records.find(r=>r.kind==='Good standing').nextDueOn,'2028-10-06');
  const fresh=structuredClone(updated);fresh.owners[0].compliance.annualReportDueOn='2029-04-15';lib.syncCompanyRecordMaintenance(s,'c1',updated,fresh);assert.equal(s.agencyMaintenance.records.find(r=>r.kind==='Annual report').nextDueOn,'2029-04-15');assert.equal(s.agencyMaintenance.records.find(r=>r.kind==='Good standing').verifiedOn,'2027-10-06');
 });
+
+test('partner contact command roundtrip is independent from ownership and restricted by company access',()=>{
+ const s=state(),members=structuredClone(s.companies[0].members);const partnerContacts=[{id:'contact1',name:'Fictional partner',email:'partner@example.test',phone:'555-0101'}];
+ const result=apply(s,d=>{d.companies[0].desk={...desk(),partnerContacts};});
+ assert.deepEqual(result.companies[0].desk.partnerContacts,partnerContacts);assert.deepEqual(result.companies[0].members,members);
+ for(const access of [{...actor,role:'operations'},{...actor,role:'viewer'},{...actor,allCompanies:false,companyIds:['c2']}])assert.throws(()=>apply(s,d=>{d.companies[0].desk={...desk(),partnerContacts};},access));
+ assert.equal(projectWorkspace(result,{...actor,role:'operations'}).companies[0].desk,undefined);
+ assert.equal(projectWorkspace(result,{...actor,role:'partner',partnerMembers:[{id:'grant',companyId:'c1',memberName:'Fictional member A'}]}).companies[0].desk,undefined);
+ const scoped={...actor,role:'onboarding',allCompanies:false,companyIds:['c1']};assert.deepEqual(apply(s,d=>{d.companies[0].desk={...desk(),partnerContacts};},scoped).companies[0].desk.partnerContacts,partnerContacts);
+ for(const invalid of [[{...partnerContacts[0],name:' '}],[{...partnerContacts[0],email:'bad'}],[{...partnerContacts[0],phone:'bad\nphone'}],[{...partnerContacts[0],percentage:100}],[partnerContacts[0],partnerContacts[0]]])assert.throws(()=>apply(s,d=>{d.companies[0].desk={...desk(),partnerContacts:invalid};}));
+});

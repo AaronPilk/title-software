@@ -1,0 +1,6 @@
+.companyGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:1rem}
+.company{display:flex;align-items:center;gap:1rem;text-align:left;min-width:0;padding:1.3rem;border:1px solid var(--border,#d9e5ef);border-radius:20px;background:var(--card,#fff);color:var(--foreground,#173a59);box-shadow:0 5px 20px #173a5906}
+.company:hover{border-color:#86acc7;background:#f5faff}.company:focus-visible{outline:3px solid #2176bd;outline-offset:3px}
+.company strong,.company small{display:block;overflow-wrap:anywhere}.company strong{font-size:1rem;line-height:1.5;font-weight:600}.company small{font-size:.85rem;color:#52677c;margin-top:.25rem}
+.icon{display:grid;place-items:center;flex:0 0 46px;height:46px;background:#e9f2fa;border-radius:14px;color:#18527e}
+@media(forced-colors:active){.company{border:1px solid CanvasText}.company:focus-visible{outline-color:Highlight}}

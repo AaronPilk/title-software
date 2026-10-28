@@ -84,14 +84,14 @@ async function open(query = "", viewport = { width: 1360, height: 1000 }) {
 const section = (name) => page.getByRole("region", { name });
 test("legacy ticks do not manufacture Phase One setup completion", async () => {
   await open("new=1");
-  const setup = await page.locator('[aria-labelledby="agency-next-steps"]').innerText();
+  const setup = await page.locator('[aria-label="Company setup"]').innerText();
   assert.match(setup, /Choose the setup steps that apply/);
   assert.doesNotMatch(setup, /Ready for activation|7 of 7|steps complete/);
 });
 test("existing active companies are a portfolio, not incomplete new applications", async () => {
   await open("role=owner&all=1");
-  assert.match(await page.locator('[aria-labelledby="agency-next-steps"]').innerText(), /No new companies in setup/);
-  assert.equal(await page.locator('.metric').filter({hasText:'Active companies'}).locator('strong').innerText(), '2');
+  assert.match(await page.locator('[aria-label="Company setup"]').innerText(), /No new companies in setup/);
+  assert.equal(await page.locator('dl[aria-label="Agency totals"] > div').filter({hasText:'Active companies'}).locator('dd').innerText(), '2');
   assert.equal(await section('Company portfolio records').getByRole('button').filter({hasText:'Agency Test Title'}).count(), 1);
   assert.doesNotMatch(await page.locator('body').innerText(), /Next: Review application|Upload completed application/);
 });
@@ -101,18 +101,18 @@ test("company access filters follow-ups and a display name does not grant permis
   const rows=await section('Company team follow-ups').getByRole('button').allTextContents();
   assert.match(rows[1],/Review formation records/);assert.match(rows[2],/Collect company materials/);
   assert.doesNotMatch(await page.locator('body').innerText(),/Unavailable company task/);
-  assert.equal(await page.locator('.metric').filter({hasText:'Open company tasks'}).locator('strong').innerText(),'2');
+  assert.equal(await page.locator('dl[aria-label="Agency totals"] > div').filter({hasText:'Open company tasks'}).locator('dd').innerText(),'2');
 });
 test("limited evidence access does not claim an incomplete or complete application", async () => {
   await open('limited=1&new=1');
-  const text=await page.locator('[aria-labelledby="agency-next-steps"]').innerText();
+  const text=await page.locator('[aria-label="Company setup"]').innerText();
   assert.match(text,/setup available to your account/);
   assert.doesNotMatch(text,/steps complete|Ready for activation|Review application|Choose the setup steps/);
 });
 test("owner actions open company setup, document cabinet and renewal management", async () => {
   await open('role=owner&all=1&new=1');
   await page.getByRole('button',{name:'Add company',exact:true}).click();
-  await page.locator('[aria-labelledby="agency-next-steps"]').getByRole('button').filter({hasText:'Agency Test Title'}).click();
+  await page.locator('[aria-label="Company setup"]').getByRole('button').filter({hasText:'Agency Test Title'}).click();
   await page.getByRole('button',{name:/Company documents Applications/}).click();
   await page.getByRole('button',{name:/Manage maintenance schedules/}).click();
   assert.deepEqual(await page.evaluate(()=>window.agencyActions),[{newCompany:true},{company:'A',tab:'Setup'},{page:'Documents'},{page:'Tasks'}]);
@@ -131,9 +131,9 @@ test("agency rows fit a phone viewport and company navigation stays available",a
 });
 test("confirmed existing operating status is preserved without rewriting incomplete historical evidence",async()=>{
   await open('confirmed=1&role=owner&all=1');
-  assert.equal(await page.locator('.metric').filter({hasText:'Active companies'}).locator('strong').innerText(),'1');
-  assert.equal(await page.locator('.metric').filter({hasText:'Companies in setup'}).locator('strong').innerText(),'1');
-  assert.equal(await page.locator('[aria-labelledby="agency-next-steps"]').getByRole('button').filter({hasText:'Agency Test Title'}).count(),0);
+  assert.equal(await page.locator('dl[aria-label="Agency totals"] > div').filter({hasText:'Active companies'}).locator('dd').innerText(),'1');
+  assert.equal(await page.locator('dl[aria-label="Agency totals"] > div').filter({hasText:'Companies in setup'}).locator('dd').innerText(),'1');
+  assert.equal(await page.locator('[aria-label="Company setup"]').getByRole('button').filter({hasText:'Agency Test Title'}).count(),0);
   const state=await page.evaluate(()=>window.agencyFixture.s);assert.equal(state.companies[0].stage,'Onboarding');assert.deepEqual(state.business.onboarding,[]);
 });
 
@@ -143,11 +143,11 @@ test("attention includes undated required licensing and approval work with actio
   await attention.getByText('NC license document outstanding',{exact:true}).waitFor();
   await attention.getByText('WFG approval pending',{exact:true}).waitFor();
   await attention.getByText('Review Test Title status · Delinquent',{exact:true}).waitFor();
-  assert.equal(await page.locator('.metric').filter({hasText:'Companies needing attention'}).locator('strong').innerText(),'2');
+  assert.equal(await page.locator('dl[aria-label="Agency totals"] > div').filter({hasText:'Companies needing attention'}).locator('dd').innerText(),'2');
   await attention.getByRole('button',{name:'Review Agency Test Title setup',exact:true}).click();
   await attention.getByRole('button',{name:'Review Review Test Title maintenance',exact:true}).click();
   assert.deepEqual(await page.evaluate(()=>window.agencyActions),[{company:'A',tab:'Setup'},{page:'Tasks'}]);
-  assert.equal(await page.locator('.metric').filter({hasText:'Companies in setup'}).locator('strong').innerText(),'0');
+  assert.equal(await page.locator('dl[aria-label="Agency totals"] > div').filter({hasText:'Companies in setup'}).locator('dd').innerText(),'0');
 });
 test("attention excludes optional, completed, retired, Production and unavailable-company work",async()=>{
   await open('attention=1&limited=1');
@@ -159,9 +159,9 @@ test("attention excludes optional, completed, retired, Production and unavailabl
 test("unknown standing and missing historical applications do not flag existing companies",async()=>{
   await open('attention=1&quiet=1');
   assert.equal(await section('Needs attention').count(),0);
-  assert.equal(await page.locator('.metric').filter({hasText:'Companies needing attention'}).locator('strong').innerText(),'0');
-  assert.equal(await page.locator('.metric').filter({hasText:'Active companies'}).locator('strong').innerText(),'2');
-  assert.match(await page.locator('[aria-labelledby="agency-next-steps"]').innerText(),/No new companies in setup/);
+  assert.equal(await page.locator('dl[aria-label="Agency totals"] > div').filter({hasText:'Companies needing attention'}).locator('dd').innerText(),'0');
+  assert.equal(await page.locator('dl[aria-label="Agency totals"] > div').filter({hasText:'Active companies'}).locator('dd').innerText(),'2');
+  assert.match(await page.locator('[aria-label="Company setup"]').innerText(),/No new companies in setup/);
 });
 test("attention reasons and actions fit a phone viewport",async()=>{
   await open('attention=1&role=owner&all=1',{width:390,height:844});
@@ -170,4 +170,15 @@ test("attention reasons and actions fit a phone viewport",async()=>{
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
   await attention.getByRole('button',{name:'Review Agency Test Title setup',exact:true}).click();
   assert.deepEqual(await page.evaluate(()=>window.agencyActions),[{company:'A',tab:'Setup'}]);
+});
+
+// The old metric cards displayed navigation arrows but did nothing when clicked.
+test("overview gives one directory action and clearly non-interactive totals", async () => {
+  await open('role=owner&all=1');
+  assert.equal(await page.getByRole('button', {name:'Open companies',exact:true}).count(),1);
+  assert.equal(await page.getByText('Every company, in one place.',{exact:true}).count(),0);
+  assert.equal(await page.locator('dl[aria-label="Agency totals"] button, dl[aria-label="Agency totals"] svg').count(),0);
+  await page.getByRole('button',{name:'Open companies',exact:true}).focus();
+  await page.keyboard.press('Enter');
+  assert.deepEqual(await page.evaluate(()=>window.agencyActions),[{page:'Companies'}]);
 });

@@ -1,41 +1,15 @@
-.welcome {
+.totals {
   display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 32px;
-  margin-bottom: 24px;
-  background: linear-gradient(115deg, rgb(255 255 255 / 46%), transparent 75%), var(--glass-panel, #f6f9fd);
-  border-color: var(--glass-edge, #d0dce9);
-  box-shadow: var(--glass-shadow);
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin: 0 0 24px;
+  color: #536c83;
+  font-size: 12px;
+  line-height: 1.6;
 }
-.welcomeIcon {
-  display: grid;
-  place-items: center;
-  flex: 0 0 64px;
-  height: 64px;
-  background: var(--glass-control, #fff);
-  border: 1px solid var(--glass-edge, #d0dce9);
-  border-radius: 22px;
-  box-shadow: var(--glass-control-shadow, 0 3px 10px rgb(23 55 91 / 5%));
-  color: var(--brand-primary);
-}
-.welcomeCopy { flex: 1; min-width: 0; }
-.welcomeCopy h2 {
-  margin: 0 0 8px;
-  color: var(--brand-primary);
-  font-size: clamp(22px, 2vw, 28px);
-  font-weight: 650;
-  line-height: 1.2;
-  letter-spacing: -0.04em;
-}
-.welcomeCopy p {
-  max-width: 62ch;
-  margin: 0;
-  color: #4d647b;
-  font-size: 13px;
-  line-height: 1.7;
-}
-.welcome > button { flex-shrink: 0; }
+.totals > div { display: flex; align-items: baseline; gap: 7px; }
+.totals dt { order: 2; }
+.totals dd { margin: 0; color: #203c56; font-size: 16px; font-weight: 650; }
 .mainGrid {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(320px, 1fr);
@@ -111,15 +85,8 @@
 .attentionActions { display: flex; flex-wrap: wrap; gap: 8px; max-width: 340px; }
 @media (max-width: 1120px) {
   .mainGrid { grid-template-columns: 1fr; }
-  .welcome { flex-wrap: wrap; }
-  .welcome > button { margin-left: 88px; }
 }
 @media (max-width: 600px) {
-  .welcome { gap: 16px; padding: 22px; }
-  .welcomeIcon { flex-basis: 48px; height: 48px; border-radius: 17px; }
-  .welcomeCopy h2 { font-size: 21px; }
-  .welcomeCopy { flex-basis: calc(100% - 64px); }
-  .welcome > button { margin-left: 0; width: 100%; }
   .mainGrid { gap: 18px; margin-bottom: 18px; }
   .sectionNote { margin-inline: 20px; }
   .caseRow, .portfolioRow, .taskRow, .readinessRow { width: calc(100% - 16px); margin-inline: 8px; padding: 16px 12px; gap: 10px; }
@@ -136,12 +103,11 @@
   .caseRow, .portfolioRow, .taskRow, .readinessRow { transition: none; }
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  .welcome { background: var(--glass-panel, #fff); }
   .panelFooter { background: var(--glass-control, #fff); }
 }
 @media (forced-colors: active) {
-  .welcome, .welcomeIcon, .readinessRow, .panelFooter { background: Canvas; border-color: CanvasText; }
-  .welcomeCopy h2, .welcomeCopy p, .sectionNote, .rowCopy strong, .rowCopy > span,
+  .readinessRow, .panelFooter { background: Canvas; border-color: CanvasText; }
+  .totals, .totals dd, .sectionNote, .rowCopy strong, .rowCopy > span,
   .rowCopy small, .readinessRow strong, .readinessRow small, .attentionCopy strong,
   .attentionCopy ul, .attentionCopy summary { color: CanvasText; }
   .caseRow:hover, .portfolioRow:hover, .taskRow:hover, .readinessRow:hover { border-color: Highlight; }

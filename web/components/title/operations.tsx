@@ -558,7 +558,7 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
     <>
       <Heading
         title="Tasks"
-        description="Clear ownership, and a visible reason whenever something is not moving."
+        description={scope === "agency" ? "Team follow-ups, company setup and scheduled renewals. Choose a company or My work to narrow the list." : "Clear ownership, and a visible reason whenever something is not moving."}
       >
         {!canEdit && <span className="subtle-pill">Read-only</span>}
         {canEdit && <Button onClick={() => setNewTask(true)}>
@@ -566,6 +566,14 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
           New task
         </Button>}
       </Heading>
+      {scope === "agency" && <details className="panel" style={{ marginBottom: 16, padding: "16px 20px" }}>
+        <summary style={{ cursor: "pointer", fontWeight: 600 }}>How tasks work</summary>
+        <div className="form-stack" style={{ marginTop: 12 }}>
+          <p className="subtle">Setup tasks come from a company’s checklist. Renewal tasks come from saved maintenance schedules. Other tasks may have been added by a teammate or during company import; older tasks do not always record their source.</p>
+          <p className="subtle">Assigned to shows who is currently responsible. It does not mean that person created the task. Choose My work to see your assignments. Change a regular assignment in the list; use Edit task for setup work or Manage schedule for a renewal.</p>
+          <p className="subtle">Use the checkbox for ordinary tasks. Setup and renewal tasks use their own completion form so the dates and supporting documents stay with the work. Mark waiting when you need someone else’s response.</p>
+        </div>
+      </details>}
       {scope === "agency" && <details className="panel" style={{ marginBottom: 20 }}><summary style={{ cursor: "pointer", fontWeight: 600 }}>Renewals &amp; maintenance</summary><AgencyMaintenance onDoc={doc => setAgencyDocument(doc.id)} /></details>}
       {scope === "agency" && maintenanceAction && <AgencyMaintenance key={`${maintenanceAction.maintenanceId}:${maintenanceAction.action}`} initialAction={maintenanceAction} editorOnly onActionClosed={() => setMaintenanceAction(null)} onDoc={doc => setAgencyDocument(doc.id)} />}
       {agencyTask && s.tasks.find(t => t.id === agencyTask) && <AgencyTaskEditor task={s.tasks.find(t => t.id === agencyTask)!} onClose={() => setAgencyTask("")} onDoc={doc => setAgencyDocument(doc.id)} />}
@@ -602,7 +610,7 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
             "",
             "Task",
             "Company",
-            "Owner",
+            scope === "agency" ? "Assigned to" : "Owner",
             "Priority",
             "Due date",
             "Status",
@@ -616,6 +624,9 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
             const isOpen = expanded === t.id;
             const renewal = scope === "agency" && t.phaseOne?.kind === "maintenance" ? s.agencyMaintenance?.records.find(record => record.id === t.phaseOne?.maintenanceId) : undefined;
             const canManageRenewal = canEdit && renewal && (renewal.scope !== "agency" || !connection || connection.access.allCompanies && ["owner", "admin"].includes(connection.access.role));
+            const subject = t.phaseOne?.subject || "";
+            const subjectName = s.companies.find(company => company.id === t.companyId)?.members.find(member => member.id === subject)?.name
+              || (["NC", "SC", "WFG", "Commonwealth", "First American"].includes(subject) ? subject : "");
             const main = (
               <TableRow key={`${t.id}:row`} className={t.done ? "completed-row" : ""}>
                 <TableCell>
@@ -636,6 +647,15 @@ export function Tasks({ scope }: { scope?: "agency" | "production" } = {}) {
                 </TableCell>
                 <TableCell>
                   <strong>{t.title}</strong>
+                  {scope === "agency" && <details className="subtle" style={{ marginTop: 6 }}>
+                    <summary style={{ cursor: "pointer" }}>{t.phaseOne?.kind === "setup" ? "From company setup" : t.phaseOne?.kind === "maintenance" ? "From a renewal schedule" : "About this task"}</summary>
+                    <p style={{ maxWidth: "48ch", margin: "8px 0" }}>{t.phaseOne?.kind === "setup"
+                      ? `Created from this company’s setup checklist${subjectName ? ` for ${subjectName}` : ""}. ${t.phaseOne.required ? "Required for new-company activation." : "Optional setup work."} Use Edit task to review its status and documents.`
+                      : t.phaseOne?.kind === "maintenance"
+                        ? `Created for a scheduled renewal${t.phaseOne.cycleOn ? ` due ${t.phaseOne.cycleOn}` : ""}. Manage schedule shows the recurrence and responsible person.`
+                        : "This saved task has no recorded source. It may have been added by a teammate or during company import. Confirm that it still applies before completing it."}</p>
+                    <p style={{ maxWidth: "48ch", margin: "8px 0" }}>{t.assigneeId ? "Assigned to a workspace account." : t.owner ? "Existing name-only assignment; choose a staff account to confirm the responsible person." : "No responsible person has been assigned yet."}</p>
+                  </details>}
                   {open && (
                     <span className="subtle task-waiting-note">
                       {open.reason}
