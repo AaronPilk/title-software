@@ -29,7 +29,7 @@ before(async () => {
       if (path === "/app.mjs") { res.writeHead(200, { "content-type": "text/javascript" }); res.end(js); }
       else if (path === "/app.css") { res.writeHead(200, { "content-type": "text/css" }); res.end(css); }
       else if (path.startsWith("/brand/")) {
-        try { res.setHeader("content-type", path.endsWith(".woff2") ? "font/woff2" : "image/png"); res.end(await readFile(new URL("../public" + path, import.meta.url))); }
+        try { res.setHeader("content-type", path.endsWith(".woff2") ? "font/woff2" : /\.jpe?g$/.test(path) ? "image/jpeg" : path.endsWith(".webp") ? "image/webp" : "image/png"); res.end(await readFile(new URL("../public" + path, import.meta.url))); }
         catch { res.writeHead(404); res.end(); }
       } else { res.writeHead(200, { "content-type": "text/html" }); res.end('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/app.css"></head><body><div id="root"></div><script type="module" src="/app.mjs"></script></body></html>'); }
     });
@@ -54,19 +54,44 @@ async function noOverflow() { assert.ok(await page.evaluate(() => document.docum
 async function screen(name) {
   if (!process.env.TITLE_GLASS_SCREENSHOTS) return;
   await mkdir(process.env.TITLE_GLASS_SCREENSHOTS, { recursive: true });
-  await page.screenshot({ path: `${process.env.TITLE_GLASS_SCREENSHOTS}/${name}.png` });
+  await page.screenshot({ path: `${process.env.TITLE_GLASS_SCREENSHOTS}/${name}.png`, animations: "disabled" });
 }
 test("glass desktop navigation opens both workspaces and keeps ordinary forms usable", async () => {
   await open();await noOverflow();await screen("agency-desktop");
   assert.notEqual(await page.locator(".topbar").evaluate(element => getComputedStyle(element).backdropFilter), "none");
+  const rail = page.locator('.app-sidebar [data-slot="sidebar-inner"]');
+  const bounds = await rail.boundingBox();assert.ok(bounds.width >= 72 && bounds.width <= 104, "desktop navigation is a slim labeled rail");
+  for (const label of ["Overview", "Companies", "Tasks", "Documents", "Applications", "Settings"]) {
+    const item = rail.getByRole("button", {name:label, exact:true});assert.equal(await item.isVisible(), true);
+    assert.equal(await item.locator("span").first().evaluate(element => {
+      const r=element.getBoundingClientRect(),s=getComputedStyle(element);return r.width>0&&r.height>0&&s.visibility!=="hidden"&&s.opacity!=="0";
+    }), true, `${label} retains a visible label as well as its accessible name`);
+  }
+  assert.equal(await rail.getByRole("button", {name:"Overview",exact:true}).getAttribute("aria-current"), "page");
+  assert.equal(await page.locator(".toolbar-workspace").getByRole("button", {name:"Production",exact:true}).isVisible(), true);
+  assert.equal(await rail.getByRole("button", {name:"Production",exact:true}).count(), 0);
+  const backgrounds = await page.evaluate(() => [getComputedStyle(document.body).backgroundImage,getComputedStyle(document.body,"::before").backgroundImage,getComputedStyle(document.body,"::after").backgroundImage]);
+  const sceneUrls = backgrounds.flatMap(value => [...value.matchAll(/url\(["']?([^"')]+)["']?\)/g)].map(match => match[1]));
+  assert.ok(sceneUrls.length, "the workspace uses a scenic image background");
+  for (const source of sceneUrls) {
+    const url=new URL(source,page.url());assert.equal(url.origin,new URL(page.url()).origin,"scene images are bundled on the same origin");assert.ok(url.pathname.startsWith("/brand/"),"the scene image comes from the local brand assets");
+    const image=await page.evaluate(async source=>{const img=new Image();img.src=source;await img.decode();return{width:img.naturalWidth,height:img.naturalHeight};},source);
+    assert.ok(image.width>=1000&&image.height>=600,"the backdrop is a real decoded scene image, not an icon or missing asset");
+  }
+  assert.equal(await page.locator(".scene-content").getByRole("heading", {name:"Agency overview",exact:true}).count(),1);
   await page.getByRole("button", { name: "Add company", exact: true }).click();
   const name = page.getByRole("textbox", { name: "Company name", exact: true });
   await name.fill("Fictional Glass Check LLC");assert.equal(await name.inputValue(), "Fictional Glass Check LLC");
   await name.press("Tab");assert.equal(await page.getByRole("textbox", { name: "Company contact (optional)", exact: true }).evaluate(element => element === document.activeElement), true);
+  await page.getByRole("dialog", {name:"Add a company",exact:true}).evaluate(async element => { await Promise.all(element.getAnimations().map(animation=>animation.finished.catch(()=>{}))); });
+  assert.equal(await page.getByRole("dialog", {name:"Add a company",exact:true}).evaluate(element => {const s=getComputedStyle(element),channels=s.backgroundColor.match(/[\d.]+/g).map(Number);return Number(s.opacity)===1&&(channels[3]??1)>=.94;}),true,"the finished company dialog is near-opaque, despite the scenic backdrop");
   await screen("company-dialog-desktop");await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await rail.getByRole("button", {name:"Companies",exact:true}).click();await page.locator(".scene-content").getByRole("heading",{name:"Companies",exact:true}).waitFor();await noOverflow();await screen("agency-companies-desktop");
   await page.getByRole("button", { name: "Production", exact: true }).click();
+  await rail.getByRole("button", {name:"Companies",exact:true}).click();await page.getByLabel("Production companies",{exact:true}).waitFor();await noOverflow();await screen("production-companies-desktop");
   await page.getByRole("button", { name: "Documents", exact: true }).click();
   await page.getByRole("heading", { name: "Document vault", exact: true }).waitFor();
+  assert.equal(await page.locator(".work-surface").getByRole("heading", {name:"Document vault",exact:true}).count(),1,"data-heavy screens keep their neutral work surface");
   await noOverflow();await screen("documents-desktop");
 });
 for (const width of [390, 320]) test(`glass mobile navigation and company dialog remain within ${width}px`, async () => {
@@ -86,7 +111,7 @@ for (const width of [390, 320]) test(`glass mobile navigation and company dialog
 });
 for (const [name, value] of [["prefers-reduced-transparency", "reduce"], ["prefers-contrast", "more"], ["forced-colors", "active"]]) test(`${name} keeps navigation solid and controls operable`, async () => {
   await open(1440, [{ name, value }]);
-  assert.equal(await page.locator(".topbar").evaluate(element => getComputedStyle(element).backdropFilter), "none");
+  for(const selector of [".topbar",'.app-sidebar [data-slot="sidebar-inner"]'])assert.equal(await page.locator(selector).evaluate(element => getComputedStyle(element).backdropFilter), "none");
   await page.getByRole("button", { name: "Add company", exact: true }).click();
   await page.getByRole("textbox", { name: "Company name", exact: true }).fill("Fictional Accessible Check");
   assert.equal(await page.getByRole("textbox", { name: "Company name", exact: true }).inputValue(), "Fictional Accessible Check");

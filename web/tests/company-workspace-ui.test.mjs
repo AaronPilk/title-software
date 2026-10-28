@@ -50,10 +50,10 @@ before(async()=>{
   import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
   import {CompanyOverviewDetails,CompanyFolders} from './components/title/company-workspace';
   import {CompanyPartnerContacts} from './components/title/company-partner-contacts';
-  import {CompanyLogo} from './components/title/company-logo';import {NewCompany} from './components/title/companies';
+  import {CompanyLogo} from './components/title/company-logo';import {NewCompany,Companies,CompanyDetail} from './components/title/companies';
   import {useWorkspace} from '@/lib/title/store';import {allowWorkspaceNavigation} from './lib/title/workspace-navigation-guard';
   window.tryNavigate=()=>allowWorkspaceNavigation('company-detail');
-  function App(){const {s}=useWorkspace();const [create,setCreate]=useState(new URLSearchParams(location.search).has('new'));const c=s.companies.find(c=>c.id==='C1');return <><main><CompanyLogo company={c}/><CompanyOverviewDetails company={c}/><CompanyPartnerContacts company={c}/><CompanyFolders company={c} onDoc={d=>window.preview=d.id}/></main>{create&&<NewCompany open onClose={()=>{setCreate(false);window.createdClosed=true}}/>}<div id="ready"/></>;}
+  function App(){const {s}=useWorkspace();const query=new URLSearchParams(location.search);const [create,setCreate]=useState(query.has('new'));const [detail,setDetail]=useState(query.get('tab')||'');const c=s.companies.find(c=>c.id==='C1');return <><main>{query.has('directory')?<Companies onOpen={()=>setDetail('Overview')} onNew={()=>setCreate(true)}/>:<><CompanyLogo company={c}/><CompanyOverviewDetails company={c}/><CompanyPartnerContacts company={c}/><CompanyFolders company={c} onDoc={d=>window.preview=d.id}/></>}</main>{create&&<NewCompany open onClose={()=>{setCreate(false);window.createdClosed=true}}/>}{detail&&<CompanyDetail id="C1" initialTab={detail} onClose={()=>setDetail('')} onDoc={d=>window.preview=d.id} onUpload={()=>{}}/>}<div id="ready"/></>;}
   createRoot(document.getElementById('root')).render(<App/>);
  `},plugins:[{name:'fictional-command-transport',setup(b){
   b.onResolve({filter:/^@\/lib\/title\/store$/},()=>({path:'store',namespace:'fixture'}));
@@ -165,4 +165,46 @@ test('legacy partner contacts prefill without changing ownership and stale edits
  await page.evaluate(()=>window.changeCompany('C1',{desk:{logoDocumentId:'',folders:[],renewals:[],partnerContacts:[{id:'legacy-partner',name:'Collaborator contact',email:'new@example.test',phone:''}]}}));
  await page.getByRole('button',{name:'Save partner contacts',exact:true}).click();await page.getByRole('alert').filter({hasText:'not saved'}).waitFor();assert.equal((await state()).state.companies[0].desk.partnerContacts[0].name,'Collaborator contact');
  await page.evaluate(()=>window.changeAccess({role:'operations'}));assert.equal(await page.getByLabel('Partner 1 name',{exact:true}).count(),0);assert.equal(await page.getByText('Collaborator contact',{exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'Save partner contacts',exact:true}).count(),0);
+});
+
+test('company cards count saved partner contacts independently from legal members through the real Partners tab',async()=>{
+ await open('/?directory');
+ const members=[{id:'ledger-owner',name:'Fictional Ledger Owner LLC',share:100,email:'ledger@example.test'}];
+ await page.evaluate(members=>window.changeCompany('C1',{members}),members);
+ const card=page.locator('.company-card').filter({has:page.getByRole('heading',{name:'Cedar Fictional Title',exact:true})});
+ const partners=card.locator('.company-card-metrics > div').filter({has:page.getByText('Partners',{exact:true})});
+ assert.equal(await partners.locator('strong').innerText(),'1','legacy member contacts remain visible until contacts are separately saved');
+ assert.equal(await card.getByText('Members',{exact:true}).count(),0);
+ await card.click();const sheet=dialog('Cedar Fictional Title');
+ await sheet.getByRole('tab',{name:'Partners',exact:true}).click();
+ await sheet.getByRole('button',{name:'Edit partner contacts',exact:true}).click();
+ await sheet.getByRole('button',{name:'Add a partner',exact:true}).click();
+ await sheet.getByLabel('Partner 2 name',{exact:true}).fill('Fictional Operating Partner');
+ await sheet.getByRole('button',{name:'Save partner contacts',exact:true}).click();
+ await sheet.getByRole('button',{name:'Edit partner contacts',exact:true}).waitFor();
+ assert.deepEqual((await state()).state.companies[0].members,members);
+ assert.deepEqual((await state()).failures,[]);
+ await sheet.getByRole('button',{name:'Close',exact:true}).click();await sheet.waitFor({state:'detached'});
+ assert.equal(await partners.locator('strong').innerText(),'2','card total follows simple contacts, not the unchanged ownership ledger');
+ await page.evaluate(()=>{const c=window.readFixture().state.companies[0];window.changeCompany('C1',{desk:{...c.desk,partnerContacts:[]}})});
+ assert.equal(await partners.locator('strong').innerText(),'0','an explicitly empty contact list does not fall back to legal members');
+});
+
+test('company tab labels distinguish active setup records and preserve legacy partner and setup entry points',async()=>{
+ for(const tab of ['Ownership','Members']){
+  await open('/?directory&tab='+tab);const sheet=dialog('Cedar Fictional Title');
+  assert.equal(await sheet.getByRole('tab',{name:'Partners',exact:true}).getAttribute('data-state'),'active');
+  assert.equal(await sheet.getByRole('tab',{name:'Ownership',exact:true}).count(),0);
+  await sheet.getByRole('region',{name:'Partner contacts',exact:true}).waitFor();
+ }
+ await open('/?directory&tab=Setup');const sheet=dialog('Cedar Fictional Title');
+ assert.equal(await sheet.getByRole('tab',{name:'Setup',exact:true}).getAttribute('data-state'),'active');
+ await sheet.getByRole('region',{name:'Setup and approvals',exact:true}).waitFor();
+ await page.evaluate(()=>window.changeCompany('C1',{operatingStatus:{status:'Active',confirmedBy:'fixture@example.test',confirmedAt:'2026-10-01T12:00:00.000Z',note:'Fictional active business'}}));
+ assert.equal(await sheet.getByRole('tab',{name:'Setup records',exact:true}).getAttribute('data-state'),'active');
+ assert.equal(await sheet.getByRole('tab',{name:'Setup',exact:true}).count(),0);
+ await sheet.getByRole('tab',{name:'Overview',exact:true}).click();
+ await sheet.getByRole('tab',{name:'Setup records',exact:true}).click();
+ await sheet.getByRole('region',{name:'Setup and approvals',exact:true}).waitFor();
+ assert.equal((await state()).calls.length,0,'changing display labels and legacy entry points does not mutate setup records');
 });

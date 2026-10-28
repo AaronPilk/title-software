@@ -9,6 +9,7 @@ import { isAgencyDocumentArchived } from "@/lib/title/agency-documents";
 import { CompanyLogo } from "./company-logo";
 import { CompanyRecordsPanel } from "./company-records";
 import { CompanyPartnerContacts } from "./company-partner-contacts";
+import { companyPartnerContacts } from "@/lib/title/company-workspace";
 import { CompanyOverviewDetails, CompanyFolders, CompanyCardFacts } from "./company-workspace";
 import { OwnershipHistoryPanel } from "./ownership";
 import { OnboardingCasePanel, CredentialCenter, CompanyOperatingStates } from "./onboarding-suite";
@@ -138,8 +139,8 @@ export function Companies({
                 <small>Documents</small>
               </div>
               <div>
-                <strong>{c.members.length}</strong>
-                <small>Members</small>
+                <strong>{companyPartnerContacts(c).length}</strong>
+                <small>Partners</small>
               </div>
             </div>
             <div className="company-card-footer">
@@ -397,6 +398,8 @@ export function CompanyDetail({
   const c = s.companies.find((x) => x.id === id);
   if (!c) return null;
   const isExisting = companyDisplayStage(c) === "Active";
+  const setupTabLabel = isExisting ? "Setup records" : "Setup";
+  const visibleTab = tab === "Ownership" ? "Partners" : tab === "Setup" ? setupTabLabel : tab;
   const canEditApplication = canManageOnboardingEvidence(connection);
   const leaveApplication = () => !setupBusy && !applicationBusy && !deskBusy && !ownerBusy && !folderBusy && !memberBusy && !partnerBusy && (!(partnerDirty || setupDirty || applicationDirty || deskDirty || ownerDirty || folderDirty || memberDirty) || window.confirm("Discard unsaved company or application changes? Save them first to keep your work."));
   function changeTab(value: string) {
@@ -429,12 +432,12 @@ export function CompanyDetail({
         </SheetHeader>
         <div className="sheet-body">
           <Segments
-            value={tab}
-            onChange={changeTab}
+            value={visibleTab}
+            onChange={value => changeTab(value === "Partners" ? "Ownership" : value === setupTabLabel ? "Setup" : value)}
             items={[
               "Overview",
-              "Setup",
-              "Ownership",
+              setupTabLabel,
+              "Partners",
               "Documents",
               "Application",
             ]}

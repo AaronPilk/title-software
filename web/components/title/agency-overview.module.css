@@ -1,116 +1,164 @@
 .totals {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 24px;
-  margin: 0 0 24px;
-  color: #536c83;
-  font-size: 12px;
+  gap: 8px 22px;
+  margin: 0 0 20px;
+  padding: 10px 16px;
+  border: 1px solid var(--scene-line, rgb(255 255 255 / 16%));
+  border-radius: 14px;
+  background: var(--scene-panel, transparent);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 5%);
+  -webkit-backdrop-filter: var(--scene-filter, none);
+  backdrop-filter: var(--scene-filter, none);
+  color: var(--scene-muted, currentColor);
+  font-size: 11px;
   line-height: 1.6;
 }
 .totals > div { display: flex; align-items: baseline; gap: 7px; }
 .totals dt { order: 2; }
-.totals dd { margin: 0; color: #203c56; font-size: 16px; font-weight: 650; }
+.totals dd { margin: 0; color: var(--scene-ink, currentColor); font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .mainGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 1fr);
-  gap: 24px;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 18px;
   margin-bottom: 24px;
+  color: var(--scene-ink, currentColor);
 }
+.withAttention { grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr) minmax(0, .94fr); }
 .mainGrid > section { min-width: 0; padding-bottom: 8px; }
-.sectionNote { margin: -3px 26px 18px; color: #596f84; font-size: 12px; line-height: 1.7; }
+.portfolio { --panel-tint: rgb(188 169 228 / 16%); }
+.followups { --panel-tint: rgb(154 197 222 / 16%); }
+.attention { --panel-tint: rgb(222 186 144 / 16%); grid-column: 3; grid-row: 1 / span 2; }
+.setup { --panel-tint: rgb(151 201 186 / 14%); }
+.renewals { --panel-tint: rgb(199 174 186 / 14%); }
+.mainGrid :global(.section-heading) {
+  min-height: 52px;
+  height: auto;
+  margin-bottom: 6px;
+  padding: 12px 18px;
+  gap: 10px;
+  background: linear-gradient(110deg, var(--panel-tint), transparent);
+  border-bottom: 1px solid var(--scene-line, rgb(255 255 255 / 16%));
+}
+.mainGrid :global(.section-heading) h2 { margin: 0; color: var(--scene-ink, currentColor); font-size: 14px; font-weight: 600; letter-spacing: -.025em; }
+.mainGrid :global(.section-heading) :global([data-slot="button"]) { flex-shrink: 0; color: var(--scene-muted, currentColor); font-size: 11px; }
+.mainGrid :global(.empty-state) { padding: 24px 18px; color: var(--scene-muted, currentColor); }
+.mainGrid :global(.empty-state) h3 { color: var(--scene-ink, currentColor); font-size: 13px; }
+.mainGrid :global(.empty-state) p { color: var(--scene-muted, currentColor); font-size: 12px; line-height: 1.6; }
+.sectionNote { margin: 12px 18px; color: var(--scene-muted, currentColor); font-size: 11px; line-height: 1.6; }
 .caseRow, .portfolioRow, .taskRow, .readinessRow {
-  width: calc(100% - 24px);
+  width: calc(100% - 16px);
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin: 5px 12px;
-  padding: 16px 14px;
+  gap: 10px;
+  margin: 3px 8px;
+  padding: 12px 10px;
+  color: var(--scene-ink, currentColor);
   text-align: left;
   border: 1px solid transparent;
-  border-radius: 16px;
+  border-radius: 12px;
   background: transparent;
   transition: background 150ms ease, border-color 150ms ease;
   cursor: pointer;
 }
 .caseRow:hover, .portfolioRow:hover, .taskRow:hover, .readinessRow:hover {
-  background: var(--glass-control, #fff);
-  border-color: var(--glass-edge, #d0dce9);
+  background: var(--scene-hover, rgb(255 255 255 / 8%));
+  border-color: var(--scene-line, rgb(255 255 255 / 16%));
 }
 .caseRow:focus-visible, .portfolioRow:focus-visible, .taskRow:focus-visible, .readinessRow:focus-visible {
-  outline: 2px solid var(--brand-accent);
+  outline: 2px solid var(--scene-ink, currentColor);
   outline-offset: 2px;
-  background: var(--glass-control, #fff);
+  background: var(--scene-hover, rgb(255 255 255 / 8%));
 }
-.caseRow > svg, .portfolioRow > svg, .taskRow > svg, .readinessRow > svg:last-child { flex-shrink: 0; color: #6a8299; }
-.rowCopy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.rowCopy strong { font-size: 13px; font-weight: 650; color: #203c56; overflow-wrap: anywhere; }
-.rowCopy > span { color: #466888; font-size: 12px; line-height: 1.5; }
-.rowCopy small { color: #536c83; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.caseRow > svg, .portfolioRow > svg, .taskRow > svg, .readinessRow > svg:last-child { flex-shrink: 0; color: var(--scene-muted, currentColor); }
+.portfolioRow > :global(.company-avatar), .caseRow > :global(.company-avatar) { width: 32px; height: 32px; flex-shrink: 0; border-radius: 10px; font-size: 11px; }
+.rowCopy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.rowCopy strong { font-size: 12px; font-weight: 600; color: var(--scene-ink, currentColor); overflow-wrap: anywhere; line-height: 1.5; }
+.rowCopy > span { color: var(--scene-muted, currentColor); font-size: 11px; line-height: 1.5; }
+.rowCopy small { color: var(--scene-muted, currentColor); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .readinessRow {
   align-items: flex-start;
-  margin-top: 12px;
-  padding-top: 18px;
-  padding-bottom: 18px;
-  background: var(--glass-control, #f8fbff);
-  border-color: var(--glass-edge, #d0dce9);
-}
-.readinessRow > svg:first-child { margin-top: 2px; color: var(--brand-accent); flex-shrink: 0; }
-.readinessRow > span { flex: 1; min-width: 0; display: grid; gap: 5px; }
-.readinessRow strong { font-size: 12px; font-weight: 650; color: #203c56; }
-.readinessRow small { color: #536c83; font-size: 12px; line-height: 1.6; }
-.taskRow { align-items: flex-start; }
-.panelFooter {
-  padding: 16px 26px;
   margin-top: 8px;
-  color: #536c83;
-  font-size: 12px;
-  line-height: 1.6;
-  border-top: 1px solid rgb(94 128 163 / 14%);
-  background: rgb(255 255 255 / 20%);
+  background: var(--scene-hover, rgb(255 255 255 / 8%));
+  border-color: var(--scene-line, rgb(255 255 255 / 16%));
 }
-.attention { margin-bottom: 24px; }
+.readinessRow > svg:first-child { margin-top: 2px; color: var(--scene-ink, currentColor); flex-shrink: 0; }
+.readinessRow > span { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.readinessRow strong { font-size: 11px; font-weight: 600; color: var(--scene-ink, currentColor); }
+.readinessRow small { color: var(--scene-muted, currentColor); font-size: 11px; line-height: 1.6; }
+.taskRow { align-items: flex-start; }
+.taskList {
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scene-muted, currentColor) transparent;
+  scrollbar-gutter: stable;
+}
+.taskList:focus-visible { outline: 2px solid var(--scene-ink, currentColor); outline-offset: -3px; border-radius: 8px; }
+.taskRow + .taskRow, .portfolioRow + .portfolioRow, .caseRow + .caseRow { border-top-color: var(--scene-line, rgb(255 255 255 / 16%)); border-top-left-radius: 0; border-top-right-radius: 0; }
+.panelFooter {
+  padding: 12px 18px;
+  margin-top: 6px;
+  color: var(--scene-muted, currentColor);
+  font-size: 11px;
+  line-height: 1.6;
+  border-top: 1px solid var(--scene-line, rgb(255 255 255 / 16%));
+}
 .attentionRow {
   display: flex;
-  align-items: center;
-  gap: 20px;
-  margin: 0 12px;
-  padding: 20px 14px;
-  border-top: 1px solid rgb(94 128 163 / 14%);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  margin: 0 8px;
+  padding: 14px 10px;
 }
+.attentionRow + .attentionRow { border-top: 1px solid var(--scene-line, rgb(255 255 255 / 16%)); }
 .attentionCopy { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.attentionCopy strong { color: #203c56; font-size: 13px; font-weight: 650; }
-.attentionCopy ul { margin: 8px 0 0; padding-left: 18px; color: #536c83; font-size: 12px; line-height: 1.7; }
-.attentionCopy summary { margin-top: 8px; cursor: pointer; font-size: 12px; color: #365f84; }
-.attentionCopy summary:focus-visible { outline: 2px solid var(--brand-accent); outline-offset: 3px; border-radius: 4px; }
-.attentionActions { display: flex; flex-wrap: wrap; gap: 8px; max-width: 340px; }
-@media (max-width: 1120px) {
-  .mainGrid { grid-template-columns: 1fr; }
+.attentionCopy strong { color: var(--scene-ink, currentColor); font-size: 12px; font-weight: 600; }
+.attentionCopy ul { margin: 6px 0 0; padding-left: 15px; color: var(--scene-muted, currentColor); font-size: 11px; line-height: 1.65; }
+.attentionCopy summary { margin-top: 7px; cursor: pointer; font-size: 11px; color: var(--scene-ink, currentColor); }
+.attentionCopy summary:focus-visible { outline: 2px solid var(--scene-ink, currentColor); outline-offset: 3px; border-radius: 4px; }
+.attentionActions { display: flex; flex-wrap: wrap; gap: 6px; }
+.attentionActions :global([data-slot="button"]) { height: auto; min-height: 28px; padding: 5px 9px; font-size: 10px; white-space: normal; }
+@media (max-width: 1279px) {
+  .withAttention { grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); }
+  .attention { grid-column: 1 / -1; grid-row: auto; }
+  .attentionRow { flex-direction: row; align-items: center; gap: 18px; }
+  .attentionActions { max-width: 280px; }
+}
+@media (max-width: 800px) {
+  .mainGrid, .withAttention { grid-template-columns: minmax(0, 1fr); gap: 16px; margin-bottom: 18px; }
+  .attention { grid-column: auto; }
+  .attentionRow { flex-direction: column; align-items: stretch; gap: 10px; }
+  .attentionActions { max-width: 100%; }
+  .attentionActions :global([data-slot="button"]) { min-height: 36px; font-size: 11px; }
+  .taskList { max-height: none; overflow-y: visible; scrollbar-gutter: auto; }
 }
 @media (max-width: 600px) {
-  .mainGrid { gap: 18px; margin-bottom: 18px; }
-  .sectionNote { margin-inline: 20px; }
-  .caseRow, .portfolioRow, .taskRow, .readinessRow { width: calc(100% - 16px); margin-inline: 8px; padding: 16px 12px; gap: 10px; }
+  .totals { gap: 8px 18px; }
   .portfolioRow { flex-wrap: wrap; }
   .portfolioRow .rowCopy { flex-basis: calc(100% - 55px); }
   .portfolioRow > svg:last-child { margin-left: auto; }
   .taskRow { flex-wrap: wrap; }
   .taskRow .rowCopy { flex-basis: 100%; }
-  .panelFooter { padding-inline: 20px; }
-  .attentionRow { align-items: stretch; flex-direction: column; margin-inline: 8px; padding: 18px 12px; gap: 12px; }
-  .attentionActions { max-width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   .caseRow, .portfolioRow, .taskRow, .readinessRow { transition: none; }
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  .panelFooter { background: var(--glass-control, #fff); }
+  .mainGrid :global(.section-heading) { background: none; }
 }
 @media (forced-colors: active) {
   .readinessRow, .panelFooter { background: Canvas; border-color: CanvasText; }
+  .mainGrid :global(.section-heading) { background: Canvas; border-color: CanvasText; }
+  .mainGrid :global(.section-heading) h2, .mainGrid :global(.section-heading) :global([data-slot="button"]),
+  .mainGrid :global(.empty-state), .mainGrid :global(.empty-state) h3, .mainGrid :global(.empty-state) p,
   .totals, .totals dd, .sectionNote, .rowCopy strong, .rowCopy > span,
   .rowCopy small, .readinessRow strong, .readinessRow small, .attentionCopy strong,
   .attentionCopy ul, .attentionCopy summary { color: CanvasText; }
   .caseRow:hover, .portfolioRow:hover, .taskRow:hover, .readinessRow:hover { border-color: Highlight; }
   .caseRow:focus-visible, .portfolioRow:focus-visible, .taskRow:focus-visible, .readinessRow:focus-visible,
-  .attentionCopy summary:focus-visible { outline-color: Highlight; }
+  .attentionCopy summary:focus-visible, .taskList:focus-visible { outline-color: Highlight; }
 }

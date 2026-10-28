@@ -179,3 +179,11 @@ test("role downgrade on the same account removes an already-open agency page",as
   await open({hash:"#agency/onboarding"});await at("agency","Onboarding");
   await page.evaluate(()=>window.changeFixtureRole("operations"));await at("production","Overview");
 });
+
+for (const hash of ["#agency/automations", "#agency/connections"]) test(`retired Agency tool ${hash} opens the ordinary overview`, async () => {
+  await open({hash});await at("agency", "Overview");
+});
+test("the full assistant belongs to Production while Agency stays focused on company work", async () => {
+  await open({hash: "#agency/assistant"});await at("production", "Assistant");
+  await switchTo("Agency");await at("agency", "Overview");
+});

@@ -62,33 +62,36 @@ export function AgencyOverview({ navigate, newCompany, openCompany }: {
     <dl className={styles.totals} aria-label="Agency totals">
       {[["Active companies", active.length], ["Companies in setup", setup.length], ["Open company tasks", tasks.length], ["Upcoming renewals", renewals.length], ["Companies needing attention", attentionCompanies]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
     </dl>
-    {attention.size > 0 && <section className={`panel ${styles.attention}`} aria-label="Needs attention">
-      <SectionTitle title="Needs attention" action="All tasks" onClick={() => navigate("Tasks")} />
-      {[...attention].slice(0, 5).map(([companyId, entry]) => {
-        const reasons = [...entry.reasons];
-        return <div key={companyId || "agency"} className={styles.attentionRow}>
-          <div className={styles.attentionCopy}><strong>{entry.name}</strong><ul>{reasons.slice(0, 2).map(reason => <li key={reason}>{reason}</li>)}</ul>{reasons.length > 2 && <details><summary>{reasons.length - 2} more items</summary><ul>{reasons.slice(2).map(reason => <li key={reason}>{reason}</li>)}</ul></details>}</div>
-          <div className={styles.attentionActions}>{entry.actions.has("setup") && companyId && <Button size="sm" variant="outline" aria-label={`Review ${entry.name} setup`} onClick={() => open(companyId, "Setup")}>Review setup</Button>}{entry.actions.has("maintenance") && <Button size="sm" variant="outline" aria-label={`Review ${entry.name} maintenance`} onClick={() => navigate("Tasks")}>Review maintenance</Button>}{entry.actions.has("tasks") && <Button size="sm" variant="outline" aria-label={`Review ${entry.name} tasks`} onClick={() => navigate("Tasks")}>Review tasks</Button>}</div>
-        </div>;
-      })}
-      {attention.size > 5 && <div className={styles.panelFooter}>{attention.size - 5} more companies or agency items need attention. Open All tasks to review their work.</div>}
-    </section>}
-    <div className={styles.mainGrid}>
-      <section className="panel" aria-label="Company portfolio records">
+    <div className={`${styles.mainGrid} ${attention.size > 0 ? styles.withAttention : ""}`}>
+      <section className={`panel ${styles.portfolio}`} aria-label="Company portfolio records">
         <SectionTitle title="Your companies" action="Open companies" onClick={() => navigate("Companies")} />
         <p className={styles.sectionNote}>Choose a company for its details, partner contacts and documents.</p>
         {s.companies.slice(0, 5).map(company => <button key={company.id} className={styles.portfolioRow} onClick={() => open(company.id)}><CompanyLogo company={company} /><span className={styles.rowCopy}><strong>{company.name}</strong><small>{(company.operatingStates || [company.jurisdiction]).filter(Boolean).join(" · ") || "Operating state not entered"}</small></span><Status value={companyDisplayStage(company)} /><ChevronRight size={16} /></button>)}
         {!s.companies.length && <Empty title="No companies available" text="Your administrator can add companies or assign access to existing ones." />}
         <button className={styles.readinessRow} onClick={() => navigate("Documents")}><FileText size={19} /><span><strong>Company documents</strong><small>Applications, agreements, formation records and more</small></span><ChevronRight size={16} /></button>
       </section>
-      <section className="panel" aria-label="Company team follow-ups">
+      <section className={`panel ${styles.followups}`} aria-label="Company team follow-ups">
         <SectionTitle title="Team follow-ups" action="All tasks" onClick={() => navigate("Tasks")} />
-        {tasks.slice(0, 5).map(task => <button key={task.id} className={styles.taskRow} onClick={() => navigate("Tasks")}><span className={styles.rowCopy}><strong>{task.title}</strong><small>{s.companies.find(c => c.id === task.companyId)?.name || "Agency"} · {task.owner || "Unassigned"}</small><small>{task.due ? `Due ${task.due}` : "No due date"}</small></span><Status value={task.due && task.due < date ? "Overdue" : task.status || "Open"} /></button>)}
+        {tasks.length > 0 && <>
+          <div className={styles.taskList} role="group" aria-label="Open company tasks" tabIndex={0}>
+            {tasks.slice(0, 5).map(task => <button key={task.id} className={styles.taskRow} onClick={() => navigate("Tasks")}><span className={styles.rowCopy}><strong>{task.title}</strong><small>{s.companies.find(c => c.id === task.companyId)?.name || "Agency"} · {task.owner || "Unassigned"}</small><small>{task.due ? `Due ${task.due}` : "No due date"}</small></span><Status value={task.due && task.due < date ? "Overdue" : task.status || "Open"} /></button>)}
+          </div>
+          {tasks.length > 5 && <div className={styles.panelFooter}>Showing 5 of {tasks.length} open tasks. Choose All tasks for the full list.</div>}
+        </>}
         {!tasks.length && <Empty title="No open company tasks" text="Setup and maintenance follow-ups appear here as work is added." />}
       </section>
-    </div>
-    <div className={styles.mainGrid}>
-      <section className="panel" aria-label="Company setup">
+      {attention.size > 0 && <section className={`panel ${styles.attention}`} aria-label="Needs attention">
+        <SectionTitle title="Needs attention" action="All tasks" onClick={() => navigate("Tasks")} />
+        {[...attention].slice(0, 5).map(([companyId, entry]) => {
+          const reasons = [...entry.reasons];
+          return <div key={companyId || "agency"} className={styles.attentionRow}>
+            <div className={styles.attentionCopy}><strong>{entry.name}</strong><ul>{reasons.slice(0, 2).map(reason => <li key={reason}>{reason}</li>)}</ul>{reasons.length > 2 && <details><summary>{reasons.length - 2} more items</summary><ul>{reasons.slice(2).map(reason => <li key={reason}>{reason}</li>)}</ul></details>}</div>
+            <div className={styles.attentionActions}>{entry.actions.has("setup") && companyId && <Button size="sm" variant="outline" aria-label={`Review ${entry.name} setup`} onClick={() => open(companyId, "Setup")}>Review setup</Button>}{entry.actions.has("maintenance") && <Button size="sm" variant="outline" aria-label={`Review ${entry.name} maintenance`} onClick={() => navigate("Tasks")}>Review maintenance</Button>}{entry.actions.has("tasks") && <Button size="sm" variant="outline" aria-label={`Review ${entry.name} tasks`} onClick={() => navigate("Tasks")}>Review tasks</Button>}</div>
+          </div>;
+        })}
+        {attention.size > 5 && <div className={styles.panelFooter}>{attention.size - 5} more companies or agency items need attention. Open All tasks to review their work.</div>}
+      </section>}
+      <section className={`panel ${styles.setup}`} aria-label="Company setup">
         <SectionTitle title="Company setup" />
         <p className={styles.sectionNote}>One checklist for each new venture. Completed applications stay in its document cabinet.</p>
         {setup.slice(0, 5).map(company => {
@@ -102,7 +105,7 @@ export function AgencyOverview({ navigate, newCompany, openCompany }: {
         {!setup.length && <Empty title="No new companies in setup" text="Active companies can add their existing records at any time. Their documents do not need to be re-entered as a new application." />}
         {setup.length > 5 && <div className={styles.panelFooter}>{setup.length - 5} more companies in setup</div>}
       </section>
-      <section className="panel" aria-label="Upcoming agency renewals">
+      <section className={`panel ${styles.renewals}`} aria-label="Upcoming agency renewals">
         <SectionTitle title="Renewals & maintenance" action="Manage" onClick={() => navigate("Tasks")} />
         {renewals.slice(0, 5).map(record => <button key={record.id} className={styles.taskRow} onClick={() => navigate("Tasks")}><CalendarClock size={19} /><span className={styles.rowCopy}><strong>{record.title}</strong><small>{record.nextDueOn} · {record.overdue ? "Overdue" : `In ${record.daysUntilDue} days`}</small></span><ChevronRight size={17} /></button>)}
         {!renewals.length && <Empty title="No renewals due in the next 14 days" text="Track company, ownership-entity and agency renewals in Tasks. Confirm dates from the renewal notices." />}

@@ -23,6 +23,7 @@ import {
   ArrowRight,
   Activity,
   Sparkles,
+  Ellipsis,
 } from "lucide-react";
 import {
   SidebarProvider,
@@ -129,7 +130,7 @@ const pageNames: Page[] = [...navigation.map((n) => n.label), "Settings"];
 export default function Home() {
   return (
     <WorkspaceProvider>
-      <SidebarProvider style={{ "--sidebar-width": "248px" } as CSSProperties}>
+      <SidebarProvider style={{ "--sidebar-width": "104px" } as CSSProperties}>
         <Workspace />
       </SidebarProvider>
       <Toaster richColors theme="light" position="bottom-right" />
@@ -138,7 +139,7 @@ export default function Home() {
 }
 function Workspace() {
   const { s: rawState, ready, connection } = useWorkspace();
-  const { setOpenMobile } = useSidebar();
+  const { setOpenMobile, isMobile } = useSidebar();
   const [agencyMore, setAgencyMore] = useState(false);
   const [search, setSearch] = useState(false);
   const [notifications, setNotifications] = useState(false);
@@ -492,7 +493,7 @@ function Workspace() {
               <span className="brand-company">Title Company</span>
             </span>
           </button>
-          {productionOnlyRole(connection?.access.role) ? <div className="workspace-switch"><strong>Production workspace</strong><small>Title files &amp; incoming requests</small></div> : connection?.access.role !== "partner" ? <WorkspaceSwitcher view={view} onChange={switchView} /> : <div className="workspace-switch">
+          {isMobile && (productionOnlyRole(connection?.access.role) ? <div className="workspace-switch"><strong>Production workspace</strong><small>Title files &amp; incoming requests</small></div> : connection?.access.role !== "partner" ? <WorkspaceSwitcher view={view} onChange={switchView} /> : <div className="workspace-switch">
             <span className="workspace-symbol">
               <Building2 size={17} />
             </span>
@@ -500,7 +501,7 @@ function Workspace() {
               <strong>Partner workspace</strong>
               <small>Your company statements &amp; documents</small>
             </div>
-          </div>}
+          </div>)}
         </SidebarHeader>
         <SidebarContent>
           <p className="nav-caption">{connection?.access.role === "partner" ? "PARTNER" : view.toUpperCase()}</p>
@@ -523,6 +524,8 @@ function Workspace() {
                     onClick={() => navigate(label)}
                     isActive={label === page}
                     className="nav-button"
+                    aria-label={label === "Onboarding" ? "Applications" : label}
+                    title={label === "Onboarding" ? "Applications" : label}
                     aria-current={label === page ? "page" : undefined}
                   >
                     <Icon />
@@ -537,7 +540,7 @@ function Workspace() {
                 </SidebarMenuItem>
               ))}
           </SidebarMenu>
-          {view === "agency" && connection?.access.role !== "partner" && <button className="nav-button" style={{ margin: "10px 12px", padding: "10px 12px", textAlign: "left" }} aria-expanded={agencyMore} onClick={() => setAgencyMore(v => !v)}>{agencyMore ? "Fewer tools" : "More tools"}</button>}
+          {view === "agency" && connection?.access.role !== "partner" && <button className="nav-button nav-more" aria-label={agencyMore ? "Fewer tools" : "More tools"} aria-expanded={agencyMore} onClick={() => setAgencyMore(v => !v)}><Ellipsis size={18} /><span>{agencyMore ? "Fewer tools" : "More tools"}</span></button>}
         </SidebarContent>
         <SidebarFooter>
           <div className="local-card">
@@ -557,11 +560,13 @@ function Workspace() {
             onClick={() => navigate("Settings")}
             isActive={page === "Settings"}
             className="nav-button"
+            aria-label="Settings"
+            aria-current={page === "Settings" ? "page" : undefined}
           >
             <Settings2 />
-            Settings
+            <span>Settings</span>
           </SidebarMenuButton>
-          <button className="user" onClick={() => navigate("Settings")}>
+          <button className="user" aria-label={`Account settings for ${s.user}`} title={s.user} onClick={() => navigate("Settings")}>
             <span className="avatar">{initials}</span>
             <div>
               <strong>
@@ -578,12 +583,13 @@ function Workspace() {
       </Sidebar>
       <main className="app-main" id="main-content" tabIndex={-1}>
         <header className="topbar">
-          <span>
+          <span className="workspace-breadcrumb">
             <SidebarTrigger className="mobile-menu" />
             {connection?.access.role === "partner" ? "Partner" : view === "agency" ? "Agency" : "Production"} <ChevronRight size={13} />
             <strong>{page === "Onboarding" ? "Applications" : page}</strong>
           </span>
-          <div>
+          {!isMobile && !productionOnlyRole(connection?.access.role) && connection?.access.role !== "partner" && <div className="toolbar-workspace"><WorkspaceSwitcher view={view} onChange={switchView} /></div>}
+          <div className="toolbar-actions">
             <button className="search-global" onClick={() => setSearch(true)}>
               <Search size={16} />
               Search anything…<kbd>⌘ K</kbd>
@@ -607,7 +613,7 @@ function Workspace() {
         <div
           className={`page-content ${page === "Policy workbench" ? "workbench-page" : ""}`}
         >
-          {content}
+          <div className={page === "Overview" || page === "Companies" ? "workspace-content scene-content" : "workspace-content work-surface"}>{content}</div>
           <footer className="page-footer">
             Ballantyne Title Company
             <span>

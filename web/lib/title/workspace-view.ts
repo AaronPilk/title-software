@@ -6,7 +6,7 @@ export type ViewIdentity = { userId: string; email: string; role: string; worksp
 export type WorkspaceLocation = { view: WorkspaceView; page: Page };
 
 export const workspaceViewPages: Record<WorkspaceView, Page[]> = {
-  agency: ["Overview", "Companies", "Tasks", "Documents", "Onboarding", "Handoffs", "Financials", "Partner portal", "Inbox", "Assistant", "Automations", "Connections"],
+  agency: ["Overview", "Companies", "Tasks", "Documents", "Onboarding", "Handoffs", "Financials", "Partner portal", "Inbox"],
   production: ["Overview", "Inbox", "Orders", "Commitments", "Policy workbench", "Policy products", "Revisions", "Documents", "Tasks", "Companies", "Assistant"],
 };
 export const workspacePages: Page[] = [...new Set([...workspaceViewPages.agency, ...workspaceViewPages.production, "Settings" as Page])];
@@ -42,6 +42,8 @@ export function pageVisibleInWorkspace(page: Page, role?: string) {
 
 /** Apply account capabilities to navigation independently of URL or saved view. */
 export function accessibleWorkspaceLocation(location: WorkspaceLocation, role?: string): WorkspaceLocation {
+  // Retired tool routes must not reopen through older in-app links.
+  if (!workspacePages.includes(location.page)) location = { ...location, page: "Overview" };
   if (productionOnlyRole(role)) return {
     view: "production",
     page: pageVisibleInWorkspace(location.page, role) ? location.page : "Overview",
