@@ -9,11 +9,11 @@
     "test": "node --experimental-strip-types --test tests/*.test.ts"
   },
   "dependencies": {
-    "agents": "0.23.0"
+    "agents": "0.31.0"
   },
   "devDependencies": {
     "@types/node": "22.19.19",
     "typescript": "5.9.3",
-    "wrangler": "4.136.3"
+    "wrangler": "4.154.0"
   }
 }

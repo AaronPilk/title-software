@@ -26,24 +26,28 @@ jobs:
             web/package-lock.json
             services/title-scanner/package-lock.json
             services/title-scanner-host/package-lock.json
+            services/title-assistant/package-lock.json
       - name: Install locked dependencies and isolated database tools
         run: |
           npm ci --prefix web
           npm ci --prefix services/title-scanner
           npm ci --prefix services/title-scanner-host
+          npm ci --prefix services/title-assistant
           sudo apt-get update
           sudo apt-get install -y postgresql-16 postgresql-client-16
           cd web && npx playwright install --with-deps chromium
-      - name: Production dependency advisories
+      - name: Application and tooling dependency advisories
         run: |
-          npm audit --prefix web --omit=dev --audit-level=high
-          npm audit --prefix services/title-scanner --omit=dev --audit-level=high
-          npm audit --prefix services/title-scanner-host --omit=dev --audit-level=high
+          npm audit --prefix web --audit-level=moderate
+          npm audit --prefix services/title-scanner --audit-level=moderate
+          npm audit --prefix services/title-scanner-host --audit-level=moderate
+          npm audit --prefix services/title-assistant --audit-level=moderate
       - name: Types and lint
         run: |
           npm --prefix web run typecheck
           npm --prefix web run lint
           npm --prefix services/title-scanner-host run typecheck
+          npm --prefix services/title-assistant run typecheck
       - name: Synthetic domain, API and security regressions
         run: |
           npm --prefix web test
@@ -54,6 +58,7 @@ jobs:
           npm --prefix web run test:scanner
           npm --prefix web run test:recovery
           npm --prefix services/title-scanner-host test
+          npm --prefix services/title-assistant test
           npm --prefix services/title-backups test
       - name: Application upload and reviewed autofill regressions
         run: |
