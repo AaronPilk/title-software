@@ -112,25 +112,32 @@ test("access revocation removes an open confirmation and prevents a save", async
 });
 
 test("detail separates Active operations from missing profile and checklist evidence; confirmation can be cleared", async () => {
-  await open("confirmed&detail=cedar"); const before = await page.evaluate(() => window.readOperating());
+  await open("confirmed&detail=cedar&application"); const before = await page.evaluate(() => window.readOperating());
   const dialog = page.getByRole("dialog");
-  assert.equal(await dialog.getByRole("heading", { name: "Workspace setup checklist", exact: true }).isVisible(), false);
-  assert.equal(await dialog.getByRole("button", { name: "Company documents & logo", exact: true }).isVisible(), true);
+  assert.equal(await dialog.getByRole("heading", { name: "Active company", exact: true }).isVisible(), true);
+  assert.equal(await dialog.getByRole("button", { name: "Open documents", exact: true }).isVisible(), true);
   await dialog.getByText("Company details & Missive source", { exact: true }).click();
-  await dialog.getByText("Formation and approval history", { exact: true }).click();
-  assert.match(await dialog.innerText(), /Workspace setup checklist/); assert.match(await dialog.innerText(), /Company profile needs completion/); assert.match(await dialog.innerText(), /owner@example.test/);
+  assert.match(await dialog.innerText(), /Company profile needs completion/);
+  await dialog.getByText("Operating status history", { exact: true }).click();
+  assert.match(await dialog.innerText(), /Existing operations confirmed Active/); assert.match(await dialog.innerText(), /owner@example.test/);
+  await dialog.getByRole("tab", { name: "Application", exact: true }).click();
+  await dialog.getByText("Earlier licensing & approval records", { exact: true }).click();
+  assert.equal(await dialog.locator(".evidence-steps button").count(), 7);
+  assert.equal(await dialog.getByText("Evidence required", { exact: false }).count(), 7);
+  assert.match(await dialog.innerText(), /0 \/ 7 reviewed/);
   assert.deepEqual(await page.evaluate(() => window.readOperating()), before);
   assert.deepEqual(await page.evaluate(() => window.operatingUpdates), []);
-  assert.equal(await dialog.getByRole("checkbox", { checked: false }).count(), 7);
+  await dialog.getByRole("tab", { name: "Overview", exact: true }).click();
+  await dialog.getByText("Operating status history", { exact: true }).click();
   await page.getByRole("button", { name: "Clear operating confirmation", exact: true }).click();
   assert.match(await dialog.innerText(), /returns the displayed status to Onboarding/);
   await page.getByRole("button", { name: "Clear confirmation", exact: true }).click();
-  await page.getByRole("heading", { name: "Onboarding checklist", exact: true }).waitFor();
+  await dialog.getByRole("heading", { name: "Company setup", exact: true }).waitFor();
   const after = await page.evaluate(() => window.readOperating()); assert.equal(after.companies[0].operatingStatus, null); assert.deepEqual(after.companies.map(stripped), before.companies.map(stripped)); assert.deepEqual(after.tasks, before.tasks);
 });
 
 test("staff can see saved operating context but cannot clear it", async () => {
-  await open("confirmed&detail=cedar&role=operations"); await page.getByText("Formation and approval history", { exact: true }).click(); assert.match(await page.getByRole("dialog").innerText(), /Existing operations confirmed Active/);
+  await open("confirmed&detail=cedar&role=operations"); await page.getByText("Operating status history", { exact: true }).click(); assert.match(await page.getByRole("dialog").innerText(), /Existing operations confirmed Active/);
   assert.equal(await page.getByRole("button", { name: "Clear operating confirmation", exact: true }).count(), 0);
 });
 
@@ -140,17 +147,20 @@ test("legacy onboarding counts exclude confirmed operating companies from launch
 });
 
 test("malformed legacy metadata cannot claim Active operations or hide incomplete launch setup", async () => {
-  await open("malformed&detail=cedar"); const dialog = page.getByRole("dialog");
-  assert.equal(await dialog.getByRole("heading", { name: "Onboarding checklist", exact: true }).isVisible(), false);
-  await dialog.getByText("Formation and approval history", { exact: true }).click();
-  assert.equal(await dialog.getByRole("heading", { name: "Onboarding checklist", exact: true }).isVisible(), true);
+  await open("malformed&detail=cedar&application"); const dialog = page.getByRole("dialog");
+  assert.equal(await dialog.getByRole("heading", { name: "Company setup", exact: true }).isVisible(), true);
+  await dialog.getByText("Operating status history", { exact: true }).click();
+  assert.doesNotMatch(await dialog.innerText(), /Existing operations confirmed Active|Invalid Date/);
+  await dialog.getByRole("tab", { name: "Application", exact: true }).click();
+  await dialog.getByText("Earlier licensing & approval records", { exact: true }).click();
+  assert.equal(await dialog.locator(".evidence-steps button").count(), 7);
+  assert.match(await dialog.innerText(), /0 \/ 7 reviewed/);
   assert.deepEqual(await page.evaluate(() => window.operatingUpdates), []);
   assert.doesNotMatch(await dialog.innerText(), /Existing operations confirmed Active|Workspace setup checklist|Invalid Date/);
   await page.keyboard.press("Escape"); await dialog.waitFor({ state: "detached" });
   await page.getByRole("tab", { name: "Active", exact: true }).click(); assert.equal(await page.locator(".company-card").count(), 1); assert.match(await page.locator(".company-card").innerText(), /Established Title/);
   await trigger().click(); assert.equal(await choose("Cedar Title").isChecked(), true); assert.doesNotMatch(await page.getByRole("dialog").innerText(), /Operations already confirmed/);
 });
-
 
 test("existing company upload shortcut opens its pinned private application dialog without creating records", async () => {
   await open("confirmed&detail=cedar&application");
@@ -159,11 +169,13 @@ test("existing company upload shortcut opens its pinned private application dial
   const upload = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "Upload completed application", exact: true }) }).last();
   await upload.getByLabel("Select completed application", { exact: true }).waitFor();
   assert.match(await upload.innerText(), /Cedar Title/);
-  assert.match(await upload.innerText(), /Private company application · Restricted access/);
+  assert.match(await upload.innerText(), /Completed company application/);
+  assert.match(await upload.innerText(), /save the original privately/);
+  assert.equal(await upload.getByLabel("Select completed application", { exact: true }).getAttribute("multiple"), null);
   assert.equal(await upload.getByRole("combobox").count(), 0);
   assert.equal(await upload.getByRole("button", { name: "Back", exact: true }).count(), 0);
-  assert.equal(await upload.getByRole("button", { name: "Upload and read application", exact: true }).isDisabled(), true);
-  assert.deepEqual(await page.evaluate(() => window.privateRequests), [{context:{workspaceId:"fictional-workspace",userId:"owner-user",companyId:"cedar"},action:"load"}]);
+  assert.equal(await upload.getByRole("button", { name: "Save completed application", exact: true }).isDisabled(), true);
+  assert.deepEqual(await page.evaluate(() => window.privateRequests), []);
   assert.deepEqual(await page.evaluate(() => window.portalRequests), []);
   await upload.getByRole("button", { name: "Cancel", exact: true }).click();
   await upload.waitFor({ state: "detached" });
@@ -171,9 +183,11 @@ test("existing company upload shortcut opens its pinned private application dial
   assert.deepEqual(await page.evaluate(() => window.operatingUpdates), []);
 });
 
-test("new joint venture shortcut opens the private-link form without sending or preparing an invite", async () => {
+test("new joint venture optional application tools open the private-link form without sending or preparing an invite", async () => {
   await open("detail=cedar&application");
   const before = await page.evaluate(() => window.readOperating());
+  await page.getByRole("tab", { name: "Application", exact: true }).click();
+  await page.getByText("Optional application tools", { exact: true }).click();
   await page.getByRole("button", { name: "Send application link", exact: true }).click();
   await page.getByRole("textbox", { name: "Recipient name", exact: true }).waitFor();
   await page.getByText("Application email setup is needed before recipients can verify and open a link.", { exact: false }).waitFor();
