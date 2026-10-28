@@ -5302,7 +5302,7 @@ input::placeholder, textarea::placeholder { color: #63788c; opacity: 1; }
   --scene-line: rgb(255 255 255 / 19%);
   --scene-hover: rgb(255 255 255 / 10%);
   --scene-surface: rgb(26 32 40 / 76%);
-  --scene-panel: rgb(22 29 38 / 74%);
+  --scene-panel: rgb(22 29 38 / 58%);
   --scene-filter: blur(12px) saturate(.95);
 }
 .app-sidebar[data-slot="sidebar-container"] { padding: 18px 0 18px 16px; }

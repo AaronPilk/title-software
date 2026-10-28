@@ -50,9 +50,19 @@ function luminance(rgb){return rgb.slice(0,3).map(c=>{const s=c/255;return s<=.0
 function contrast(a,b){const x=luminance(a),y=luminance(b);return(Math.max(x,y)+.05)/(Math.min(x,y)+.05);}
 function imageLayers(value){let depth=0,start=0;const result=[];for(let i=0;i<value.length;i++){if(value[i]==='(')depth++;else if(value[i]===')')depth--;else if(value[i]===','&&depth===0){result.push(value.slice(start,i));start=i+1;}}result.push(value.slice(start));return result;}
 function composite(ink,backing){return ink.slice(0,3).map((channel,index)=>channel*ink[3]+backing[index]*(1-ink[3]));}
-async function readableMaterialText(textSelector,surfaceSelector){
-  const ink=rgba(await style(textSelector,'color'));
-  const ancestors=await page.locator(surfaceSelector).first().evaluate(element=>{const rows=[];for(let el=element;el;el=el.parentElement){const css=getComputedStyle(el),own=[{color:css.backgroundColor,image:css.backgroundImage,opacity:css.opacity}];if(el===document.body){const scene=getComputedStyle(el,'::before');if(scene.content!=='none'&&scene.display!=='none')own.push({color:scene.backgroundColor,image:scene.backgroundImage,opacity:scene.opacity});}rows.unshift(...own);}return rows;});
+async function materialBackgroundRange(surfaceSelector){
+  const ancestors=await page.locator(surfaceSelector).first().evaluate(element=>{
+    const elements=[],rows=[];
+    for(let el=element;el;el=el.parentElement)elements.unshift(el);
+    const add=css=>rows.push({color:css.backgroundColor,image:css.backgroundImage,opacity:css.opacity});
+    for(const el of elements){
+      add(getComputedStyle(el));
+      // The fixed scene is painted above body's fallback color and below the app.
+      // Reading ancestors alone would incorrectly erase the photo's brightness range.
+      if(el===document.body){const scene=getComputedStyle(el,'::before');if(scene.content!=='none'&&scene.content!=='normal'&&scene.display!=='none')add(scene);}
+    }
+    return rows;
+  });
   // Bound every scene-image pixel by black and white, then composite actual material
   // colors and gradient stops in CSS painting order. Channel intervals are conservative:
   // an image or gradient can contain any intermediate brightness, not only its endpoints.
@@ -66,10 +76,29 @@ async function readableMaterialText(textSelector,surfaceSelector){
       const stops=layer.match(/rgba?\([^)]+\)/g)||[];assert.ok(stops.length,'gradient color stops are included in the contrast bound');paint(stops.map(rgba));
     }
   }
+  return range;
+}
+async function readableMaterialText(textSelector,surfaceSelector){
+  const ink=rgba(await style(textSelector,'color')),range=await materialBackgroundRange(surfaceSelector);
   const inkLight=luminance(ink),low=luminance(range[0]),high=luminance(range[1]);
   assert.ok(inkLight<low||inkLight>high,`${textSelector} cannot blend into an intermediate scene brightness`);
   for(const backing of range)assert.ok(contrast(composite(ink,backing),backing)>=4.5,`${textSelector} retains at least 4.5:1 contrast over the bounded scene`);
 }
+test('contrast bounds include the visible scene photo above the fixed body color',async()=>{
+  await open();
+  await page.evaluate(()=>{
+    const control=document.createElement('p');control.id='photo-contrast-control';control.textContent='Low-opacity contrast regression';
+    control.style.cssText='position:fixed;left:20px;bottom:20px;color:rgb(187,187,187);background:rgba(22,29,38,.05);padding:8px';
+    document.body.append(control);
+  });
+  const range=await materialBackgroundRange('#photo-contrast-control');
+  assert.ok(range[1][0]-range[0][0]>80,'the translucent control includes the photo brightness range instead of only the fixed body color');
+  await assert.rejects(readableMaterialText('#photo-contrast-control','#photo-contrast-control'),/retains at least 4\.5:1 contrast/,'a bright photo pixel can make this intentionally weak control unreadable');
+  await page.addStyleTag({content:'body::before { display: none !important; }'});
+  const hiddenRange=await materialBackgroundRange('#photo-contrast-control');
+  assert.deepEqual(hiddenRange[0],hiddenRange[1],'a hidden photo contributes no brightness range');
+  await readableMaterialText('#photo-contrast-control','#photo-contrast-control');
+});
 test('glass cards keep readable text, solid inputs and visible keyboard focus',async()=>{
   await open();assert.notEqual(await style('.topbar','backdropFilter'),'none');await readableMaterialText('.scene-content .panel p','.scene-content .panel');await readableMaterialText('.metric > div','.metric');await readableMaterialText('.work-surface .panel p','.work-surface .panel');await readableMaterialText('.workspace-breadcrumb','.topbar');await readableMaterialText('.scene-content .page-heading p','.scene-content');
   await page.getByRole('button',{name:'Production',exact:true}).click();assert.equal(await page.getByRole('button',{name:'Production',exact:true}).getAttribute('aria-pressed'),'true');
