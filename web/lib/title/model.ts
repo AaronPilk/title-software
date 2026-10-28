@@ -713,6 +713,7 @@ export function createSeed(): Workspace {
       orders,
       documents,
       user: "Stephenie",
+      statementDeliveries: [],
       approvedReports: [],
       expenses: {},
       expansionStates: [],

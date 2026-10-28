@@ -22,7 +22,7 @@ before(async () => {
     function Fixture(){const [view,setView]=React.useState('agency');return <SidebarProvider style={{'--sidebar-width':'248px'}}>
       <Sidebar className="app-sidebar"><SidebarHeader><button className="brand"><span className="brand-wordmark"><span className="brand-name">Ballantyne</span><span className="brand-company">Title Company</span></span></button><WorkspaceSwitcher view={view} onChange={setView}/></SidebarHeader><SidebarContent><SidebarMenu><SidebarMenuItem><SidebarMenuButton className="nav-button" isActive><Building2/><span>Overview</span></SidebarMenuButton></SidebarMenuItem></SidebarMenu></SidebarContent></Sidebar>
       <main className="app-main"><header className="topbar"><span><SidebarTrigger className="mobile-menu"/>Agency<ChevronRight size={13}/><strong>Overview</strong></span><div><button className="search-global"><Search size={16}/>Search anything…<kbd>⌘ K</kbd></button></div></header>
-      <div className="page-content"><div className="page-heading"><div><h1>Agency overview</h1><p>Your companies and next steps.</p></div></div><div className="metrics"><div className="metric"><div>Companies</div><strong>25</strong><small>Across your agency</small></div></div>
+      <div className="page-content"><div className="page-heading"><div><h1>Agency overview</h1><p>Your companies and next steps.</p></div></div><div className="metrics"><div className="metric"><div>Companies</div><strong>25</strong><small>Across your agency</small></div><div className="metric"><div>Monthly premium</div><strong>$123,456.78</strong><small>Fictional sample amount</small></div><div className="metric"><div>Open files</div><strong>124</strong><small>Fictional sample count</small></div><div className="metric"><div>Pending reviews</div><strong>15</strong><small>Fictional sample count</small></div></div>
       <section className="panel"><div className="section-heading"><h2>Company documents</h2></div><div style={{padding:24}}><p>Read original documents clearly.</p><Dialog><DialogTrigger asChild><Button style={{marginTop:20}}>Review document</Button></DialogTrigger><DialogContent className="modal"><DialogTitle>Review document</DialogTitle><DialogDescription>Check the source before saving.</DialogDescription><label className="field-label">File reference<input data-slot="input" defaultValue="Test document"/></label><Button>Save reviewed fields</Button></DialogContent></Dialog></div></section></div></main></SidebarProvider>}
     createRoot(document.getElementById('root')).render(<Fixture/>);
   `}});
@@ -43,20 +43,42 @@ afterEach(async()=>{await context?.close();assert.deepEqual(errors,[]);});
 after(async()=>{await browser?.close();if(server){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}});
 async function open(options={}){context=await browser.newContext({viewport:{width:1360,height:900},...options});await context.route('**/*',route=>route.request().url().startsWith(origin+'/')?route.continue():route.abort());page=await context.newPage();page.setDefaultTimeout(5000);page.on('pageerror',e=>errors.push(e.message));await page.goto(origin);await page.getByRole('heading',{name:'Agency overview',exact:true}).waitFor();}
 const style=async(selector,key)=>page.locator(selector).first().evaluate((el,k)=>getComputedStyle(el)[k],key);
-test('glass navigation keeps source surfaces solid and keyboard focus visible',async()=>{
-  await open();assert.notEqual(await style('.topbar','backdropFilter'),'none');assert.equal(await style('.panel','backgroundColor'),'rgb(255, 255, 255)');assert.equal(await style('.metric','backgroundColor'),'rgb(255, 255, 255)');
+function rgba(value){const values=value.match(/[\d.]+/g)?.map(Number);assert.ok(values?.length>=3,'browser exposes RGB material colors');return[...values.slice(0,3),values[3]??1];}
+function contrast(a,b){const luminance=rgb=>rgb.slice(0,3).map(c=>{const s=c/255;return s<=.04045?s/12.92:((s+.055)/1.055)**2.4;}).reduce((sum,c,i)=>sum+c*[.2126,.7152,.0722][i],0);const x=luminance(a),y=luminance(b);return(Math.max(x,y)+.05)/(Math.min(x,y)+.05);}
+async function readableMaterialText(textSelector,surfaceSelector){
+  const ink=rgba(await style(textSelector,'color')),surface=rgba(await style(surfaceSelector,'backgroundColor'));
+  // Bound the blue ambient gradient by every real color stop. White sheen only lightens these surfaces.
+  const stops=(await style('body','backgroundImage')).match(/rgba?\([^)]+\)/g)||[];
+  assert.ok(stops.length,'ambient background has known color stops');
+  for(const stop of [...stops,'rgb(255, 255, 255)']){const backing=rgba(stop);if(backing[3]===0)continue;const composite=surface.slice(0,3).map((c,i)=>c*surface[3]+backing[i]*(1-surface[3]));assert.ok(contrast(ink,composite)>=4.5,`${textSelector} remains readable over ${stop}`);}
+}
+test('glass cards keep readable text, solid inputs and visible keyboard focus',async()=>{
+  await open();assert.notEqual(await style('.topbar','backdropFilter'),'none');await readableMaterialText('.panel p','.panel');await readableMaterialText('.metric > div','.metric');
   await page.getByRole('button',{name:'Production',exact:true}).click();assert.equal(await page.getByRole('button',{name:'Production',exact:true}).getAttribute('aria-pressed'),'true');
   const review=page.getByRole('button',{name:'Review document',exact:true});await page.keyboard.press('Tab');await review.focus();assert.equal(await review.evaluate(el=>getComputedStyle(el).outlineStyle),'solid');await page.keyboard.press('Enter');await page.getByRole('dialog').waitFor();assert.equal(await style('[data-slot=input]','backgroundColor'),'rgb(255, 255, 255)');await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});
 });
 test('high contrast and reduced motion disable translucent and moving surfaces',async()=>{
   await open({contrast:'more',reducedMotion:'reduce'});assert.equal(await style('.topbar','backdropFilter'),'none');assert.ok((await style('.nav-button','transitionDuration')).split(', ').every(s=>parseFloat(s)<=.00001));await page.getByRole('button',{name:'Review document',exact:true}).click();assert.equal(await style('[data-slot=dialog-content]','backgroundColor'),'rgb(255, 255, 255)');assert.equal(await style('[data-slot=dialog-overlay]','backdropFilter'),'none');
+  for(const surface of ['.panel','.metric']){assert.equal(rgba(await style(surface,'backgroundColor'))[3],1);assert.equal(await style(surface,'backdropFilter'),'none');}
 });
 test('reduced transparency makes the material opaque',async()=>{
-  await open();const cdp=await context.newCDPSession(page);await cdp.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-transparency',value:'reduce'}]});assert.equal(await page.evaluate(()=>matchMedia('(prefers-reduced-transparency: reduce)').matches),true);assert.equal(await style('.topbar','backdropFilter'),'none');await page.getByRole('button',{name:'Review document',exact:true}).click();assert.equal(await style('[data-slot=dialog-content]','backgroundColor'),'rgb(255, 255, 255)');await cdp.detach();
+  await open();const cdp=await context.newCDPSession(page);await cdp.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-transparency',value:'reduce'}]});assert.equal(await page.evaluate(()=>matchMedia('(prefers-reduced-transparency: reduce)').matches),true);assert.equal(await style('.topbar','backdropFilter'),'none');await page.getByRole('button',{name:'Review document',exact:true}).click();assert.equal(await style('[data-slot=dialog-content]','backgroundColor'),'rgb(255, 255, 255)');
+  for(const surface of ['.panel','.metric']){assert.equal(rgba(await style(surface,'backgroundColor'))[3],1);assert.equal(await style(surface,'backdropFilter'),'none');}
+  await cdp.detach();
 });
-test('phone navigation and input dialogs stay within a 390 CSS-pixel viewport',async()=>{
-  await open({viewport:{width:390,height:844}});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.getByRole('button',{name:'Toggle Sidebar'}).click();await page.getByRole('button',{name:'Production',exact:true}).click();assert.equal(await page.getByRole('button',{name:'Production',exact:true}).getAttribute('aria-pressed'),'true');await page.keyboard.press('Escape');await page.getByRole('button',{name:'Review document',exact:true}).click();const bounds=await page.getByRole('dialog').boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=390);assert.equal(await style('[data-slot=input]','fontSize'),'16px');
+for(const width of [390,320])test(`phone navigation and input dialogs stay within a ${width} CSS-pixel viewport`,async()=>{
+  await open({viewport:{width,height:844}});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.getByRole('button',{name:'Toggle Sidebar'}).click();await page.getByRole('button',{name:'Production',exact:true}).click();assert.equal(await page.getByRole('button',{name:'Production',exact:true}).getAttribute('aria-pressed'),'true');await page.keyboard.press('Escape');await page.getByRole('button',{name:'Review document',exact:true}).click();const bounds=await page.getByRole('dialog').boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=width);assert.equal(await style('[data-slot=input]','fontSize'),'16px');
 });
 test('forced colors retain active navigation and visible dialog boundaries',async()=>{
   await open({forcedColors:'active'});assert.equal(await style('.topbar','backdropFilter'),'none');assert.equal(await style('.nav-button[data-active=true]','borderTopWidth'),'2px');await page.getByRole('button',{name:'Review document',exact:true}).click();assert.equal(await style('[data-slot=dialog-content]','borderTopStyle'),'solid');
+  for(const surface of ['.panel','.metric'])assert.equal(await style(surface,'backdropFilter'),'none');
+});
+for(const width of [1360,960,390,320])test(`financial values remain readable and fully contained at ${width}px`,async()=>{
+  await open({viewport:{width,height:900}});
+  const amount=page.getByText('$123,456.78',{exact:true});
+  assert.equal(await amount.evaluate(el=>{
+    const card=el.closest('.metric').getBoundingClientRect(),range=document.createRange();range.selectNodeContents(el);
+    return parseFloat(getComputedStyle(el).fontSize)>=24&&[...range.getClientRects()].every(rect=>rect.left>=card.left&&rect.right<=card.right+1&&rect.bottom<=card.bottom+1);
+  }),true,'every currency digit stays inside its card at a readable font size');
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
 });
